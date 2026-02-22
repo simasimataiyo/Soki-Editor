@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Soki Editor</title>
+  <link rel="stylesheet" href="/static/css/main.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- プロジェクト選択画面 -->
+    <div id="project-selector" class="screen active">
+      <div class="selector-container">
+        <h1 class="app-title">Soki Editor</h1>
+        <p class="app-subtitle">LLM 支援 長文ドキュメントエディタ</p>
+        <div class="selector-actions">
+          <button class="btn btn-primary btn-lg" id="btn-new-project">新規作成</button>
+          <button class="btn btn-secondary btn-lg" id="btn-open-project">プロジェクトを開く</button>
+        </div>
+        <div class="recent-projects">
+          <h3>最近のプロジェクト</h3>
+          <ul id="recent-list"></ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- メインエディタ画面 -->
+    <div id="editor-screen" class="screen">
+      <!-- サイドバーナビゲーション -->
+      <nav class="sidebar" id="sidebar">
+        <div class="sidebar-top">
+          <button class="sidebar-back" id="btn-back" title="プロジェクト選択に戻る">←</button>
+        </div>
+        <ul class="sidebar-nav">
+          <li class="nav-item active" data-tab="edit" title="Edit">
+            <span class="nav-icon">✏</span>
+          </li>
+          <li class="nav-item" data-tab="source" title="Source">
+            <span class="nav-icon">📚</span>
+          </li>
+          <li class="nav-item" data-tab="material" title="Material">
+            <span class="nav-icon">🖼</span>
+          </li>
+          <li class="nav-item" data-tab="rule" title="Rule">
+            <span class="nav-icon">📋</span>
+          </li>
+          <li class="nav-item" data-tab="review" title="Review">
+            <span class="nav-icon">🔍</span>
+          </li>
+          <li class="nav-item" data-tab="settings" title="Settings">
+            <span class="nav-icon">⚙</span>
+          </li>
+        </ul>
+      </nav>
+
+      <!-- メインコンテンツ -->
+      <main class="main-content" id="main-content">
+        <!-- Edit タブ -->
+        <div class="tab-pane active" id="tab-edit">
+          <div class="two-pane">
+            <!-- 左パネル: アウトライン -->
+            <aside class="left-panel" id="outline-panel">
+              <div class="panel-header">
+                <span>アウトライン</span>
+                <div class="panel-actions">
+                  <button class="btn btn-sm btn-primary" id="btn-add-chapter">章追加</button>
+                  <button class="btn btn-sm btn-secondary" id="btn-add-section">節追加</button>
+                </div>
+              </div>
+              <ul class="outline-list" id="outline-list"></ul>
+              <div class="outline-references" id="outline-references">
+                <span class="icon">≡</span> 参考文献
+              </div>
+            </aside>
+            <!-- 右メインエリア: ドキュメントビュー -->
+            <div class="doc-view" id="doc-view">
+              <div id="doc-sections"></div>
+            </div>
+          </div>
+          <!-- チャット入力バー -->
+          <div class="chat-bar" id="chat-bar">
+            <div class="chat-controls">
+              <select id="chat-scope" class="select-sm">
+                <option value="all">全セクション(骨子)</option>
+              </select>
+              <label class="checkbox-label">
+                <input type="checkbox" id="chat-full-sources" />
+                ソース全文参照
+              </label>
+              <button class="btn btn-sm" id="btn-chat-history" title="チャット履歴">≡</button>
+            </div>
+            <div class="chat-input-row">
+              <textarea
+                id="chat-input"
+                class="chat-textarea"
+                placeholder="LLM にセクション生成・修正を指示..."
+                rows="2"
+              ></textarea>
+              <button class="btn btn-primary" id="btn-chat-send">送信</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Source タブ -->
+        <div class="tab-pane" id="tab-source">
+          <div class="two-pane">
+            <aside class="left-panel" id="source-panel">
+              <div class="panel-header">
+                <span>ソース</span>
+                <div class="panel-actions">
+                  <button class="btn btn-sm btn-primary" id="btn-add-source">新規追加</button>
+                </div>
+              </div>
+              <ul class="item-list" id="source-list"></ul>
+              <div class="panel-footer">
+                <button class="btn btn-sm" id="btn-source-export">CSV出力</button>
+                <button class="btn btn-sm" id="btn-source-import">CSV読込</button>
+              </div>
+            </aside>
+            <div class="detail-pane" id="source-detail">
+              <p class="placeholder-text">ソースを選択してください</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Material タブ -->
+        <div class="tab-pane" id="tab-material">
+          <div class="two-pane">
+            <aside class="left-panel" id="material-panel">
+              <div class="panel-header">
+                <span>マテリアル</span>
+                <div class="panel-actions">
+                  <button class="btn btn-sm btn-primary" id="btn-add-material">新規追加</button>
+                </div>
+              </div>
+              <ul class="item-list thumbnail-list" id="material-list"></ul>
+            </aside>
+            <div class="detail-pane" id="material-detail">
+              <p class="placeholder-text">マテリアルを選択してください</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Rule タブ -->
+        <div class="tab-pane" id="tab-rule">
+          <div class="two-pane">
+            <aside class="left-panel" id="rule-panel">
+              <div class="panel-header">
+                <span>カテゴリ</span>
+                <div class="panel-actions">
+                  <button class="btn btn-sm btn-primary" id="btn-add-category">追加</button>
+                </div>
+              </div>
+              <ul class="item-list" id="category-list"></ul>
+              <div class="panel-footer">
+                <button class="btn btn-sm" id="btn-rule-export">CSV出力</button>
+                <button class="btn btn-sm" id="btn-rule-import">CSV読込</button>
+              </div>
+            </aside>
+            <div class="detail-pane" id="rule-detail">
+              <div class="rule-list-container">
+                <div class="rule-list-header">
+                  <span id="rule-category-name">カテゴリを選択</span>
+                  <button class="btn btn-sm btn-primary" id="btn-add-rule">ルール追加</button>
+                </div>
+                <ul class="rule-cards" id="rule-list"></ul>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Review タブ -->
+        <div class="tab-pane" id="tab-review">
+          <div class="review-layout">
+            <div class="review-content" id="review-content"></div>
+            <div class="review-comments-panel" id="review-comments-panel"></div>
+          </div>
+          <!-- レビュー送信バー -->
+          <div class="chat-bar" id="review-bar">
+            <div class="chat-controls">
+              <select id="review-scope" class="select-sm">
+                <option value="all">全セクション(骨子)</option>
+              </select>
+              <label class="checkbox-label">
+                <input type="checkbox" id="review-full-sources" />
+                ソース全文参照
+              </label>
+            </div>
+            <div class="chat-input-row">
+              <textarea
+                id="review-prompt"
+                class="chat-textarea"
+                placeholder="レビュー指示（システムプロンプト）を入力..."
+                rows="2"
+              ></textarea>
+              <button class="btn btn-primary" id="btn-review-send">レビュー実行</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Settings タブ -->
+        <div class="tab-pane" id="tab-settings">
+          <div class="settings-container">
+            <h2>LLM 設定</h2>
+            <form id="settings-form" class="settings-form">
+              <div class="form-group">
+                <label for="settings-api-key">API キー</label>
+                <input type="password" id="settings-api-key" class="form-control" placeholder="sk-..." />
+              </div>
+              <div class="form-group">
+                <label for="settings-endpoint">エンドポイント URL</label>
+                <input
+                  type="url"
+                  id="settings-endpoint"
+                  class="form-control"
+                  placeholder="未設定時は OpenAI デフォルトを使用"
+                />
+              </div>
+              <div class="form-group">
+                <label for="settings-model">モデル名</label>
+                <input
+                  type="text"
+                  id="settings-model"
+                  class="form-control"
+                  placeholder="gpt-4o"
+                />
+              </div>
+              <button type="submit" class="btn btn-primary">保存</button>
+            </form>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- モーダル: 新規プロジェクト -->
+  <div class="modal-overlay" id="modal-new-project" style="display:none">
+    <div class="modal">
+      <h3>新規プロジェクト作成</h3>
+      <div class="form-group">
+        <label>プロジェクト名</label>
+        <input type="text" id="new-project-name" class="form-control" placeholder="プロジェクト名" />
+      </div>
+      <div class="form-group">
+        <label>保存先 (.json)</label>
+        <div class="input-with-btn">
+          <input type="text" id="new-project-path" class="form-control" readonly placeholder="保存先を選択..." />
+          <button class="btn btn-sm" id="btn-select-json-path">選択</button>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="btn-cancel-new-project">キャンセル</button>
+        <button class="btn btn-primary" id="btn-confirm-new-project">作成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- モーダル: チャット履歴 -->
+  <div class="modal-overlay" id="modal-chat-history" style="display:none">
+    <div class="modal modal-lg">
+      <h3>チャット履歴</h3>
+      <div id="chat-history-content" class="chat-history-content"></div>
+      <div class="modal-actions">
+        <button class="btn btn-danger" id="btn-clear-history">履歴削除</button>
+        <button class="btn btn-secondary" id="btn-close-history">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- トースト通知 -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- JavaScript -->
+  <script src="/static/js/api-client.js"></script>
+  <script src="/static/js/state-manager.js"></script>
+  <script src="/static/js/undo-redo-manager.js"></script>
+  <script src="/static/js/project-selector.js"></script>
+  <script src="/static/js/edit-tab.js"></script>
+  <script src="/static/js/source-tab.js"></script>
+  <script src="/static/js/material-tab.js"></script>
+  <script src="/static/js/rule-tab.js"></script>
+  <script src="/static/js/review-tab.js"></script>
+  <script src="/static/js/settings-tab.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
