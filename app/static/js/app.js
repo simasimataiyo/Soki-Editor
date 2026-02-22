@@ -42,7 +42,7 @@ const AppShell = (() => {
       item.addEventListener('click', () => switchTab(item.dataset.tab));
     });
 
-    // プロジェクト選択に戻る
+    // プロジェクト選択に戻る（トップバー内の btn-back）
     document.getElementById('btn-back').addEventListener('click', () => {
       _showScreen('project-selector');
       window.appState.setState({ project: null });
@@ -70,6 +70,11 @@ const AppShell = (() => {
     ReviewTab.bindEvents();
     SettingsTab.bindEvents();
 
+    // ルール左パネルの新規追加ボタン
+    document.getElementById('btn-add-rule-from-panel').addEventListener('click', () => {
+      RuleTab.addCategory();
+    });
+
     // statechange 購読
     document.addEventListener('statechange', (e) => {
       const { project, activeTab } = e.detail;
@@ -92,10 +97,13 @@ const AppShell = (() => {
     if (project && TAB_MODULES[tab]) {
       TAB_MODULES[tab].render(project);
     }
+
+    _renderTopBarActions(tab);
   }
 
   function enterEditor(project) {
     window.appState.setProject(project);
+    document.getElementById('project-name-display').textContent = project.name || '';
     _showScreen('editor-screen');
     switchTab('edit');
   }
@@ -107,6 +115,47 @@ const AppShell = (() => {
 
   function _refreshCurrentTab(tab, project) {
     if (TAB_MODULES[tab]) TAB_MODULES[tab].render(project);
+  }
+
+  // ─── トップバーアクションボタン ──────────────────────
+
+  function _renderTopBarActions(tab) {
+    const container = document.getElementById('top-bar-actions');
+    container.innerHTML = '';
+    const project = window.appState.getProject();
+
+    const tabDefs = {
+      edit: [
+        { id: 'btn-insert-ref', label: '文献挿入', handler: () => EditTab.insertRef() },
+        { id: 'btn-insert-fig', label: '図表挿入', handler: () => EditTab.insertFig() },
+        { id: 'btn-add-section-top', label: 'セクション追加', handler: () => EditTab.addChapter() },
+      ],
+      source: [
+        { id: 'btn-source-import-top', label: 'インポート', handler: () => SourceTab.importCsv() },
+        { id: 'btn-source-export-top', label: 'エクスポート', handler: () => SourceTab.exportCsv() },
+      ],
+      material: [],
+      rule: [
+        { id: 'btn-rule-import-top', label: 'インポート', handler: () => RuleTab.importCsv() },
+        { id: 'btn-rule-export-top', label: 'エクスポート', handler: () => RuleTab.exportCsv() },
+        { id: 'btn-add-category-top', label: 'セクション追加', handler: () => RuleTab.addCategory() },
+      ],
+      review: [
+        { id: 'btn-export-top', label: 'エクスポート', handler: () => {
+          if (project) window.location.href = `/api/projects/${project.id}/export`;
+        }},
+      ],
+      settings: [],
+    };
+
+    (tabDefs[tab] || []).forEach(({ id, label, handler }) => {
+      const btn = document.createElement('button');
+      btn.className = 'btn-topbar-link';
+      btn.id = id;
+      btn.textContent = label;
+      btn.addEventListener('click', handler);
+      container.appendChild(btn);
+    });
   }
 
   // ─── チャット機能 ──────────────────────────────────────
@@ -127,14 +176,10 @@ const AppShell = (() => {
     const btn = document.getElementById('btn-chat-send');
     btn.disabled = true;
 
-    // ストリーミング中のインジケーター
-    let streamingEl = null;
-    const docView = document.getElementById('doc-sections');
-
-    // チャット応答表示用コンテナ（画面下部に追加）
+    // チャット応答表示用コンテナ（チャットバー上部に追加）
     const chatBar = document.getElementById('chat-bar');
     const responseEl = document.createElement('div');
-    responseEl.style.cssText = 'padding:8px 12px;background:#f0f4ff;border-radius:6px;font-size:13px;line-height:1.6;margin-top:8px;white-space:pre-wrap';
+    responseEl.style.cssText = 'padding:8px 12px;background:#f0f4ff;border-radius:6px;font-size:13px;line-height:1.6;white-space:pre-wrap';
     chatBar.insertBefore(responseEl, chatBar.firstChild);
 
     _currentSseCtrl = ApiClient.openSSE(
@@ -149,7 +194,6 @@ const AppShell = (() => {
         },
         onDone: () => {
           btn.disabled = false;
-          // 応答コンテナを一定時間後に削除
           setTimeout(() => responseEl.remove(), 10000);
         },
         onError: (msg) => {
@@ -169,17 +213,15 @@ const AppShell = (() => {
         if (!sec) return;
 
         const oldContent = sec.content;
-        const updated = await ApiClient.put(
+        await ApiClient.put(
           `/api/projects/${project.id}/sections/${section_id}`,
           { content }
         );
         sec.content = content;
 
-        // ドキュメントビューの該当セクションを更新
         const contentEl = document.querySelector(`[data-sec-id="${section_id}"][data-field="content"]`);
         if (contentEl) contentEl.innerText = content;
 
-        // Undo/Redo に登録
         UndoRedoManager.push({
           do: async () => {
             await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { content });

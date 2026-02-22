@@ -69,6 +69,12 @@ class ProjectService:
         if not path.exists():
             raise FileNotFoundError(f"プロジェクトファイルが見つかりません: {json_file_path}")
         data = json.loads(path.read_text(encoding="utf-8"))
+        project_id = data.get("id")
+        # すでにメモリ上にある場合はそのまま返す（ダーティな変更を保持）
+        if project_id and project_id in self._projects:
+            existing = self._projects[project_id]
+            await self._update_registry(project_id, json_file_path)
+            return existing
         project = Project.model_validate(data)
         self._projects[project.id] = project
         self._dirty[project.id] = False

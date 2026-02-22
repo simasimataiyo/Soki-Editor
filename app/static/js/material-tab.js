@@ -5,6 +5,7 @@
 const MaterialTab = (() => {
   let _project = null;
   let _activeId = null;
+  let _sectionCollapsed = {};
 
   function render(project) {
     _project = project;
@@ -19,14 +20,21 @@ const MaterialTab = (() => {
     list.innerHTML = '';
     _project.materials.forEach(mat => {
       const li = document.createElement('li');
-      li.className = 'thumbnail-item' + (mat.id === _activeId ? ' active' : '');
+      li.className = 'material-card' + (mat.id === _activeId ? ' active' : '');
       li.dataset.id = mat.id;
       const imgSrc = mat.thumbnail_path
         ? `/api/files?path=${encodeURIComponent(mat.thumbnail_path)}&project_id=${_project.id}`
         : '';
       li.innerHTML = `
-        ${imgSrc ? `<img src="${imgSrc}" alt="thumbnail" />` : '<div style="height:80px;background:#eee;border-radius:3px"></div>'}
-        <div class="thumb-caption">${escHtml(mat.name)}</div>
+        <div class="material-card-info">
+          <div class="material-card-name">${escHtml(mat.name)}</div>
+          <div class="material-card-desc">${escHtml(mat.caption || '')}</div>
+        </div>
+        <div class="material-card-thumb">
+          ${imgSrc
+            ? `<img src="${imgSrc}" alt="thumbnail" />`
+            : '<span class="thumb-placeholder"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></span>'}
+        </div>
       `;
       li.addEventListener('click', () => {
         _activeId = mat.id;
@@ -47,49 +55,117 @@ const MaterialTab = (() => {
       : '';
 
     pane.innerHTML = `
-      <div class="source-form">
-        ${imgSrc ? `<img src="${imgSrc}" style="max-width:200px;border-radius:6px;margin-bottom:10px" />` : ''}
-        <div class="form-group">
-          <label>名前</label>
-          <input type="text" class="form-control" id="mat-name" value="${escHtml(mat.name)}" />
+      <div class="source-detail-scroll">
+        <!-- タイトルバー -->
+        <div class="detail-title-bar">
+          <h2>${escHtml(mat.name)}</h2>
+          <button class="btn-icon-edit" id="btn-edit-material-name" title="名前を編集">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
         </div>
-        <div class="form-group">
-          <label>種別</label>
-          <select class="form-control" id="mat-type">
-            <option value="figure" ${mat.type==='figure'?'selected':''}>図</option>
-            <option value="table" ${mat.type==='table'?'selected':''}>表</option>
-          </select>
+
+        <!-- 設定セクション -->
+        <div class="collapsible-section">
+          <div class="collapsible-header" data-section="mat-settings">
+            <span class="chevron${_sectionCollapsed['mat-settings'] ? ' collapsed' : ''}">&#x2304;</span>
+            <h3>設定</h3>
+          </div>
+          <div class="collapsible-body${_sectionCollapsed['mat-settings'] ? ' collapsed' : ''}">
+            <div class="form-group" style="margin-bottom:12px">
+              <label>ID</label>
+              <input type="text" class="form-control" value="${escHtml(mat.id)}" readonly />
+            </div>
+            <div style="display:flex;justify-content:flex-end">
+              <button class="btn btn-danger btn-sm" id="btn-delete-material">削除</button>
+            </div>
+          </div>
         </div>
-        <div class="form-group">
-          <label>キャプション</label>
-          <input type="text" class="form-control" id="mat-caption" value="${escHtml(mat.caption)}" />
+
+        <!-- 図表情報セクション -->
+        <div class="collapsible-section">
+          <div class="collapsible-header" data-section="mat-info">
+            <span class="chevron${_sectionCollapsed['mat-info'] ? ' collapsed' : ''}">&#x2304;</span>
+            <h3>図表情報</h3>
+          </div>
+          <div class="collapsible-body${_sectionCollapsed['mat-info'] ? ' collapsed' : ''}">
+            <div class="form-group" style="margin-bottom:10px;max-width:200px">
+              <label>種類</label>
+              <select class="form-control" id="mat-type">
+                <option value="figure" ${mat.type==='figure'?'selected':''}>図</option>
+                <option value="table" ${mat.type==='table'?'selected':''}>表</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom:10px">
+              <label>キャプション</label>
+              <input type="text" class="form-control" id="mat-caption" value="${escHtml(mat.caption)}" />
+            </div>
+            <div class="form-group" style="margin-bottom:10px">
+              <label>ファイルパス</label>
+              <input type="text" class="form-control" value="${escHtml(mat.file_path || '')}" readonly />
+            </div>
+            <div class="source-actions" style="margin-bottom:12px">
+              <button class="btn btn-secondary btn-sm" id="btn-upload-material">ファイル読み込み</button>
+            </div>
+          </div>
         </div>
-        <div class="source-actions">
-          <button class="btn btn-sm btn-secondary" id="btn-upload-material">ファイル読み込み</button>
-          <button class="btn btn-sm btn-primary" id="btn-save-material">保存</button>
-          <button class="btn btn-sm btn-danger" id="btn-delete-material">削除</button>
+
+        <!-- 画像プレビュー -->
+        <div class="material-preview">
+          ${imgSrc
+            ? `<img src="${imgSrc}" alt="preview" />`
+            : '<span class="preview-placeholder"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></span>'}
         </div>
-        <div style="font-size:11px;color:var(--color-text-muted);margin-top:4px">ID: ${mat.id}</div>
       </div>
     `;
 
-    document.getElementById('btn-save-material').addEventListener('click', () => _saveMaterial(mat));
+    // 折りたたみイベント
+    pane.querySelectorAll('.collapsible-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const key = header.dataset.section;
+        _sectionCollapsed[key] = !_sectionCollapsed[key];
+        const chevron = header.querySelector('.chevron');
+        const body = header.nextElementSibling;
+        chevron.classList.toggle('collapsed');
+        body.classList.toggle('collapsed');
+      });
+    });
+
+    // 名前編集
+    document.getElementById('btn-edit-material-name').addEventListener('click', () => {
+      const newName = prompt('マテリアル名:', mat.name);
+      if (newName && newName !== mat.name) {
+        mat.name = newName;
+        _renderDetail(mat.id);
+        _renderList();
+      }
+    });
+
     document.getElementById('btn-delete-material').addEventListener('click', () => _deleteMaterial(mat));
     document.getElementById('btn-upload-material').addEventListener('click', () => _uploadFile(mat));
+
+    // 自動保存
+    let saveTimer;
+    const autoSave = () => {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => _saveMaterial(mat), 1000);
+    };
+    pane.querySelectorAll('input:not([readonly]), select').forEach(el => {
+      el.addEventListener('input', autoSave);
+      el.addEventListener('change', autoSave);
+    });
   }
 
   async function _saveMaterial(mat) {
     const project = window.appState.getProject();
     const body = {
-      name: document.getElementById('mat-name').value,
-      type: document.getElementById('mat-type').value,
-      caption: document.getElementById('mat-caption').value,
+      name: mat.name,
+      type: document.getElementById('mat-type')?.value || mat.type,
+      caption: document.getElementById('mat-caption')?.value || mat.caption,
     };
     try {
       const updated = await ApiClient.put(`/api/projects/${project.id}/materials/${mat.id}`, body);
       const idx = project.materials.findIndex(m => m.id === mat.id);
       if (idx >= 0) project.materials[idx] = updated;
-      showToast('保存しました', 'success');
       _renderList();
     } catch (_) {}
   }

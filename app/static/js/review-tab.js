@@ -5,6 +5,7 @@
 const ReviewTab = (() => {
   let _project = null;
   let _sseCtrl = null;
+  let _sectionCollapsed = {};
 
   function render(project) {
     _project = project;
@@ -27,58 +28,84 @@ const ReviewTab = (() => {
   async function _renderPreview(project) {
     try {
       const previews = await ApiClient.get(`/api/projects/${project.id}/preview`);
-      const container = document.getElementById('review-content');
+      const container = document.getElementById('review-sections');
       const marked = window.marked;
       container.innerHTML = '';
+
       previews.forEach(p => {
         const sec = project.sections.find(s => s.id === p.section_id);
-        const div = document.createElement('div');
-        div.className = 'section-block';
-        div.dataset.sectionId = p.section_id;
-        div.innerHTML = `
-          <div class="section-header">
-            <strong>${escHtml(sec ? sec.title : p.section_id)}</strong>
-          </div>
-          <div style="padding:14px;line-height:1.7">
-            ${marked ? marked.parse(p.rendered_content) : escHtml(p.rendered_content)}
-          </div>
+        const isCollapsed = _sectionCollapsed[p.section_id];
+
+        const block = document.createElement('div');
+        block.className = 'review-section-block';
+        block.dataset.sectionId = p.section_id;
+
+        // 折りたたみヘッダー
+        const header = document.createElement('div');
+        header.className = 'review-section-header';
+        header.innerHTML = `
+          <span class="chevron${isCollapsed ? ' collapsed' : ''}">&#x2304;</span>
+          <h3>${escHtml(sec ? sec.title : p.section_id)}</h3>
         `;
-        container.appendChild(div);
+        block.appendChild(header);
+
+        // ボディ
+        const body = document.createElement('div');
+        body.className = 'review-section-body' + (isCollapsed ? ' collapsed' : '');
+
+        const content = document.createElement('div');
+        content.className = 'review-section-content';
+
+        const textDiv = document.createElement('div');
+        textDiv.className = 'review-section-text';
+        textDiv.innerHTML = marked ? marked.parse(p.rendered_content) : escHtml(p.rendered_content);
+
+        const commentsDiv = document.createElement('div');
+        commentsDiv.className = 'review-section-comments';
+
+        content.appendChild(textDiv);
+        content.appendChild(commentsDiv);
+        body.appendChild(content);
+        block.appendChild(body);
+
+        // 折りたたみイベント
+        header.addEventListener('click', () => {
+          _sectionCollapsed[p.section_id] = !_sectionCollapsed[p.section_id];
+          header.querySelector('.chevron').classList.toggle('collapsed');
+          body.classList.toggle('collapsed');
+        });
+
+        container.appendChild(block);
       });
     } catch (_) {}
   }
 
   function _addCommentCard(sectionId, comment) {
-    const panel = document.getElementById('review-comments-panel');
-    const project = window.appState.getProject();
-    const sec = project?.sections.find(s => s.id === sectionId);
+    const block = document.querySelector(`.review-section-block[data-section-id="${sectionId}"]`);
+    const panel = block ? block.querySelector('.review-section-comments') : null;
+    if (!panel) return;
 
     const card = document.createElement('div');
     card.className = 'comment-card';
     card.innerHTML = `
-      <div class="comment-section">${escHtml(sec ? sec.title : sectionId)}</div>
-      <div class="comment-text">${escHtml(comment)}</div>
-      <div class="comment-actions">
-        <button class="btn btn-sm btn-secondary" data-action="copy">プロンプトにコピー</button>
-        <button class="btn btn-sm btn-icon" data-action="close">×</button>
+      <div class="comment-card-header">
+        <span class="comment-label">プロンプトにコピー</span>
+        <button class="comment-close" data-action="close">×</button>
       </div>
+      <div class="comment-card-body">${escHtml(comment)}</div>
     `;
 
-    card.querySelector('[data-action="copy"]').addEventListener('click', () => {
+    card.querySelector('.comment-label').addEventListener('click', () => {
       document.getElementById('chat-input').value = comment;
-      // Edit タブへ切り替え
       AppShell.switchTab('edit');
     });
+    card.querySelector('.comment-label').style.cursor = 'pointer';
 
     card.querySelector('[data-action="close"]').addEventListener('click', () => {
       card.remove();
     });
 
     panel.appendChild(card);
-
-    // セクションブロックを強調
-    const secBlock = document.querySelector(`[data-section-id="${sectionId}"]`);
-    if (secBlock) secBlock.style.borderColor = 'var(--color-primary)';
   }
 
   function bindEvents() {
@@ -96,12 +123,12 @@ const ReviewTab = (() => {
     const scope = document.getElementById('review-scope').value;
     const useFullSources = document.getElementById('review-full-sources').checked;
 
-    // コメントパネルをクリア
-    document.getElementById('review-comments-panel').innerHTML = '';
+    // 各セクションのコメントエリアをクリア
+    document.querySelectorAll('.review-section-comments').forEach(el => { el.innerHTML = ''; });
 
     const btn = document.getElementById('btn-review-send');
     btn.disabled = true;
-    btn.textContent = 'レビュー中...';
+    btn.textContent = '...';
 
     _sseCtrl = ApiClient.openSSE(
       `/api/projects/${project.id}/review`,
@@ -110,12 +137,12 @@ const ReviewTab = (() => {
         onReviewComment: (sectionId, comment) => _addCommentCard(sectionId, comment),
         onDone: () => {
           btn.disabled = false;
-          btn.textContent = 'レビュー実行';
+          btn.textContent = '↑';
           showToast('レビュー完了', 'success');
         },
         onError: (msg) => {
           btn.disabled = false;
-          btn.textContent = 'レビュー実行';
+          btn.textContent = '↑';
           showToast(`レビューエラー: ${msg}`, 'error');
         },
       }

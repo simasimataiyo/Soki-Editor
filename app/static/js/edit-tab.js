@@ -15,95 +15,137 @@ const EditTab = (() => {
 
   // ─── アウトラインパネル ─────────────────────────────────
 
+  // 折りたたみ状態を保持
+  let _collapsed = {};
+
   function _renderOutline() {
     const list = document.getElementById('outline-list');
     list.innerHTML = '';
     const sorted = [..._project.sections].sort((a, b) => a.order - b.order);
 
-    sorted.forEach(sec => {
-      const depth = _sectionDepth(sec, _project.sections);
-      const li = document.createElement('li');
-      li.className = `outline-item level-${depth}`;
-      li.dataset.id = sec.id;
-      li.innerHTML = `
-        <span class="item-title">${escHtml(sec.title)}</span>
-        <span class="item-actions">
-          <button class="btn-icon btn-sm" data-action="up" title="上へ">↑</button>
-          <button class="btn-icon btn-sm" data-action="down" title="下へ">↓</button>
-          <button class="btn-icon btn-sm" data-action="edit" title="編集">⚙</button>
-          <button class="btn-icon btn-sm" data-action="delete" title="削除">×</button>
-        </span>
-      `;
+    // ツリー構造を構築
+    const roots = sorted.filter(s => !s.parent_id);
+    roots.forEach(sec => _renderOutlineItem(list, sec, sorted, 1));
+  }
 
-      li.querySelector('[data-action="edit"]').addEventListener('click', (e) => {
-        e.stopPropagation();
-        _editSectionMeta(sec);
-      });
-      li.querySelector('[data-action="delete"]').addEventListener('click', (e) => {
-        e.stopPropagation();
-        _deleteSection(sec);
-      });
-      li.querySelector('[data-action="up"]').addEventListener('click', (e) => {
-        e.stopPropagation();
-        _moveSection(sec, -1);
-      });
-      li.querySelector('[data-action="down"]').addEventListener('click', (e) => {
-        e.stopPropagation();
-        _moveSection(sec, 1);
-      });
+  function _renderOutlineItem(container, sec, allSorted, depth) {
+    const children = allSorted.filter(s => s.parent_id === sec.id);
+    const hasChildren = children.length > 0;
+    const isCollapsed = _collapsed[sec.id];
 
-      li.addEventListener('click', () => {
-        const el = document.getElementById(`sec-block-${sec.id}`);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        window.appState.setState({ activeSectionId: sec.id });
-      });
+    const li = document.createElement('li');
+    li.className = `outline-item level-${depth}`;
+    li.dataset.id = sec.id;
 
-      list.appendChild(li);
+    const toggle = hasChildren
+      ? `<span class="outline-toggle" data-action="toggle">${isCollapsed ? '›' : '⌄'}</span>`
+      : `<span class="outline-toggle-spacer"></span>`;
+
+    li.innerHTML = `
+      ${toggle}
+      <span class="item-title">${escHtml(sec.title)}</span>
+    `;
+
+    if (hasChildren) {
+      li.querySelector('[data-action="toggle"]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        _collapsed[sec.id] = !_collapsed[sec.id];
+        _renderOutline();
+      });
+    }
+
+    li.addEventListener('click', () => {
+      const el = document.getElementById(`sec-block-${sec.id}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // アクティブ状態を更新
+      document.querySelectorAll('.outline-item').forEach(el => el.classList.remove('active'));
+      li.classList.add('active');
+      window.appState.setState({ activeSectionId: sec.id });
     });
+
+    container.appendChild(li);
+
+    // 子要素を再帰的にレンダリング
+    if (hasChildren && !isCollapsed) {
+      children.sort((a, b) => a.order - b.order).forEach(child => {
+        _renderOutlineItem(container, child, allSorted, depth + 1);
+      });
+    }
   }
 
   // ─── ドキュメントビュー ─────────────────────────────────
+
+  // セクション折りたたみ状態
+  let _secCollapsed = {};
 
   function _renderDocView() {
     const container = document.getElementById('doc-sections');
     container.innerHTML = '';
     const sorted = [..._project.sections].sort((a, b) => a.order - b.order);
 
-    sorted.forEach(sec => {
-      const depth = _sectionDepth(sec, _project.sections);
-      const block = document.createElement('div');
-      block.className = 'section-block';
-      block.id = `sec-block-${sec.id}`;
+    // ツリー構造で再帰的にレンダリング
+    const roots = sorted.filter(s => !s.parent_id);
+    roots.forEach(sec => _renderDocSection(container, sec, sorted, 1));
+  }
 
-      const tag = depth === 1 ? 'h2' : depth === 2 ? 'h3' : 'h4';
-      block.innerHTML = `
-        <div class="section-header">
-          <${tag}>${escHtml(sec.title)}</${tag}>
-          <div class="insert-buttons">
-            <button class="btn btn-sm btn-secondary" data-action="insert-ref" title="文献挿入">文献</button>
-            <button class="btn btn-sm btn-secondary" data-action="insert-fig" title="図表挿入">図表</button>
-          </div>
+  function _renderDocSection(container, sec, allSorted, depth) {
+    const children = allSorted.filter(s => s.parent_id === sec.id);
+    const hasChildren = children.length > 0;
+    const isCollapsed = _secCollapsed[sec.id];
+
+    const block = document.createElement('div');
+    block.className = `section-block depth-${depth}`;
+    block.id = `sec-block-${sec.id}`;
+
+    const tag = depth === 1 ? 'h2' : depth === 2 ? 'h3' : 'h4';
+    const toggleIcon = isCollapsed ? '›' : '⌄';
+    const bulletMark = depth === 1 ? '•' : depth === 2 ? '•' : '▸';
+
+    block.innerHTML = `
+      <div class="section-header">
+        <span class="section-toggle" data-action="sec-toggle">${toggleIcon}</span>
+        <${tag}><span class="section-bullet">${bulletMark}</span> ${escHtml(sec.title)}</${tag}>
+        <div class="section-actions">
+          <button class="btn-icon btn-sm" data-action="up" title="上へ">↑</button>
+          <button class="btn-icon btn-sm" data-action="down" title="下へ">↓</button>
+          <button class="btn-icon btn-sm" data-action="edit" title="編集">⚙</button>
+          <button class="btn-icon btn-sm" data-action="delete" title="削除">×</button>
         </div>
+      </div>
+      <div class="section-body${isCollapsed ? ' collapsed' : ''}">
         <div class="section-summary" contenteditable="true" data-sec-id="${sec.id}" data-field="summary">${escHtml(sec.summary)}</div>
         <div class="section-content" contenteditable="true" data-sec-id="${sec.id}" data-field="content">${escHtml(sec.content)}</div>
-      `;
+        <div class="section-children"></div>
+      </div>
+    `;
 
-      // 概要・本文の変更保存（デバウンス）
-      ['summary', 'content'].forEach(field => {
-        const el = block.querySelector(`[data-field="${field}"]`);
-        el.addEventListener('input', () => _debounceSave(sec.id, field, el));
-      });
-
-      // 文献・図表挿入
-      block.querySelector('[data-action="insert-ref"]').addEventListener('click', () =>
-        _showInsertRefDialog(sec.id)
-      );
-      block.querySelector('[data-action="insert-fig"]').addEventListener('click', () =>
-        _showInsertFigDialog(sec.id)
-      );
-
-      container.appendChild(block);
+    // 折りたたみトグル
+    block.querySelector('[data-action="sec-toggle"]').addEventListener('click', () => {
+      _secCollapsed[sec.id] = !_secCollapsed[sec.id];
+      _renderDocView();
     });
+
+    // アクションボタン
+    block.querySelector('[data-action="edit"]').addEventListener('click', () => _editSectionMeta(sec));
+    block.querySelector('[data-action="delete"]').addEventListener('click', () => _deleteSection(sec));
+    block.querySelector('[data-action="up"]').addEventListener('click', () => _moveSection(sec, -1));
+    block.querySelector('[data-action="down"]').addEventListener('click', () => _moveSection(sec, 1));
+
+    // 概要・本文の変更保存（デバウンス）
+    ['summary', 'content'].forEach(field => {
+      const el = block.querySelector(`[data-field="${field}"]`);
+      el.addEventListener('input', () => _debounceSave(sec.id, field, el));
+    });
+
+    container.appendChild(block);
+
+    // 子セクションをsection-children内にレンダリング
+    if (hasChildren && !isCollapsed) {
+      const childrenContainer = block.querySelector('.section-children');
+      children.sort((a, b) => a.order - b.order).forEach(child => {
+        _renderDocSection(childrenContainer, child, allSorted, depth + 1);
+      });
+    }
   }
 
   function _debounceSave(sectionId, field, el) {
@@ -290,8 +332,13 @@ const EditTab = (() => {
 
   function bindEvents() {
     document.getElementById('btn-add-chapter').addEventListener('click', _addChapter);
-    document.getElementById('btn-add-section').addEventListener('click', _addSection);
   }
 
-  return { render, bindEvents };
+  return {
+    render,
+    bindEvents,
+    insertRef: _showInsertRefDialog,
+    insertFig: _showInsertFigDialog,
+    addChapter: _addChapter,
+  };
 })();
