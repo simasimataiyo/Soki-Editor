@@ -10,6 +10,9 @@ const SourceTab = (() => {
     paper: '論文', book: '図書', book_chapter: '図書の一部', web: 'Web'
   };
 
+  // 折りたたみ状態
+  let _sectionCollapsed = {};
+
   function render(project) {
     _project = project;
     _renderList();
@@ -25,8 +28,10 @@ const SourceTab = (() => {
       const li = document.createElement('li');
       li.dataset.id = src.id;
       if (src.id === _activeId) li.classList.add('active');
-      li.innerHTML = `<div style="font-weight:600;font-size:13px">${escHtml(src.name)}</div>
-        <div style="font-size:11px;color:var(--color-text-muted)">${src.id}</div>`;
+      li.innerHTML = `
+        <svg class="item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <span class="item-name">${escHtml(src.name)}</span>
+      `;
       li.addEventListener('click', () => {
         _activeId = src.id;
         window.appState.setState({ activeSourceId: src.id });
@@ -44,53 +49,141 @@ const SourceTab = (() => {
     const b = src.bibliography;
 
     pane.innerHTML = `
-      <div class="source-form">
-        <div class="form-group">
-          <label>名前</label>
-          <input type="text" class="form-control" id="src-name" value="${escHtml(src.name)}" />
+      <div class="source-detail-scroll">
+        <!-- タイトルバー -->
+        <div class="detail-title-bar">
+          <h2>${escHtml(src.name)}</h2>
+          <button class="btn-icon-edit" id="btn-edit-source-name" title="名前を編集">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
         </div>
-        <div class="form-group">
-          <label>文献種別</label>
-          <select class="form-control" id="src-bib-type">
-            ${Object.entries(BIB_TYPE_LABELS).map(([v, l]) =>
-              `<option value="${v}" ${b.type===v?'selected':''}>${l}</option>`
-            ).join('')}
-          </select>
+
+        <!-- 設定セクション -->
+        <div class="collapsible-section">
+          <div class="collapsible-header" data-section="settings">
+            <span class="chevron${_sectionCollapsed['settings'] ? ' collapsed' : ''}">&#x2304;</span>
+            <h3>設定</h3>
+          </div>
+          <div class="collapsible-body${_sectionCollapsed['settings'] ? ' collapsed' : ''}">
+            <div class="form-group" style="margin-bottom:12px">
+              <label>ID</label>
+              <input type="text" class="form-control" id="src-id-display" value="${escHtml(src.id)}" readonly />
+            </div>
+            <div style="display:flex;justify-content:flex-end">
+              <button class="btn btn-danger btn-sm" id="btn-delete-source">削除</button>
+            </div>
+          </div>
         </div>
-        <div class="bib-fields" id="bib-fields"></div>
-        <div class="toggle-group">
-          <label>参考文献リストに掲載</label>
-          <input type="checkbox" id="src-include" ${b.include_in_references?'checked':''} />
+
+        <!-- 文献情報セクション -->
+        <div class="collapsible-section">
+          <div class="collapsible-header" data-section="bibliography">
+            <span class="chevron${_sectionCollapsed['bibliography'] ? ' collapsed' : ''}">&#x2304;</span>
+            <h3>文献情報</h3>
+          </div>
+          <div class="collapsible-body${_sectionCollapsed['bibliography'] ? ' collapsed' : ''}">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+              <div class="form-group" style="flex:1;max-width:200px">
+                <label>種類</label>
+                <select class="form-control" id="src-bib-type">
+                  ${Object.entries(BIB_TYPE_LABELS).map(([v, l]) =>
+                    `<option value="${v}" ${b.type===v?'selected':''}>${l}</option>`
+                  ).join('')}
+                </select>
+              </div>
+              <div class="toggle-group">
+                <label>参考文献リストに掲載</label>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="src-include" ${b.include_in_references?'checked':''} />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+            <div id="bib-fields"></div>
+          </div>
         </div>
-        <div class="form-group">
-          <label>全文</label>
-          <textarea class="form-control" id="src-full-text" rows="6">${escHtml(src.full_text)}</textarea>
+
+        <!-- 要約セクション -->
+        <div class="collapsible-section">
+          <div class="collapsible-header" data-section="summary">
+            <span class="chevron${_sectionCollapsed['summary'] ? ' collapsed' : ''}">&#x2304;</span>
+            <h3>要約</h3>
+          </div>
+          <div class="collapsible-body${_sectionCollapsed['summary'] ? ' collapsed' : ''}">
+            <textarea class="form-control" id="src-summary" rows="5">${escHtml(src.summary)}</textarea>
+            <div class="source-actions" style="margin-top:8px">
+              <button class="btn btn-secondary btn-sm" id="btn-summarize">ソースから要約生成</button>
+            </div>
+          </div>
         </div>
-        <div class="form-group">
-          <label>要約</label>
-          <textarea class="form-control" id="src-summary" rows="3">${escHtml(src.summary)}</textarea>
-        </div>
-        <div class="source-actions">
-          <button class="btn btn-sm btn-secondary" id="btn-read-file">ファイル読み込み</button>
-          <button class="btn btn-sm btn-secondary" id="btn-analyze-image">画像解析</button>
-          <button class="btn btn-sm btn-secondary" id="btn-summarize">ソースから要約生成</button>
-          <button class="btn btn-sm btn-primary" id="btn-save-source">保存</button>
-          <button class="btn btn-sm btn-danger" id="btn-delete-source">削除</button>
+
+        <!-- 内容セクション -->
+        <div class="collapsible-section">
+          <div class="collapsible-header" data-section="content">
+            <span class="chevron${_sectionCollapsed['content'] ? ' collapsed' : ''}">&#x2304;</span>
+            <h3>内容</h3>
+          </div>
+          <div class="collapsible-body${_sectionCollapsed['content'] ? ' collapsed' : ''}">
+            <div class="form-group" style="margin-bottom:12px">
+              <label>全文</label>
+              <textarea class="form-control" id="src-full-text" rows="10">${escHtml(src.full_text)}</textarea>
+            </div>
+            <div class="form-group" style="margin-bottom:12px">
+              <label>ファイルパス</label>
+              <input type="text" class="form-control" id="src-file-path" value="${escHtml(src.file_path || '')}" readonly />
+            </div>
+            <div class="source-actions">
+              <button class="btn btn-secondary btn-sm" id="btn-analyze-image">画像解析</button>
+              <button class="btn btn-secondary btn-sm" id="btn-read-file">ファイル読み込み</button>
+            </div>
+          </div>
         </div>
       </div>
     `;
 
     _renderBibFields(b.type);
 
+    // 折りたたみイベント
+    pane.querySelectorAll('.collapsible-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const key = header.dataset.section;
+        _sectionCollapsed[key] = !_sectionCollapsed[key];
+        const chevron = header.querySelector('.chevron');
+        const body = header.nextElementSibling;
+        chevron.classList.toggle('collapsed');
+        body.classList.toggle('collapsed');
+      });
+    });
+
+    // 名前編集
+    document.getElementById('btn-edit-source-name').addEventListener('click', () => {
+      const newName = prompt('ソース名:', src.name);
+      if (newName && newName !== src.name) {
+        src.name = newName;
+        _renderDetail(src.id);
+        _renderList();
+      }
+    });
+
     document.getElementById('src-bib-type').addEventListener('change', (e) => {
       _renderBibFields(e.target.value);
     });
 
-    document.getElementById('btn-save-source').addEventListener('click', () => _saveSource(src));
     document.getElementById('btn-delete-source').addEventListener('click', () => _deleteSource(src));
     document.getElementById('btn-read-file').addEventListener('click', () => _readFile(src));
     document.getElementById('btn-analyze-image').addEventListener('click', () => _analyzeImage(src));
     document.getElementById('btn-summarize').addEventListener('click', () => _summarize(src));
+
+    // 自動保存（デバウンス）
+    let saveTimer;
+    const autoSave = () => {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => _saveSource(src), 1000);
+    };
+    pane.querySelectorAll('input:not([readonly]), textarea, select').forEach(el => {
+      el.addEventListener('input', autoSave);
+      el.addEventListener('change', autoSave);
+    });
   }
 
   function _renderBibFields(type) {
@@ -99,40 +192,70 @@ const SourceTab = (() => {
     const src = _project.sources.find(s => s.id === _activeId);
     const b = src?.bibliography || {};
     const fieldSets = {
-      paper: ['title', 'author', 'journal', 'volume', 'issue', 'pages', 'year'],
-      book: ['title', 'author', 'year', 'publisher', 'publication_place'],
-      book_chapter: ['title', 'author', 'year', 'publisher', 'editor', 'pages'],
-      web: ['title', 'author', 'url', 'site_name', 'accessed_date'],
+      paper: ['title', 'author', 'journal', 'volume|issue', 'pages|year', 'other'],
+      book: ['title', 'author', 'year', 'publisher', 'publication_place', 'other'],
+      book_chapter: ['title', 'author', 'year', 'publisher', 'editor', 'pages', 'other'],
+      web: ['title', 'author', 'url', 'site_name', 'accessed_date', 'other'],
     };
     const labels = {
-      title:'タイトル', author:'著者', journal:'雑誌名', volume:'巻', issue:'号',
-      pages:'ページ', year:'年', publisher:'出版社', publication_place:'出版地',
-      editor:'編者', url:'URL', site_name:'サイト名', accessed_date:'参照日',
+      title:'タイトル', author:'著者', journal:'掲載誌', volume:'巻数', issue:'号数',
+      pages:'ページ', year:'出版年', publisher:'出版社', publication_place:'出版地',
+      editor:'編者', url:'URL', site_name:'サイト名', accessed_date:'参照日', other:'その他',
     };
-    container.innerHTML = (fieldSets[type] || []).map(f => `
-      <div class="form-group">
-        <label>${labels[f] || f}</label>
-        <input type="text" class="form-control bib-field" data-field="${f}" value="${escHtml(b[f] || '')}" />
-      </div>
-    `).join('');
+
+    const fields = fieldSets[type] || [];
+    container.innerHTML = fields.map(f => {
+      if (f.includes('|')) {
+        // 2カラム
+        const [f1, f2] = f.split('|');
+        return `
+          <div class="field-row" style="margin-bottom:10px">
+            <div class="form-group">
+              <label>${labels[f1] || f1}</label>
+              <input type="text" class="form-control bib-field" data-field="${f1}" value="${escHtml(b[f1] || '')}" />
+            </div>
+            <div class="form-group">
+              <label>${labels[f2] || f2}</label>
+              <input type="text" class="form-control bib-field" data-field="${f2}" value="${escHtml(b[f2] || '')}" />
+            </div>
+          </div>
+        `;
+      }
+      return `
+        <div class="form-group" style="margin-bottom:10px">
+          <label>${labels[f] || f}</label>
+          <input type="text" class="form-control bib-field" data-field="${f}" value="${escHtml(b[f] || '')}" />
+        </div>
+      `;
+    }).join('');
+
+    // 新しいフィールドにも自動保存をバインド
+    container.querySelectorAll('.bib-field').forEach(el => {
+      let timer;
+      el.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => _saveSource(src), 1000);
+      });
+    });
   }
 
   async function _saveSource(src) {
     const project = window.appState.getProject();
-    const bibType = document.getElementById('src-bib-type').value;
+    const bibType = document.getElementById('src-bib-type')?.value || src.bibliography.type;
     const bibFields = {};
     document.querySelectorAll('.bib-field').forEach(el => {
       bibFields[el.dataset.field] = el.value;
     });
 
+    const nameEl = document.querySelector('.detail-title-bar h2');
     const body = {
-      name: document.getElementById('src-name').value,
-      full_text: document.getElementById('src-full-text').value,
-      summary: document.getElementById('src-summary').value,
+      name: src.name,
+      full_text: document.getElementById('src-full-text')?.value || '',
+      summary: document.getElementById('src-summary')?.value || '',
       bibliography: {
         ...src.bibliography,
         type: bibType,
-        include_in_references: document.getElementById('src-include').checked,
+        include_in_references: document.getElementById('src-include')?.checked || false,
         ...bibFields,
       },
     };
@@ -141,8 +264,6 @@ const SourceTab = (() => {
       const updated = await ApiClient.put(`/api/projects/${project.id}/sources/${src.id}`, body);
       const idx = project.sources.findIndex(s => s.id === src.id);
       if (idx >= 0) project.sources[idx] = updated;
-      showToast('保存しました', 'success');
-      _renderList();
     } catch (_) {}
   }
 
@@ -235,36 +356,36 @@ const SourceTab = (() => {
       _activeId = src.id;
       render(project);
     });
-
-    document.getElementById('btn-source-export').addEventListener('click', async () => {
-      const project = window.appState.getProject();
-      if (!project) return;
-      window.location.href = `/api/projects/${project.id}/sources/export`;
-    });
-
-    document.getElementById('btn-source-import').addEventListener('click', async () => {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = '.csv';
-      input.onchange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const project = window.appState.getProject();
-        const formData = new FormData();
-        formData.append('file', file);
-        try {
-          const res = await fetch(`/api/projects/${project.id}/sources/import`, {
-            method: 'POST', body: formData,
-          });
-          const data = await res.json();
-          showToast(`${data.imported} 件インポートしました`, 'success');
-          const updated = await ApiClient.get(`/api/projects/${project.id}`);
-          window.appState.setProject(updated);
-        } catch (_) {}
-      };
-      input.click();
-    });
   }
 
-  return { render, bindEvents };
+  function exportCsv() {
+    const project = window.appState.getProject();
+    if (!project) return;
+    window.location.href = `/api/projects/${project.id}/sources/export`;
+  }
+
+  function importCsv() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.csv';
+    input.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const project = window.appState.getProject();
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const res = await fetch(`/api/projects/${project.id}/sources/import`, {
+          method: 'POST', body: formData,
+        });
+        const data = await res.json();
+        showToast(`${data.imported} 件インポートしました`, 'success');
+        const updated = await ApiClient.get(`/api/projects/${project.id}`);
+        window.appState.setProject(updated);
+      } catch (_) {}
+    };
+    input.click();
+  }
+
+  return { render, bindEvents, exportCsv, importCsv };
 })();

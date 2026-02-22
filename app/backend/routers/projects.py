@@ -139,6 +139,7 @@ async def update_settings(project_id: str, body: LLMSettings) -> LLMSettings:
     svc = get_service()
     try:
         await svc.update_settings(project_id, body)
+        await svc.flush(project_id)
         project = await svc.get_project(project_id)
         return project.settings
     except KeyError:
@@ -159,7 +160,7 @@ async def update_data_dir(project_id: str, body: DataDirUpdate) -> dict:
 
 
 @router.post("/dialog/open-file")
-async def dialog_open_file(body: dict = {}) -> dict:
+def dialog_open_file(body: dict = {}) -> dict:
     from app.backend.services.file_service import FileService
 
     svc = FileService()
@@ -169,7 +170,7 @@ async def dialog_open_file(body: dict = {}) -> dict:
 
 
 @router.post("/dialog/save-file")
-async def dialog_save_file(body: dict = {}) -> dict:
+def dialog_save_file(body: dict = {}) -> dict:
     from app.backend.services.file_service import FileService
 
     svc = FileService()
@@ -178,9 +179,50 @@ async def dialog_save_file(body: dict = {}) -> dict:
 
 
 @router.post("/dialog/open-directory")
-async def dialog_open_directory() -> dict:
+def dialog_open_directory() -> dict:
     from app.backend.services.file_service import FileService
 
     svc = FileService()
     path = svc.open_directory_dialog()
     return {"path": path}
+
+
+# ─── ファイルシステムブラウザ API（ブラウザモード用）──────────
+
+
+@router.get("/filesystem/browse")
+def browse_filesystem(dir: str = "") -> dict:
+    """ディレクトリ内容を返す（ブラウザモードのファイル選択用）。"""
+    from pathlib import Path
+
+    if not dir:
+        base = Path.home()
+    else:
+        base = Path(dir)
+
+    if not base.exists() or not base.is_dir():
+        parent = base.parent
+        if parent.exists():
+            base = parent
+        else:
+            base = Path.home()
+
+    dirs = []
+    files = []
+    try:
+        for item in sorted(base.iterdir(), key=lambda p: p.name.lower()):
+            if item.name.startswith("."):
+                continue
+            if item.is_dir():
+                dirs.append({"name": item.name, "path": str(item)})
+            elif item.suffix.lower() == ".json":
+                files.append({"name": item.name, "path": str(item)})
+    except PermissionError:
+        pass
+
+    return {
+        "current": str(base),
+        "parent": str(base.parent) if base.parent != base else None,
+        "dirs": dirs,
+        "files": files,
+    }
