@@ -12,10 +12,31 @@ const SourceTab = (() => {
 
   // 折りたたみ状態
   let _sectionCollapsed = {};
+  let _loadingOverlay = null;
 
   /** 表示用タイトル: 文献情報のタイトル → name のフォールバック */
   function _displayTitle(src) {
     return src.bibliography?.title || src.name;
+  }
+
+  /** ローディングオーバーレイを表示 */
+  function _showLoading(message = '処理中...') {
+    if (_loadingOverlay) return;
+    _loadingOverlay = document.createElement('div');
+    _loadingOverlay.className = 'loading-overlay';
+    _loadingOverlay.innerHTML = `
+      <div class="loading-spinner"></div>
+      <div class="loading-message">${escHtml(message)}</div>
+    `;
+    document.body.appendChild(_loadingOverlay);
+  }
+
+  /** ローディングオーバーレイを非表示 */
+  function _hideLoading() {
+    if (_loadingOverlay) {
+      _loadingOverlay.remove();
+      _loadingOverlay = null;
+    }
   }
 
   function render(project) {
@@ -189,6 +210,7 @@ const SourceTab = (() => {
         const project = window.appState.getProject();
         const formData = new FormData();
         formData.append('file', file);
+        _showLoading('PDFを読み込み中...');
         try {
           const res = await fetch(
             `/api/projects/${project.id}/sources/${src.id}/read-file-upload`,
@@ -198,10 +220,17 @@ const SourceTab = (() => {
           const updated = await res.json();
           const idx = project.sources.findIndex(s => s.id === src.id);
           if (idx >= 0) project.sources[idx] = updated;
+          // PDFを再読み込みした場合は画像認識モーダルを閉じる（サムネイルが更新されるため）
+          const modalOverlay = document.querySelector('.modal-overlay');
+          if (modalOverlay && modalOverlay.querySelector('.pdf-page-grid')) {
+            modalOverlay.remove();
+          }
           _renderDetail(src.id);
           showToast('ファイルを読み込みました', 'success');
         } catch (_) {
           showToast('ファイル読み込みに失敗しました', 'error');
+        } finally {
+          _hideLoading();
         }
       });
     }
@@ -330,6 +359,7 @@ const SourceTab = (() => {
       if (!file) return;
       const formData = new FormData();
       formData.append('file', file);
+      _showLoading('PDFを読み込み中...');
       try {
         const res = await fetch(`/api/projects/${project.id}/sources/${src.id}/read-file-upload`, {
           method: 'POST', body: formData,
@@ -338,10 +368,17 @@ const SourceTab = (() => {
         const updated = await res.json();
         const idx = project.sources.findIndex(s => s.id === src.id);
         if (idx >= 0) project.sources[idx] = updated;
+        // PDFを再読み込みした場合は画像認識モーダルを閉じる（サムネイルが更新されるため）
+        const modalOverlay = document.querySelector('.modal-overlay');
+        if (modalOverlay && modalOverlay.querySelector('.pdf-page-grid')) {
+          modalOverlay.remove();
+        }
         _renderDetail(src.id);
         showToast('ファイルを読み込みました', 'success');
       } catch (_) {
         showToast('ファイル読み込みに失敗しました', 'error');
+      } finally {
+        _hideLoading();
       }
     };
     input.click();

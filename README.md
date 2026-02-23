@@ -26,12 +26,12 @@
 
 ## 動作環境
 
-- Python 3.11 以上
+- Python 3.11 以上 3.13 以下
 
 ## インストール
 
 ```bash
-git clone https://github.com/your-org/Soki-Editor.git
+git clone https://github.com/simasimataiyo/Soki-Editor.git
 cd Soki-Editor
 
 python -m venv venv

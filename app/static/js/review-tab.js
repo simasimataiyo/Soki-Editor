@@ -1,19 +1,10 @@
 /**
- * ReviewTab — レビュー UI・marked.js プレビュー（タスク 17）
+ * ReviewTab — レビュー UI・marked.js プレビュー・コマンド対応（タスク 17）
  */
 
 const ReviewTab = (() => {
   let _project = null;
   let _sseCtrl = null;
-
-  function render(project) {
-    _project = project;
-    // レビュー用プロンプトの復元
-    if (project.review_system_prompt) {
-      document.getElementById('review-prompt').value = project.review_system_prompt;
-    }
-    _renderScopeSelect();
-  }
 
   function _renderScopeSelect() {
     const sel = document.getElementById('review-scope');
@@ -197,14 +188,43 @@ const ReviewTab = (() => {
     document.getElementById('btn-review-send').addEventListener('click', _startReview);
   }
 
+  // ─── コマンド対応レビュー送信 ──────────────────────────
+
   async function _startReview() {
     const project = window.appState.getProject();
     if (!project) return;
     if (_sseCtrl) _sseCtrl.abort();
 
-    const systemPrompt = document.getElementById('review-prompt').value.trim();
-    if (!systemPrompt) { showToast('レビュー指示を入力してください', 'error'); return; }
+    const rawInput = document.getElementById('review-prompt').value.trim();
+    if (!rawInput) { showToast('レビュー指示を入力してください', 'error'); return; }
 
+    // コマンド解析
+    const parsed = CommandParser.parse(rawInput, 'review');
+
+    // 不明コマンドエラー
+    if (parsed.error) {
+      showToast(parsed.error, 'error');
+      return;
+    }
+
+    // /prompt コマンド（LLMを介さない即時実行）
+    if (parsed.command && parsed.command.name === 'prompt') {
+      await _handlePromptCommand(parsed.command.args, parsed.freeText);
+      return;
+    }
+
+    // /review コマンド（フォーカス付きレビュー）
+    if (parsed.command && parsed.command.name === 'review') {
+      const focus = parsed.command.args[0] || null; // "structure", "rule", "source"
+      _doReview(project, parsed.freeText, focus, parsed.refs);
+      return;
+    }
+
+    // 通常レビュー（コマンドなし）
+    _doReview(project, rawInput, null, parsed.refs);
+  }
+
+  function _doReview(project, systemPrompt, reviewFocus, refs) {
     const scope = document.getElementById('review-scope').value;
     const useFullSources = document.getElementById('review-full-sources').checked;
 
@@ -215,9 +235,26 @@ const ReviewTab = (() => {
     btn.disabled = true;
     btn.textContent = '...';
 
+    const body = {
+      system_prompt: systemPrompt || '',
+      context_scope: scope,
+      use_full_sources: useFullSources,
+    };
+
+    // レビューフォーカスコマンド
+    if (reviewFocus) {
+      body.command = reviewFocus;
+    }
+
+    // @参照
+    if (refs && refs.length > 0) {
+      body.explicit_refs = refs.map(r => r.id);
+      body.use_full_sources = true;
+    }
+
     _sseCtrl = ApiClient.openSSE(
       `/api/projects/${project.id}/review`,
-      { system_prompt: systemPrompt, context_scope: scope, use_full_sources: useFullSources },
+      body,
       {
         onReviewComment: (sectionId, comment) => _addCommentCard(sectionId, comment),
         onDone: () => {
@@ -232,6 +269,54 @@ const ReviewTab = (() => {
         },
       }
     );
+  }
+
+  // ─── プロンプト管理コマンド ─────────────────────────────
+
+  async function _handlePromptCommand(args, freeText) {
+    const project = window.appState.getProject();
+    if (!project) return;
+
+    const action = args[0]; // "save" or "load"
+    const name = freeText || args[1]; // プロンプト名
+
+    if (!action || !name) {
+      showToast('使用法: /prompt save 名前 または /prompt load 名前', 'error');
+      return;
+    }
+
+    if (action === 'save') {
+      const prompt = document.getElementById('review-prompt').value.trim();
+      if (!prompt) {
+        showToast('保存するプロンプトが空です', 'error');
+        return;
+      }
+      try {
+        await ApiClient.post(
+          `/api/projects/${project.id}/saved-prompts/${encodeURIComponent(name)}`,
+          { prompt }
+        );
+        showToast(`プロンプト「${name}」を保存しました`, 'success');
+      } catch (e) {
+        showToast(`プロンプト保存エラー: ${e.message}`, 'error');
+      }
+
+    } else if (action === 'load') {
+      try {
+        const prompts = await ApiClient.get(`/api/projects/${project.id}/saved-prompts`);
+        if (prompts[name]) {
+          document.getElementById('review-prompt').value = prompts[name];
+          showToast(`プロンプト「${name}」を読み込みました`, 'success');
+        } else {
+          showToast(`プロンプト「${name}」が見つかりません`, 'error');
+        }
+      } catch (e) {
+        showToast(`プロンプト読み込みエラー: ${e.message}`, 'error');
+      }
+
+    } else {
+      showToast(`不明なプロンプト操作: ${action}`, 'error');
+    }
   }
 
   function reset() {

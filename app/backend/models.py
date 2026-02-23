@@ -108,6 +108,7 @@ class Project(BaseModel):
     review_system_prompt: str = ""
     review_comments: list[ReviewComment] = []
     references_section_enabled: bool = False
+    saved_review_prompts: dict[str, str] = {}  # name → prompt text
 
 
 # ─── API DTOs ──────────────────────────────────────────────────
@@ -130,12 +131,18 @@ class ChatRequest(BaseModel):
     user_message: str
     context_scope: str = "all"
     use_full_sources: bool = False
+    command: Optional[str] = None          # "structure", "draft", "rewrite", etc.
+    command_args: list[str] = []           # ["replace"], ["500"], etc.
+    explicit_refs: list[str] = []          # ["ref-abc123", "fig-def456"]
 
 
 class ReviewRequest(BaseModel):
     system_prompt: str
     context_scope: str = "all"
     use_full_sources: bool = False
+    command: Optional[str] = None          # "structure", "rule", "source"
+    command_args: list[str] = []
+    explicit_refs: list[str] = []
 
 
 class SectionCreate(BaseModel):

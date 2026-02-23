@@ -34,16 +34,17 @@ async def chat_stream(project_id: str, body: ChatRequest) -> StreamingResponse:
     except KeyError:
         _not_found(project_id)
 
-    # ユーザーメッセージを履歴に追加
-    await svc.append_chat_message(
-        project_id,
-        body.context_scope,
-        ChatMessage(
-            role="user",
-            content=body.user_message,
-            timestamp=datetime.now(),
-        ),
-    )
+    # コマンドでない場合のみチャット履歴に追加
+    if not body.command:
+        await svc.append_chat_message(
+            project_id,
+            body.context_scope,
+            ChatMessage(
+                role="user",
+                content=body.user_message,
+                timestamp=datetime.now(),
+            ),
+        )
 
     async def _stream_with_history() -> AsyncGenerator[str, None]:
         accumulated = []
@@ -53,27 +54,31 @@ async def chat_stream(project_id: str, body: ChatRequest) -> StreamingResponse:
             body.context_scope,
             body.use_full_sources,
             _vs_service,
+            command=body.command,
+            command_args=body.command_args if body.command_args else None,
+            explicit_refs=body.explicit_refs if body.explicit_refs else None,
         ):
             yield chunk
-            # chunk イベントを蓄積してアシスタントメッセージを記録
-            import json as _json
-            if chunk.startswith("data:"):
-                try:
-                    data = _json.loads(chunk[5:].strip())
-                    if data.get("type") == "chunk":
-                        accumulated.append(data.get("text", ""))
-                    elif data.get("type") == "done" and accumulated:
-                        await svc.append_chat_message(
-                            project_id,
-                            body.context_scope,
-                            ChatMessage(
-                                role="assistant",
-                                content="".join(accumulated),
-                                timestamp=datetime.now(),
-                            ),
-                        )
-                except Exception:
-                    pass
+            # chunk イベントを蓄積してアシスタントメッセージを記録（コマンド以外）
+            if not body.command:
+                import json as _json
+                if chunk.startswith("data:"):
+                    try:
+                        data = _json.loads(chunk[5:].strip())
+                        if data.get("type") == "chunk":
+                            accumulated.append(data.get("text", ""))
+                        elif data.get("type") == "done" and accumulated:
+                            await svc.append_chat_message(
+                                project_id,
+                                body.context_scope,
+                                ChatMessage(
+                                    role="assistant",
+                                    content="".join(accumulated),
+                                    timestamp=datetime.now(),
+                                ),
+                            )
+                    except Exception:
+                        pass
 
     return StreamingResponse(
         _stream_with_history(),
@@ -135,6 +140,8 @@ async def review_stream(project_id: str, body: ReviewRequest) -> StreamingRespon
             body.context_scope,
             body.use_full_sources,
             _vs_service,
+            review_focus=body.command,
+            explicit_refs=body.explicit_refs if body.explicit_refs else None,
         ),
         media_type="text/event-stream",
         headers={
@@ -178,3 +185,40 @@ async def export_markdown(project_id: str) -> Response:
             "Content-Disposition": f"attachment; filename*=UTF-8''{filename_encoded}"
         },
     )
+
+
+# ─── 保存済みレビュープロンプト ─────────────────────────────────
+
+
+@router.get("/saved-prompts")
+async def list_saved_prompts(project_id: str) -> dict:
+    svc = get_service()
+    try:
+        project = await svc.get_project(project_id)
+    except KeyError:
+        _not_found(project_id)
+    return project.saved_review_prompts
+
+
+@router.post("/saved-prompts/{name}")
+async def save_prompt(project_id: str, name: str, body: dict) -> dict:
+    svc = get_service()
+    try:
+        project = await svc.get_project(project_id)
+    except KeyError:
+        _not_found(project_id)
+    project.saved_review_prompts[name] = body.get("prompt", "")
+    svc._mark_dirty(project_id)
+    return {"status": "ok"}
+
+
+@router.delete("/saved-prompts/{name}")
+async def delete_prompt(project_id: str, name: str) -> dict:
+    svc = get_service()
+    try:
+        project = await svc.get_project(project_id)
+    except KeyError:
+        _not_found(project_id)
+    project.saved_review_prompts.pop(name, None)
+    svc._mark_dirty(project_id)
+    return {"status": "ok"}
