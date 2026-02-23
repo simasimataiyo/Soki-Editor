@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
 import json
 import logging
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, AsyncGenerator
 
 if TYPE_CHECKING:
@@ -72,6 +75,21 @@ _NO_TOOL_CALLING_MODELS = {"ollama", "llama", "mistral", "gemma", "phi"}
 
 class LLMService:
     """OpenAI 互換 API クライアント・コンテキスト構築・SSE ストリーミング。"""
+
+    def __init__(self):
+        # Jinja2環境の初期化
+        templates_dir = Path(__file__).parent / "prompts"
+        from jinja2 import Environment, FileSystemLoader, select_autoescape
+        self._jinja_env = Environment(
+            loader=FileSystemLoader(str(templates_dir)),
+            autoescape=select_autoescape(['jinja2']),
+            trim_blocks=True,
+            lstrip_blocks=True
+        )
+
+    def _load_template(self, template_name: str):
+        """Jinja2テンプレートをロードする。"""
+        return self._jinja_env.get_template(template_name)
 
     def _make_client(self, settings: LLMSettings):
         from openai import AsyncOpenAI
@@ -141,10 +159,16 @@ class LLMService:
         client = self._make_client(settings)
         sorted_sections = sorted(project.sections, key=lambda s: s.order)
 
+        # レビュー用システムプロンプトをテンプレート化
+        template = self._load_template("review_system.jinja2")
+        rendered_system_prompt = template.render(
+            additional_prompt=system_prompt if system_prompt else ""
+        )
+
         for sec in sorted_sections:
             section_context = f"# {sec.title}\n{sec.summary}\n\n{sec.content}"
             messages = [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": rendered_system_prompt},
                 {
                     "role": "user",
                     "content": f"以下のセクションをレビューしてください:\n\n{section_context}",
@@ -191,61 +215,171 @@ class LLMService:
                 "要約生成完了: model=%s, elapsed=%.2fs", settings.model, elapsed
             )
 
+    async def analyze_image_with_vision(
+        self, file_path: str, settings: LLMSettings
+    ) -> str:
+        """Vision APIで画像/PDFを解析してテキストを返す。"""
+        path = Path(file_path)
+        if not path.exists():
+            raise FileNotFoundError(f"ファイルが見つかりません: {file_path}")
+
+        # PDFの場合は1ページ目を画像として抽出
+        suffix = path.suffix.lower()
+        if suffix == ".pdf":
+            image_bytes = await asyncio.to_thread(self._extract_pdf_first_page, str(path))
+            media_type = "image/png"
+        else:
+            image_bytes = path.read_bytes()
+            media_type = self._get_media_type(suffix)
+
+        return await self._call_vision_api(image_bytes, media_type, settings,
+                                       "この画像の内容を詳しく説明してください。")
+
+    async def analyze_image_bytes_with_vision(
+        self,
+        image_bytes: bytes,
+        media_type: str,
+        settings: LLMSettings,
+        prompt_text: str = "この画像の内容を詳しく説明してください。",
+    ) -> str:
+        """バイト列の画像をVision APIで解析してテキストを返す。"""
+        return await self._call_vision_api(image_bytes, media_type, settings, prompt_text)
+
+    async def analyze_image_bytes_with_vision_stream(
+        self,
+        image_bytes: bytes,
+        media_type: str,
+        settings: LLMSettings,
+        prompt_text: str = "この画像の内容を詳しく説明してください。",
+    ):
+        """バイト列の画像をVision APIで解析してテキストをストリーミングで返す非同期ジェネレータ。"""
+        image_b64 = base64.b64encode(image_bytes).decode()
+        client = self._make_client(settings)
+
+        # プロンプトがデフォルトの場合はテンプレートを使用
+        if prompt_text == "この画像の内容を詳しく説明してください。":
+            template = self._load_template("vision_prompts.jinja2")
+            prompt_text = template.module.default_image_prompt()
+
+        stream = await client.chat.completions.create(
+            model=settings.model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{media_type};base64,{image_b64}"},
+                        },
+                        {"type": "text", "text": prompt_text},
+                    ],
+                }
+            ],
+            stream=True,
+        )
+        async for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
+
     async def analyze_image(
         self, file_path: str, settings: LLMSettings
     ) -> str:
-        """Vision API で画像解析テキストを返す。FileService に委譲。"""
-        from app.backend.services.file_service import FileService
-
-        svc = FileService()
-        return await svc.analyze_image_with_vision(file_path, settings)
+        """Vision API で画像解析テキストを返す（非推奨: analyze_image_with_visionを使用）。"""
+        return await self.analyze_image_with_vision(file_path, settings)
 
     # ------------------------------------------------------------------
     # 内部ヘルパー
     # ------------------------------------------------------------------
 
+    def _get_media_type(self, suffix: str) -> str:
+        """ファイル拡張子からメディアタイプを返す。"""
+        mapping = {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+        }
+        return mapping.get(suffix, "image/png")
+
+    def _extract_pdf_first_page(self, file_path: str) -> bytes:
+        """PDFの1ページ目を画像として抽出する（同期処理）。"""
+        import fitz  # PyMuPDF
+        from PIL import Image
+
+        doc = fitz.open(file_path)
+        page = doc.load_page(0)
+        pix = page.get_pixmap(dpi=150)
+        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        doc.close()
+
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+
+    async def _call_vision_api(
+        self, image_bytes: bytes, media_type: str, settings: LLMSettings, prompt_text: str
+    ) -> str:
+        """Vision APIを呼び出してテキストを返す共通メソッド。"""
+        image_b64 = base64.b64encode(image_bytes).decode()
+        client = self._make_client(settings)
+
+        response = await client.chat.completions.create(
+            model=settings.model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{media_type};base64,{image_b64}"},
+                        },
+                        {"type": "text", "text": prompt_text},
+                    ],
+                }
+            ],
+        )
+        return response.choices[0].message.content or ""
+
     def _build_chat_messages(
         self, project: Project, user_message: str, context_scope: str
     ) -> list[dict]:
-        # システムプロンプト構築
-        system_parts: list[str] = ["あなたは学術論文執筆を支援する AI アシスタントです。"]
+        """Jinja2テンプレートを使用してシステムプロンプトを構築する。"""
+        template = self._load_template("chat_system.jinja2")
 
-        # 有効ルール
+        # テンプレート変数の準備
         enabled_rules = [r for r in project.rules if r.enabled]
-        if enabled_rules:
-            rules_text = "\n".join(f"- {r.content}" for r in enabled_rules)
-            system_parts.append(f"## 執筆ルール\n{rules_text}")
-
-        # セクション骨子
         sorted_sections = sorted(project.sections, key=lambda s: s.order)
+
         if context_scope == "all":
-            outline = "\n".join(
-                f"- {s.title}: {s.summary}" for s in sorted_sections
-            )
-            system_parts.append(f"## 文書アウトライン\n{outline}")
+            target_section = None
+            context_scope_value = "all"
         else:
-            target = next((s for s in sorted_sections if s.id == context_scope), None)
-            if target:
-                system_parts.append(
-                    f"## 対象セクション\n{target.title}: {target.summary}"
-                )
+            target_section = next((s for s in sorted_sections if s.id == context_scope), None)
+            context_scope_value = "section"
 
-        # ソース要約
-        if project.sources:
-            summaries = "\n".join(
-                f"- {s.name}: {s.summary}" for s in project.sources if s.summary
-            )
-            if summaries:
-                system_parts.append(f"## ソース要約\n{summaries}")
+        source_summaries = [
+            {"name": s.name, "summary": s.summary}
+            for s in project.sources if s.summary
+        ]
 
-        system_content = "\n\n".join(system_parts)
+        # システムプロンプトの生成
+        system_content = template.render(
+            enabled_rules=enabled_rules,
+            sections=sorted_sections,
+            context_scope=context_scope_value,
+            target_section=target_section,
+            source_summaries=source_summaries,
+            full_sources=None  # _inject_full_sourcesで後から追加
+        )
 
-        # チャット履歴
+        # チャット履歴の構築
         history = project.chat_history.get(context_scope, [])
         messages: list[dict] = [{"role": "system", "content": system_content}]
         for msg in history:
             messages.append({"role": msg.role, "content": msg.content})
         messages.append({"role": "user", "content": user_message})
+
         return messages
 
     async def _inject_full_sources(

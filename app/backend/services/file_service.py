@@ -1,8 +1,8 @@
-"""FileService — ファイル読み込み・画像解析・サムネイル生成・ダイアログ"""
+"""FileService — ファイル読み込み・サムネイル生成・ダイアログ"""
 from __future__ import annotations
 
 import asyncio
-import base64
+import io
 import logging
 import uuid
 from pathlib import Path
@@ -14,7 +14,7 @@ _SUPPORTED_TEXT_EXTENSIONS = {".txt", ".md", ".pdf", ".csv", ".docx", ".xlsx", "
 
 
 class FileService:
-    """ファイル変換、Vision API 解析、サムネイル生成を担う。"""
+    """ファイル変換、サムネイル生成を担う。"""
 
     async def read_file_as_text(self, file_path: str) -> str:
         """markitdown で .txt/.md/.pdf/.csv 等を Markdown テキストに変換する。"""
@@ -28,125 +28,6 @@ class FileService:
 
         result = await asyncio.to_thread(self._convert_with_markitdown, str(path))
         return result
-
-    async def analyze_image_with_vision(
-        self, file_path: str, settings
-    ) -> str:
-        """Vision API（GPT-4o Vision）で画像/PDF を解析してテキストを返す。"""
-        from openai import AsyncOpenAI
-
-        path = Path(file_path)
-        if not path.exists():
-            raise FileNotFoundError(f"ファイルが見つかりません: {file_path}")
-
-        # PDF の場合は 1 ページ目を画像として抽出
-        suffix = path.suffix.lower()
-        if suffix == ".pdf":
-            image_bytes = await asyncio.to_thread(self._extract_pdf_first_page, str(path))
-            media_type = "image/png"
-        else:
-            image_bytes = path.read_bytes()
-            media_type = self._get_media_type(suffix)
-
-        image_b64 = base64.b64encode(image_bytes).decode()
-
-        client_kwargs = {"api_key": settings.api_key or "dummy"}
-        if settings.endpoint_url:
-            client_kwargs["base_url"] = settings.endpoint_url
-
-        client = AsyncOpenAI(**client_kwargs)
-        response = await client.chat.completions.create(
-            model=settings.model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{media_type};base64,{image_b64}"
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": "この画像の内容を詳しく説明してください。",
-                        },
-                    ],
-                }
-            ],
-        )
-        return response.choices[0].message.content or ""
-
-    async def analyze_image_bytes_with_vision(
-        self,
-        image_bytes: bytes,
-        media_type: str,
-        settings,
-        prompt_text: str = "この画像の内容を詳しく説明してください。",
-    ) -> str:
-        """バイト列の画像をVision APIで解析してテキストを返す。"""
-        from openai import AsyncOpenAI
-
-        image_b64 = base64.b64encode(image_bytes).decode()
-
-        client_kwargs = {"api_key": settings.api_key or "dummy"}
-        if settings.endpoint_url:
-            client_kwargs["base_url"] = settings.endpoint_url
-
-        client = AsyncOpenAI(**client_kwargs)
-        response = await client.chat.completions.create(
-            model=settings.model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{media_type};base64,{image_b64}"},
-                        },
-                        {"type": "text", "text": prompt_text},
-                    ],
-                }
-            ],
-        )
-        return response.choices[0].message.content or ""
-
-    async def analyze_image_bytes_with_vision_stream(
-        self,
-        image_bytes: bytes,
-        media_type: str,
-        settings,
-        prompt_text: str = "この画像の内容を詳しく説明してください。",
-    ):
-        """バイト列の画像をVision APIで解析してテキストをストリーミングで返す非同期ジェネレータ。"""
-        from openai import AsyncOpenAI
-
-        image_b64 = base64.b64encode(image_bytes).decode()
-
-        client_kwargs = {"api_key": settings.api_key or "dummy"}
-        if settings.endpoint_url:
-            client_kwargs["base_url"] = settings.endpoint_url
-
-        client = AsyncOpenAI(**client_kwargs)
-        stream = await client.chat.completions.create(
-            model=settings.model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{media_type};base64,{image_b64}"},
-                        },
-                        {"type": "text", "text": prompt_text},
-                    ],
-                }
-            ],
-            stream=True,
-        )
-        async for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
 
     async def generate_thumbnail(
         self,
@@ -250,27 +131,3 @@ class FileService:
         img.save(str(thumb_path), "PNG")
         return str(thumb_path)
 
-    def _extract_pdf_first_page(self, file_path: str) -> bytes:
-        import io
-
-        import fitz  # PyMuPDF
-
-        doc = fitz.open(file_path)
-        page = doc.load_page(0)
-        pix = page.get_pixmap(dpi=150)
-        from PIL import Image
-
-        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        return buf.getvalue()
-
-    def _get_media_type(self, suffix: str) -> str:
-        mapping = {
-            ".png": "image/png",
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".gif": "image/gif",
-            ".webp": "image/webp",
-        }
-        return mapping.get(suffix, "image/png")
