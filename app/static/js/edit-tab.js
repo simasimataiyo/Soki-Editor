@@ -575,12 +575,22 @@ const EditTab = (() => {
   function _renderScopeSelect() {
     const sel = document.getElementById('chat-scope');
     sel.innerHTML = '<option value="all">全セクション(骨子)</option>';
-    (_project?.sections || []).sort((a, b) => a.order - b.order).forEach(sec => {
+    const sorted = [...(_project?.sections || [])].sort((a, b) => a.order - b.order);
+    const roots = sorted.filter(s => !s.parent_id);
+
+    function _renderOptions(sec, depth) {
       const opt = document.createElement('option');
       opt.value = sec.id;
-      opt.textContent = sec.title;
+      opt.textContent = '  '.repeat(depth - 1) + sec.title;
       sel.appendChild(opt);
-    });
+
+      const children = sorted.filter(s => s.parent_id === sec.id);
+      children.sort((a, b) => a.order - b.order).forEach(child => {
+        _renderOptions(child, depth + 1);
+      });
+    }
+
+    roots.forEach(sec => _renderOptions(sec, 1));
   }
 
   // ─── ユーティリティ ────────────────────────────────────

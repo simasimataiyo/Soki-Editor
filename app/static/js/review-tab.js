@@ -5,7 +5,6 @@
 const ReviewTab = (() => {
   let _project = null;
   let _sseCtrl = null;
-  let _sectionCollapsed = {};
 
   function render(project) {
     _project = project;
@@ -13,15 +12,25 @@ const ReviewTab = (() => {
     if (project.review_system_prompt) {
       document.getElementById('review-prompt').value = project.review_system_prompt;
     }
-    // スコープセレクト
+    // スコープセレクト（階層構造で表示）
     const sel = document.getElementById('review-scope');
     sel.innerHTML = '<option value="all">全セクション(骨子)</option>';
-    (project.sections || []).sort((a, b) => a.order - b.order).forEach(sec => {
+    const sorted = [...(project.sections || [])].sort((a, b) => a.order - b.order);
+    const roots = sorted.filter(s => !s.parent_id);
+
+    function _renderOptions(sec, depth) {
       const opt = document.createElement('option');
       opt.value = sec.id;
-      opt.textContent = sec.title;
+      opt.textContent = '  '.repeat(depth - 1) + sec.title;
       sel.appendChild(opt);
-    });
+
+      const children = sorted.filter(s => s.parent_id === sec.id);
+      children.sort((a, b) => a.order - b.order).forEach(child => {
+        _renderOptions(child, depth + 1);
+      });
+    }
+
+    roots.forEach(sec => _renderOptions(sec, 1));
     _renderPreview(project);
   }
 
@@ -32,54 +41,115 @@ const ReviewTab = (() => {
       const marked = window.marked;
       container.innerHTML = '';
 
+      const previewsById = {};
       previews.forEach(p => {
-        const isReferences = (p.section_id === '__references__');
-        const sec = isReferences ? null : project.sections.find(s => s.id === p.section_id);
-        const title = isReferences ? '参考文献' : (sec ? sec.title : p.section_id);
-        const isCollapsed = _sectionCollapsed[p.section_id];
-
-        const block = document.createElement('div');
-        block.className = 'review-section-block';
-        block.dataset.sectionId = p.section_id;
-
-        // 折りたたみヘッダー
-        const header = document.createElement('div');
-        header.className = 'review-section-header';
-        header.innerHTML = `
-          <span class="chevron">${isCollapsed ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
-          <h3>${escHtml(title)}</h3>
-        `;
-        block.appendChild(header);
-
-        // ボディ
-        const body = document.createElement('div');
-        body.className = 'review-section-body' + (isCollapsed ? ' collapsed' : '');
-
-        const content = document.createElement('div');
-        content.className = 'review-section-content';
-
-        const textDiv = document.createElement('div');
-        textDiv.className = 'review-section-text';
-        textDiv.innerHTML = marked ? marked.parse(p.rendered_content) : escHtml(p.rendered_content);
-
-        const commentsDiv = document.createElement('div');
-        commentsDiv.className = 'review-section-comments';
-
-        content.appendChild(textDiv);
-        content.appendChild(commentsDiv);
-        body.appendChild(content);
-        block.appendChild(body);
-
-        // 折りたたみイベント
-        header.addEventListener('click', () => {
-          _sectionCollapsed[p.section_id] = !_sectionCollapsed[p.section_id];
-          header.querySelector('.chevron').innerHTML = _sectionCollapsed[p.section_id] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN;
-          body.classList.toggle('collapsed');
-        });
-
-        container.appendChild(block);
+        previewsById[p.section_id] = p;
       });
+
+      // エディット画面と同じツリー構造でレンダリング
+      const sortedSections = [...project.sections].sort((a, b) => a.order - b.order);
+      const roots = sortedSections.filter(s => !s.parent_id);
+
+      roots.forEach(sec => {
+        _renderSectionBlock(container, sec, sortedSections, previewsById, marked, 1);
+      });
+
+      // 参考文献セクション（有効時のみ表示）
+      if (project.references_section_enabled && previewsById['__references__']) {
+        _renderReferencesBlock(container, previewsById['__references__'], marked);
+      }
     } catch (_) {}
+  }
+
+  function _renderSectionBlock(container, sec, allSorted, previewsById, marked, depth) {
+    const children = allSorted.filter(s => s.parent_id === sec.id);
+    const hasChildren = children.length > 0;
+    const preview = previewsById[sec.id];
+
+    const block = document.createElement('div');
+    block.className = `review-section-block depth-${depth}`;
+    block.dataset.sectionId = sec.id;
+
+    const level = Math.min(depth + 1, 6);
+    const tag = `h${level}`;
+
+    // ヘッダー（コラプスなし）
+    const header = document.createElement('div');
+    header.className = 'review-section-header';
+    header.innerHTML = `
+      <span class="chevron"><span class="chevron-spacer"></span></span>
+      <${tag}>${escHtml(sec.title)}</${tag}>
+    `;
+    block.appendChild(header);
+
+    // ボディ
+    const body = document.createElement('div');
+    body.className = 'review-section-body';
+
+    const content = document.createElement('div');
+    content.className = 'review-section-content';
+
+    // テキストを表示（選択可能）
+    const textDiv = document.createElement('div');
+    textDiv.className = 'review-section-text';
+    textDiv.innerHTML = marked && preview ? marked.parse(preview.rendered_content) : escHtml(preview?.rendered_content || '');
+
+    const commentsDiv = document.createElement('div');
+    commentsDiv.className = 'review-section-comments';
+
+    content.appendChild(textDiv);
+    content.appendChild(commentsDiv);
+
+    // 子セクションコンテナ
+    const childrenContainer = document.createElement('div');
+    childrenContainer.className = 'review-section-children';
+
+    body.appendChild(content);
+    body.appendChild(childrenContainer);
+    block.appendChild(body);
+
+    container.appendChild(block);
+
+    // 子セクションを再帰的にレンダリング
+    if (hasChildren) {
+      children.sort((a, b) => a.order - b.order).forEach(child => {
+        _renderSectionBlock(childrenContainer, child, allSorted, previewsById, marked, depth + 1);
+      });
+    }
+  }
+
+  function _renderReferencesBlock(container, preview, marked) {
+    const block = document.createElement('div');
+    block.className = 'review-section-block references-block';
+    block.dataset.sectionId = '__references__';
+
+    const header = document.createElement('div');
+    header.className = 'review-section-header';
+    header.innerHTML = `
+      <span class="chevron">${SVG_CHEVRON_DOWN}</span>
+      <h2>参考文献</h2>
+    `;
+    block.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'review-section-body';
+
+    const content = document.createElement('div');
+    content.className = 'review-section-content';
+
+    const textDiv = document.createElement('div');
+    textDiv.className = 'review-section-text';
+    textDiv.innerHTML = marked ? marked.parse(preview.rendered_content) : escHtml(preview.rendered_content);
+
+    const commentsDiv = document.createElement('div');
+    commentsDiv.className = 'review-section-comments';
+
+    content.appendChild(textDiv);
+    content.appendChild(commentsDiv);
+    body.appendChild(content);
+    block.appendChild(body);
+
+    container.appendChild(block);
   }
 
   function _addCommentCard(sectionId, comment) {
@@ -154,7 +224,6 @@ const ReviewTab = (() => {
   function reset() {
     _project = null;
     if (_sseCtrl) { _sseCtrl.abort(); _sseCtrl = null; }
-    _sectionCollapsed = {};
   }
 
   return { render, bindEvents, reset };

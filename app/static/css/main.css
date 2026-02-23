@@ -471,7 +471,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   color: var(--color-text);
 }
 
-.section-body { padding-left: 26px; }
+.section-body { padding: 32px; }
 .section-body.collapsed { display: none; }
 
 .section-summary {
@@ -501,9 +501,6 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   min-height: 16em; /* 編集中は10行分の縦幅を確保 */
 }
 .section-block.selected .section-summary,
-.section-block.selected > .section-body > .section-content-wrapper > .section-content {
-  margin-right: 32px;
-}
 .section-content[contenteditable] { outline: none; }
 .section-content[contenteditable]:focus { background: var(--color-bg); border-radius: 4px; padding: 4px; }
 .section-content:empty::before {
@@ -728,8 +725,8 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   align-items: center;
   gap: 8px;
   padding: 14px 0;
-  cursor: pointer;
-  user-select: none;
+  cursor: default;
+  user-select: text;
 }
 .review-section-header .chevron {
   width: 16px;
@@ -753,7 +750,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   grid-template-columns: 1fr 1fr;
   gap: 0;
 }
-.review-section-text { padding: 14px; line-height: 1.7; overflow-wrap: break-word; font-size: 14px; }
+.review-section-text { padding: 14px; line-height: 1.7; overflow-wrap: break-word; font-size: 14px; user-select: text; }
 .review-section-comments { padding: 0 0 0 16px; display: flex; flex-direction: column; gap: 10px; }
 .comment-card { border: 1px solid var(--color-border); border-radius: var(--radius); overflow: hidden; background: var(--color-surface); }
 .comment-card-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--color-border); background: var(--color-bg); }
