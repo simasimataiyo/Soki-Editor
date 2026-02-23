@@ -186,7 +186,6 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 }
 .outline-item,
 .item-list li,
-.material-card,
 .rule-tree-category,
 .rule-tree-rule {
   height: 40px;
@@ -764,11 +763,17 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .comment-card-body { padding: 10px 12px; font-size: 13px; line-height: 1.6; }
 
 /* ─── マテリアルリスト（縦型カード） ─────────────────────── */
-.material-card-list { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+.material-card-list { padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; }
 .material-card {
+  /* height: 40px; */
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  transition: background .1s;
+  overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  padding: 0 12px;
+  padding: 12px;
   gap: 10px;
   transition: border-color .15s, background .15s;
 }
@@ -797,6 +802,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 
 /* マテリアル詳細 画像プレビュー */
 .material-preview {
+  position: relative;
   width: 100%;
   background: var(--color-bg);
   border-radius: 8px;
@@ -809,6 +815,35 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 }
 .material-preview img { max-width: 100%; max-height: 400px; object-fit: contain; }
 .material-preview .preview-placeholder { color: var(--color-text-muted); font-size: 48px; }
+.material-preview .drag-drop-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+  pointer-events: none;
+}
+.material-preview.drag-over .drag-drop-overlay { display: flex; }
+
+.source-drop-area {
+  position: relative;
+  overflow: hidden;
+}
+.source-drop-area .drag-drop-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+  pointer-events: none;
+}
+.source-drop-area.drag-over .drag-drop-overlay { display: flex; }
 
 /* ─── 設定タブ ───────────────────────────────────────────── */
 .settings-container { max-width: 600px; margin: 40px auto; padding: 0 20px; }
@@ -994,6 +1029,61 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 }
 .section-title-toggle:hover {
   background: var(--color-bg);
+}
+
+/* ─── PDF解析モーダル共通 ────────────────────────────────── */
+.pdf-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.pdf-modal-header h3 { margin: 0; font-size: 18px; font-weight: 700; }
+.pdf-modal-close {
+  background: none;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius);
+  flex-shrink: 0;
+}
+.pdf-modal-close:hover { background: var(--color-bg); color: var(--color-text); }
+
+.pdf-analysis-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  margin: 8px 0;
+}
+.pdf-analysis-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-text);
+  border-radius: 50%;
+  animation: pdf-spin .6s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes pdf-spin { to { transform: rotate(360deg); } }
+
+.pdf-analysis-result {
+  margin-top: 8px;
+  padding: 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  min-height: 80px;
+  max-height: 280px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* ─── PDFページ選択モーダル ────────────────────────────────── */

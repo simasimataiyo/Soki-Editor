@@ -9,6 +9,7 @@ const SettingsTab = (() => {
     document.getElementById('settings-api-key').value = s.api_key || '';
     document.getElementById('settings-endpoint').value = s.endpoint_url || '';
     document.getElementById('settings-model').value = s.model || 'gpt-4o';
+    document.getElementById('settings-pdf-dpi').value = s.pdf_page_dpi ?? 96;
   }
 
   function bindEvents() {
@@ -21,6 +22,7 @@ const SettingsTab = (() => {
         api_key: document.getElementById('settings-api-key').value.trim(),
         endpoint_url: document.getElementById('settings-endpoint').value.trim() || null,
         model: document.getElementById('settings-model').value.trim() || 'gpt-4o',
+        pdf_page_dpi: parseInt(document.getElementById('settings-pdf-dpi').value, 10) || 96,
       };
 
       try {
