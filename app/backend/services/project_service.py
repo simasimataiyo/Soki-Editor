@@ -135,6 +135,11 @@ class ProjectService:
         project.data_dir = new_data_dir
         self._mark_dirty(project_id)
 
+    async def update_references_section_enabled(self, project_id: str, enabled: bool) -> None:
+        project = await self.get_project(project_id)
+        project.references_section_enabled = enabled
+        self._mark_dirty(project_id)
+
     # ------------------------------------------------------------------
     # ルール CRUD
     # ------------------------------------------------------------------

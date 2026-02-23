@@ -12,6 +12,7 @@ const StateManager = (() => {
     activeRuleCategoryId: null,
     activeRuleId: null,
     activeSectionId: null,
+    selectedSectionId: null,
   };
 
   /** 状態を更新して statechange イベントを dispatch する。 */
@@ -38,7 +39,27 @@ const StateManager = (() => {
     return state.project;
   }
 
-  return { setState, setProject, setActiveTab, getState, getProject };
+  function setSelectedSectionId(id) {
+    // 選択変更は UI 側で _updateDocViewEditMode() が処理するため
+    // statechange (フルレンダリング) はトリガーしない
+    state.selectedSectionId = id;
+  }
+
+  function getSelectedSectionId() {
+    return state.selectedSectionId;
+  }
+
+  /** プロジェクト切り替え時に選択状態をリセットする。 */
+  function resetSelections() {
+    state.activeSourceId = null;
+    state.activeMaterialId = null;
+    state.activeRuleCategoryId = null;
+    state.activeRuleId = null;
+    state.activeSectionId = null;
+    state.selectedSectionId = null;
+  }
+
+  return { setState, setProject, setActiveTab, getState, getProject, setSelectedSectionId, getSelectedSectionId, resetSelections };
 })();
 
 // グローバル公開

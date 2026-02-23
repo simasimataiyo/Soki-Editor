@@ -146,6 +146,18 @@ async def update_settings(project_id: str, body: LLMSettings) -> LLMSettings:
         raise HTTPException(status_code=404, detail="プロジェクトが見つかりません")
 
 
+@router.put("/projects/{project_id}/references-section")
+async def update_references_section(project_id: str, body: dict) -> dict:
+    svc = get_service()
+    try:
+        enabled = bool(body.get("enabled", False))
+        await svc.update_references_section_enabled(project_id, enabled)
+        await svc.flush(project_id)
+        return {"enabled": enabled}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="プロジェクトが見つかりません")
+
+
 @router.put("/projects/{project_id}/data-dir")
 async def update_data_dir(project_id: str, body: DataDirUpdate) -> dict:
     svc = get_service()

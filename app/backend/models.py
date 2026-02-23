@@ -105,6 +105,7 @@ class Project(BaseModel):
     chat_history: dict[str, list[ChatMessage]] = {}
     review_system_prompt: str = ""
     review_comments: list[ReviewComment] = []
+    references_section_enabled: bool = False
 
 
 # ─── API DTOs ──────────────────────────────────────────────────
