@@ -226,8 +226,6 @@ const ReviewTab = (() => {
 
   function _doReview(project, systemPrompt, reviewFocus, refs) {
     const scope = document.getElementById('review-scope').value;
-    const useFullSources = document.getElementById('review-full-sources').checked;
-
     // 各セクションのコメントエリアをクリア
     document.querySelectorAll('.review-section-comments').forEach(el => { el.innerHTML = ''; });
 
@@ -238,7 +236,6 @@ const ReviewTab = (() => {
     const body = {
       system_prompt: systemPrompt || '',
       context_scope: scope,
-      use_full_sources: useFullSources,
     };
 
     // レビューフォーカスコマンド
@@ -249,7 +246,6 @@ const ReviewTab = (() => {
     // @参照
     if (refs && refs.length > 0) {
       body.explicit_refs = refs.map(r => r.id);
-      body.use_full_sources = true;
     }
 
     _sseCtrl = ApiClient.openSSE(

@@ -8,10 +8,7 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, AsyncGenerator
-
-if TYPE_CHECKING:
-    from app.backend.services.vector_store_service import VectorStoreService
+from typing import AsyncGenerator
 
 from app.backend.models import LLMSettings, Project
 
@@ -168,6 +165,25 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_sources",
+            "description": "参考文献の全文を取得する。参考文献の概要一覧を確認し、タスクの実行に必要なソースのIDを最大4つまで指定してください。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "maxItems": 4,
+                        "description": "取得するソースのIDリスト（最大4つ）",
+                    },
+                },
+                "required": ["source_ids"],
+            },
+        },
+    },
 ]
 
 # Tool Calling 非対応モデルの識別キーワード
@@ -209,13 +225,15 @@ class LLMService:
         project: Project,
         user_message: str,
         context_scope: str,
-        use_full_sources: bool,
-        vector_store_service: "VectorStoreService",
         command: str | None = None,
         command_args: list[str] | None = None,
         explicit_refs: list[str] | None = None,
     ) -> AsyncGenerator[str, None]:
-        """SSE ペイロード文字列を yield する。形式: data: {json}\\n\\n"""
+        """SSE ペイロード文字列を yield する。形式: data: {json}\\n\\n
+
+        fetch_sources ツールコールを検出した場合、バックエンドでソース全文を解決し
+        再度 LLM API を呼び出す多段フローを実行する（フロントエンドには透過的）。
+        """
         settings = project.settings
         client = self._make_client(settings)
 
@@ -225,38 +243,104 @@ class LLMService:
                 command, command_args or [], explicit_refs or [],
             )
         else:
-            messages = self._build_chat_messages(project, user_message, context_scope)
-
-        # ソース全文参照（コマンドモードでは explicit_refs で既に注入済み）
-        if use_full_sources and not command:
-            messages = await self._inject_full_sources(
-                project, user_message, messages, vector_store_service
+            messages = self._build_chat_messages(
+                project, user_message, context_scope,
+                explicit_refs=explicit_refs,
             )
 
         start = time.time()
         try:
             # プロンプト出力（デバッグ用）
-            print("=" * 60)
-            print("=== LLM API呼び出しプロンプト ===")
-            print(f"Model: {settings.model}")
-            print(f"Messages ({len(messages)} 件):")
-            for i, msg in enumerate(messages):
-                print(f"  [{i}] {msg.get('role', 'unknown')}:")
-                print(f"    {msg.get('content', '')}")
-            print("=" * 60)
+            self._debug_print_messages(settings.model, messages)
 
             call_kwargs: dict = {
                 "model": settings.model,
                 "messages": messages,
                 "stream": True,
             }
-            if self._supports_tool_calling(settings.model):
+            use_tools = self._supports_tool_calling(settings.model)
+            if use_tools:
                 call_kwargs["tools"] = TOOLS
                 call_kwargs["tool_choice"] = "auto"
 
-            stream = await self._chat_with_retry(client, call_kwargs)
-            async for event in self._process_chat_stream(stream):
-                yield event
+            # 多段ループ: fetch_sources が呼ばれたら全文を注入して再呼び出し
+            max_rounds = 3
+            for round_num in range(max_rounds):
+                stream = await self._chat_with_retry(client, call_kwargs)
+
+                text_chunks: list[str] = []
+                all_tool_calls: list[dict] = []
+
+                async for etype, data in self._iter_stream_events(stream):
+                    if etype == "chunk":
+                        yield self._sse("chunk", data)
+                        text_chunks.append(data["text"])
+                    elif etype == "tool_call":
+                        all_tool_calls.append(data)
+
+                # fetch_sources とフロントエンド向けツールコールを分離
+                source_fetches = [
+                    tc for tc in all_tool_calls if tc["tool"] == "fetch_sources"
+                ]
+                frontend_tools = [
+                    tc for tc in all_tool_calls if tc["tool"] != "fetch_sources"
+                ]
+
+                # フロントエンド向けツールコールは即座に yield
+                for tc in frontend_tools:
+                    yield self._sse(
+                        "tool_call", {"tool": tc["tool"], "args": tc["args"]}
+                    )
+
+                if not source_fetches:
+                    break  # ソース取得不要 → 完了
+
+                # 多段: assistant メッセージ + tool 結果を追加して再呼び出し
+                assistant_tool_calls = [
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["tool"],
+                            "arguments": json.dumps(
+                                tc["args"], ensure_ascii=False
+                            ),
+                        },
+                    }
+                    for tc in all_tool_calls
+                ]
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": "".join(text_chunks) or None,
+                        "tool_calls": assistant_tool_calls,
+                    }
+                )
+                for tc in source_fetches:
+                    ids = tc["args"].get("source_ids", [])[:4]
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": self._resolve_source_full_texts(
+                                project, ids
+                            ),
+                        }
+                    )
+                for tc in frontend_tools:
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": "実行完了",
+                        }
+                    )
+                call_kwargs["messages"] = messages
+                logger.info(
+                    "fetch_sources ラウンド %d 完了、再呼び出し", round_num + 1
+                )
+
+            yield self._sse("done", {})
 
         except Exception as e:
             logger.error("LLM チャットエラー: %s", e)
@@ -272,8 +356,6 @@ class LLMService:
         project: Project,
         system_prompt: str,
         context_scope: str,
-        use_full_sources: bool,
-        vector_store_service: "VectorStoreService",
         review_focus: str | None = None,
         explicit_refs: list[str] | None = None,
     ) -> AsyncGenerator[str, None]:
@@ -517,6 +599,45 @@ class LLMService:
         )
         return response.choices[0].message.content or ""
 
+    @staticmethod
+    def _trim_history_by_size(
+        messages: list[dict], max_chars: int = 30000
+    ) -> list[dict]:
+        """メッセージリストの合計文字数が上限を超える場合、古い履歴を削除する。
+
+        system メッセージ（先頭）と最新の user メッセージ（末尾）は常に保持し、
+        その間の履歴メッセージを古い方から削除してサイズを制限する。
+        """
+        if len(messages) <= 2:
+            return messages
+
+        total = sum(len(m.get("content", "") or "") for m in messages)
+        if total <= max_chars:
+            return messages
+
+        # system (先頭) + 最新 user (末尾) は固定
+        system_msg = messages[0]
+        last_msg = messages[-1]
+        history = messages[1:-1]
+
+        fixed_size = len(system_msg.get("content", "") or "") + len(
+            last_msg.get("content", "") or ""
+        )
+        budget = max_chars - fixed_size
+
+        # 新しい方から残す
+        kept: list[dict] = []
+        used = 0
+        for msg in reversed(history):
+            msg_size = len(msg.get("content", "") or "")
+            if used + msg_size > budget:
+                break
+            kept.append(msg)
+            used += msg_size
+        kept.reverse()
+
+        return [system_msg, *kept, last_msg]
+
     def _build_command_messages(
         self,
         project: Project,
@@ -592,18 +713,22 @@ class LLMService:
             elif msg.role == "assistant":
                 history_messages.append({"role": "assistant", "content": msg.content})
             elif msg.role == "command":
-                # コマンド履歴も含める
-                history_messages.append({"role": "user", "content": msg.content})
+                # コマンド履歴も含める（ユーザーメッセージと区別するためプレフィックス付与）
+                history_messages.append({"role": "user", "content": f"[コマンド実行] {msg.content}"})
 
         # コマンドの場合もチャット履歴を含める（文脈を保持）
         messages: list[dict] = [{"role": "system", "content": system_content}]
         messages.extend(history_messages)
         if user_message:
             messages.append({"role": "user", "content": user_message})
-        return messages
+        return self._trim_history_by_size(messages)
 
     def _build_chat_messages(
-        self, project: Project, user_message: str, context_scope: str
+        self,
+        project: Project,
+        user_message: str,
+        context_scope: str,
+        explicit_refs: list[str] | None = None,
     ) -> list[dict]:
         """Jinja2テンプレートを使用してシステムプロンプトを構築する。"""
         template = self._load_template("chat_system.jinja2")
@@ -624,15 +749,22 @@ class LLMService:
             for s in project.sources if s.summary
         ]
 
+        # 明示参照されたソース・マテリアルを解決
+        refs = explicit_refs or []
+        src_by_id = {s.id: s for s in project.sources}
+        mat_by_id = {m.id: m for m in project.materials}
+        explicit_sources = [src_by_id[rid] for rid in refs if rid in src_by_id]
+        explicit_materials = [mat_by_id[rid] for rid in refs if rid in mat_by_id]
+
         # チャット履歴の取得
         history = project.chat_history.get(context_scope, [])
 
         # 履歴中で明示参照されたソース/マテリアルの現在の状態を収集
-        src_by_id = {s.id: s for s in project.sources}
-        mat_by_id = {m.id: m for m in project.materials}
         history_ref_ids: set[str] = set()
         for msg in history:
             history_ref_ids.update(getattr(msg, "explicit_refs", []))
+        # 今回明示参照されたものは explicit_sources/materials に含まれるので除外
+        history_ref_ids -= set(refs)
         history_sources = [src_by_id[rid] for rid in history_ref_ids if rid in src_by_id]
         history_materials = [mat_by_id[rid] for rid in history_ref_ids if rid in mat_by_id]
 
@@ -643,6 +775,8 @@ class LLMService:
             context_scope=context_scope_value,
             target_section=target_section,
             source_summaries=source_summaries,
+            explicit_sources=explicit_sources,
+            explicit_materials=explicit_materials,
             history_sources=history_sources,
             history_materials=history_materials,
         )
@@ -651,41 +785,12 @@ class LLMService:
         messages: list[dict] = [{"role": "system", "content": system_content}]
         for msg in history:
             if msg.role == "command":
-                messages.append({"role": "user", "content": msg.content})
+                messages.append({"role": "user", "content": f"[コマンド実行] {msg.content}"})
             else:
                 messages.append({"role": msg.role, "content": msg.content})
         messages.append({"role": "user", "content": user_message})
 
-        return messages
-
-    async def _inject_full_sources(
-        self,
-        project: Project,
-        query: str,
-        messages: list[dict],
-        vector_store_service: "VectorStoreService",
-    ) -> list[dict]:
-        """ソース全文をコンテキストに追加する。"""
-        source_ids = await vector_store_service.search_relevant_sources(
-            project, query, k=5
-        )
-        src_by_id = {s.id: s for s in project.sources}
-
-        # インデックスが空の場合は先頭 5 件をフォールバック
-        if not source_ids:
-            source_ids = [s.id for s in project.sources[:5]]
-
-        full_texts = []
-        for sid in source_ids:
-            src = src_by_id.get(sid)
-            if src and src.full_text:
-                full_texts.append(f"### {src.name}\n{src.full_text[:3000]}")
-
-        if full_texts:
-            injected = "\n\n".join(full_texts)
-            # システムメッセージにソース全文を追記
-            messages[0]["content"] += f"\n\n## 関連ソース全文\n{injected}"
-        return messages
+        return self._trim_history_by_size(messages)
 
     async def _chat_with_retry(self, client, call_kwargs: dict, max_retries: int = 3):
         """レートリミット(429)時に指数バックオフでリトライする。"""
@@ -705,8 +810,13 @@ class LLMService:
                 await asyncio.sleep(wait)
                 wait *= 2
 
-    async def _process_chat_stream(self, stream) -> AsyncGenerator[str, None]:
-        """ストリームを処理して SSE イベントを yield する。"""
+    async def _iter_stream_events(self, stream) -> AsyncGenerator[tuple[str, dict], None]:
+        """OpenAI ストリームを処理して構造化イベントタプルを yield する。
+
+        Yields:
+            ("chunk", {"text": str}) — テキストチャンク
+            ("tool_call", {"id": str, "tool": str, "args": dict}) — ツールコール
+        """
         tool_calls_acc: dict[int, dict] = {}
 
         async for chunk in stream:
@@ -716,21 +826,21 @@ class LLMService:
 
             # テキストチャンク
             if delta.content:
-                yield self._sse("chunk", {"text": delta.content})
+                yield ("chunk", {"text": delta.content})
 
-            # ツールコール
+            # ツールコール（増分的に蓄積）
             if delta.tool_calls:
                 for tc in delta.tool_calls:
                     idx = tc.index
                     if idx not in tool_calls_acc:
-                        tool_calls_acc[idx] = {
-                            "name": tc.function.name or "",
-                            "args_str": "",
-                        }
-                    if tc.function.name:
-                        tool_calls_acc[idx]["name"] = tc.function.name
-                    if tc.function.arguments:
-                        tool_calls_acc[idx]["args_str"] += tc.function.arguments
+                        tool_calls_acc[idx] = {"id": "", "name": "", "args_str": ""}
+                    if tc.id:
+                        tool_calls_acc[idx]["id"] = tc.id
+                    if tc.function:
+                        if tc.function.name:
+                            tool_calls_acc[idx]["name"] = tc.function.name
+                        if tc.function.arguments:
+                            tool_calls_acc[idx]["args_str"] += tc.function.arguments
 
             # 終了理由がツールコールの場合
             finish_reason = chunk.choices[0].finish_reason if chunk.choices else None
@@ -740,13 +850,38 @@ class LLMService:
                         args = json.loads(tc_data["args_str"])
                     except json.JSONDecodeError:
                         args = {}
-                    yield self._sse(
+                    yield (
                         "tool_call",
-                        {"tool": tc_data["name"], "args": args},
+                        {"id": tc_data["id"], "tool": tc_data["name"], "args": args},
                     )
                 tool_calls_acc.clear()
 
-        yield self._sse("done", {})
+    def _resolve_source_full_texts(self, project: Project, source_ids: list[str]) -> str:
+        """ソースIDリストを全文テキストに解決する。"""
+        src_by_id = {s.id: s for s in project.sources}
+        texts = []
+        for sid in source_ids[:4]:
+            src = src_by_id.get(sid)
+            if src and src.full_text:
+                texts.append(f"### [^{src.id}] {src.name}\n\n{src.full_text[:5000]}")
+        if not texts:
+            return "指定されたソースは見つかりませんでした。"
+        return "\n\n---\n\n".join(texts)
+
+    def _debug_print_messages(self, model: str, messages: list[dict]) -> None:
+        """デバッグ用: LLM API 呼び出しのプロンプトを出力する。"""
+        print("=" * 60)
+        print("=== LLM API呼び出しプロンプト ===")
+        print(f"Model: {model}")
+        print(f"Messages ({len(messages)} 件):")
+        for i, msg in enumerate(messages):
+            print(f"  [{i}] {msg.get('role', 'unknown')}:")
+            content = msg.get("content", "")
+            if content:
+                print(f"    {content[:200]}{'...' if len(str(content)) > 200 else ''}")
+            if msg.get("tool_calls"):
+                print(f"    [tool_calls: {len(msg['tool_calls'])} 件]")
+        print("=" * 60)
 
     def _sse(self, event_type: str, payload: dict) -> str:
         data = {"type": event_type, **payload}

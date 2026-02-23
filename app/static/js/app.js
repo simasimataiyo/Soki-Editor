@@ -272,8 +272,6 @@ const AppShell = (() => {
     const message = input.value.trim();
     if (!message) return;
 
-    const useFullSources = document.getElementById('chat-full-sources').checked;
-
     // コマンド解析
     const parsed = CommandParser.parse(message, 'edit');
 
@@ -327,7 +325,6 @@ const AppShell = (() => {
     // リクエストボディ構築
     const body = {
       context_scope: contextScope,
-      use_full_sources: useFullSources,
     };
 
     if (parsed.command) {
@@ -343,7 +340,6 @@ const AppShell = (() => {
     // @参照がある場合はIDリストを追加
     if (parsed.refs.length > 0) {
       body.explicit_refs = parsed.refs.map(r => r.id);
-      body.use_full_sources = true;
     }
 
     // チャット応答表示用コンテナ（チャットバー上部に追加）

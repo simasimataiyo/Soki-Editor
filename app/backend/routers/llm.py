@@ -1,6 +1,7 @@
 """LLM チャット・レビュー・エクスポート・プレビュー API"""
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import AsyncGenerator
 
@@ -11,12 +12,10 @@ from app.backend.models import ChatMessage, ChatRequest, ReviewRequest, SectionP
 from app.backend.routers.projects import get_service
 from app.backend.services.export_service import ExportService
 from app.backend.services.llm_service import LLMService
-from app.backend.services.vector_store_service import VectorStoreService
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["llm"])
 _llm_service = LLMService()
 _export_service = ExportService()
-_vs_service = VectorStoreService()
 
 
 def _not_found(project_id: str):
@@ -40,18 +39,15 @@ async def chat_stream(project_id: str, body: ChatRequest) -> StreamingResponse:
             project,
             body.user_message,
             body.context_scope,
-            body.use_full_sources,
-            _vs_service,
             command=body.command,
             command_args=body.command_args if body.command_args else None,
             explicit_refs=body.explicit_refs if body.explicit_refs else None,
         ):
             yield chunk
             # done イベント時にまとめて履歴保存（LLM呼び出し前に保存すると重複するため）
-            import json as _json
             if chunk.startswith("data:"):
                 try:
-                    data = _json.loads(chunk[5:].strip())
+                    data = json.loads(chunk[5:].strip())
                     if data.get("type") == "chunk" and not body.command:
                         accumulated.append(data.get("text", ""))
                     elif data.get("type") == "done":
@@ -171,8 +167,6 @@ async def review_stream(project_id: str, body: ReviewRequest) -> StreamingRespon
             project,
             body.system_prompt,
             body.context_scope,
-            body.use_full_sources,
-            _vs_service,
             review_focus=body.command,
             explicit_refs=body.explicit_refs if body.explicit_refs else None,
         ),
