@@ -592,15 +592,18 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 
 .llm-response-area {
   max-height: 30vh;
-  padding:8px 12px;
-  background:var(--color-primary-pale);
-  border-radius:8px;
-  font-size:1rem;
-  line-height:1.4;
-  white-space:pre-wrap;
-  display:flex;
-  overflow-y: scroll;
-  align-items:center;
+  min-height: 40px;
+  padding: 8px 12px;
+  background: var(--color-primary-pale);
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  display: block;
+  overflow-y: auto;
+  user-select: text; /* 文字列選択を有効化 */
+  cursor: text;
 }
 /* ─── 送信ボタン ─────────────────────────────────────────── */
 .btn-send { width: 32px; height: 32px; border-radius: 50%; background: var(--color-text); color: var(--color-white); font-size: 16px; display: flex; align-items: center; justify-content: center; border: none; cursor: pointer; transition: background .15s; margin-left: auto; flex-shrink: 0; }
@@ -913,6 +916,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .modal { background: var(--color-surface); border-radius: 12px; padding: 28px; min-width: 400px; max-width: 600px; box-shadow: 0 20px 60px rgba(0,0,0,.3); display: flex; flex-direction: column; gap: 16px; }
 .modal h3 { font-size: 18px; font-weight: 700; }
 .modal-lg { min-width: 560px; }
+.modal-xl { min-width: 800px; max-width: 900px; max-height: 80vh; }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
 /* ─── ファイルブラウザモーダル ────────────────────────────── */
@@ -1421,44 +1425,192 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   color: var(--color-text-muted);
 }
 
-/* ─── 履歴モーダル: スコープ表示 ───────────────────────── */
-.history-scope-header {
+/* ─── チャット履歴モーダル: 2ペインレイアウト ────────────── */
+.chat-history-panes {
+  display: flex;
+  gap: 12px;
+  min-height: 400px;
+  max-height: 520px;
+}
+
+/* 左ペイン: スコープ一覧 */
+.chat-history-scopes {
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-history-scopes-list {
+  flex: 1;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.chat-history-scope-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border-light);
+  cursor: pointer;
+  transition: background .15s;
+  font-size: 13px;
+}
+
+.chat-history-scope-item:last-child {
+  border-bottom: none;
+}
+
+.chat-history-scope-item:hover {
   background: var(--color-bg);
-  border-radius: var(--radius);
-  border: 1px solid var(--color-border);
-  margin-top: 12px;
-  margin-bottom: 4px;
 }
-.history-scope-header:first-child { margin-top: 0; }
-.history-scope-header.current {
-  border-color: var(--color-primary);
+
+.chat-history-scope-item.selected {
   background: var(--color-primary-pale);
+  border-left: 3px solid var(--color-text);
+  padding-left: 9px;
 }
-.history-scope-label {
+
+.chat-history-scope-item.current {
   font-weight: 600;
-  font-size: 13px;
+}
+
+.chat-history-scope-name {
   flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.history-scope-badge {
-  font-size: 11px;
-  background: var(--color-primary);
+
+.chat-history-scope-current-badge {
+  font-size: 10px;
+  background: var(--color-text);
   color: var(--color-white);
-  border-radius: 10px;
-  padding: 1px 8px;
+  border-radius: 8px;
+  padding: 1px 6px;
+  flex-shrink: 0;
 }
-.history-scope-switch {
-  font-size: 12px;
-  padding: 2px 10px;
+
+.chat-history-scope-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity .15s;
 }
-.history-scope-empty {
-  font-size: 13px;
+
+.chat-history-scope-item:hover .chat-history-scope-actions {
+  opacity: 1;
+}
+
+.chat-history-scope-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
   color: var(--color-text-muted);
-  padding: 4px 12px 8px;
+  font-size: 14px;
+  line-height: 1;
 }
+
+.chat-history-scope-btn:hover {
+  background: var(--color-bg);
+  color: var(--color-danger);
+}
+
+/* 右ペイン: チャット一覧 */
+.chat-history-messages {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 320px;
+}
+
+.chat-history-messages-list {
+  flex: 1;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-history-placeholder {
+  color: var(--color-text-muted);
+  text-align: center;
+  padding: 40px;
+  font-size: 13px;
+}
+
+.chat-history-msg {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 85%;
+  user-select: text;
+}
+
+.chat-history-msg.user {
+  background: var(--color-text);
+  color: var(--color-white);
+  align-self: flex-end;
+}
+
+.chat-history-msg.assistant {
+  background: var(--color-bg);
+  align-self: flex-start;
+}
+
+.chat-history-msg.command {
+  background: #fff8e1;
+  border: 1px solid #ffd54f;
+  align-self: center;
+  max-width: 95%;
+}
+
+.chat-history-msg-role {
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-history-msg-role.user {
+  color: var(--color-white);
+  opacity: 0.8;
+}
+
+.chat-history-msg-role.assistant {
+  color: var(--color-text-muted);
+}
+
+.chat-history-msg-role.command {
+  color: #f57c00;
+}
+
+.chat-history-msg-content {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.chat-history-msg-time {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: 6px;
+  text-align: right;
+}
+
+/* 旧スタイルの互換性維持 */
+.chat-history-content { display: none; }
+.history-msg { display: none; }
 
 .skip-link:focus {
   top: 0;

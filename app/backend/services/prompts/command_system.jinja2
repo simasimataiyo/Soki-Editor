@@ -19,6 +19,13 @@
        - 2.1 節（第2章の子, key="s2-1", parent_key="s2"）
   4. **必ず**: 全てのセクションの `parent_key` が配列内で定義された `key` のいずれかと一致するか、`null` であることを確認してください
 
+**parent_key に関する厳格なルール（違反すると親子構造が崩壊します）:**
+- `parent_key` に指定できる値は **① この配列内の他要素の `key`** または **② `null`** のみ
+- ❌ 禁止: 実際のセクションIDを `parent_key` に指定すること（例: "sec-abc123"）
+- ❌ 禁止: 定義されていない `key` を `parent_key` に指定すること
+- ❌ 禁止: `parent_key` フィールドを省略すること（必ず明示的に `null` または key を指定）
+- ✅ 必須: 親が子より先に配列に出現していること
+
 各セクションについて:
 - 適切なタイトルを設定する
 - 約150文字の概要（summary）を記述する
@@ -26,7 +33,7 @@
 
 `set_document_structure` または `create_document_structure` ツールを使用して、階層構造を一括で作成してください。
 
-{% if "replace" in command_args %}
+{% if command_mode == "replace" %}
 ### モード: 全体再生成
 既存のセクション構造をすべて破棄して新たに生成します。
 `set_document_structure` ツールを **1回** 呼び出すだけで、全削除と新規作成を一括で行えます。
@@ -44,6 +51,26 @@ sections 配列の各要素:
 - `parent_key`: 親セクションの key（ルートは null）。**必ず正しい親キーを指定してください**
 - `order`: 同じ親内での表示順（0始まり）
 
+**`order` フィールドの厳格なルール:**
+- `order` は「**同じ `parent_key` を持つセクション内での連番**」です
+- 親が変わるたびに **必ず 0 からリセット** してください
+- 配列全体の通し番号ではありません
+
+✅ 正しい例（親ごとにリセット）:
+  s1       (parent: null,  order: 0)  ← ルートの1番目
+  s2       (parent: null,  order: 1)  ← ルートの2番目
+  s1-1     (parent: s1,    order: 0)  ← s1の子の1番目 ★0にリセット
+  s1-2     (parent: s1,    order: 1)  ← s1の子の2番目
+  s1-1-1   (parent: s1-1,  order: 0)  ← s1-1の子の1番目 ★0にリセット
+  s2-1     (parent: s2,    order: 0)  ← s2の子の1番目 ★0にリセット
+
+❌ よくある間違い（通し番号になっている）:
+  s1       (parent: null,  order: 0)
+  s1-1     (parent: s1,    order: 1)  ← ❌ 0であるべき
+  s1-1-1   (parent: s1-1,  order: 2)  ← ❌ 0であるべき
+  s1-2     (parent: s1,    order: 3)  ← ❌ 1であるべき
+  s2       (parent: null,  order: 4)  ← ❌ 1であるべき
+
 **階層構造の完全な例:**
 ```json
 {
@@ -60,7 +87,7 @@ sections 配列の各要素:
 }
 ```
 
-{% elif "section" in command_args %}
+{% elif command_mode == "section" %}
 ### モード: 現在セクション配下のみ
 {% if target_section %}
 対象セクション「{{ target_section.title }}」(ID: {{ target_section.id }}) の配下にのみ子セクションを生成・修正してください。
@@ -71,6 +98,10 @@ sections 配列の各要素:
 - 概要の更新は `update_section_summary` ツールで行えます
 - 子セクションの追加は `create_section`、並べ替えは `move_section` で行えます
 - `update_section` ツールは使用しないでください
+
+**既存セクションを親にする場合の特別ルール:**
+- このモードでは `create_document_structure` ツールは使用せず、個別のツールを使用してください
+- 新しいセクションの作成は `create_section` ツールで行い、既存セクションIDを `parent_id` に直接指定できます
 
 対象セクションの現在の構造:
 {% for section in sections %}
@@ -92,7 +123,13 @@ sections 配列の各要素:
 **重要な制約:**
 - 既存セクションの削除や変更は行わないでください
 - 既存セクションと階層構造が整合するように新しいセクションを追加してください
-- 新しいセクションの `parent_key` は、新しく追加するセクションの `key` または既存セクションの ID（既存セクションを親にする場合）を指定できます
+
+**新しいセクションの `parent_key` ルール:**
+- このモードでは、新しいセクション同士の親子関係は配列内の `key` で参照してください
+- 既存セクションを親にする場合、`parent_key` に既存セクションIDを直接指定できます
+- 混在例:
+  - 既存IDを親にする: `{"key": "new-s1", "title": "...", "parent_key": "{{ target_section.id }}", "order": 0}`
+  - 新しいセクションを親にする: `{"key": "new-s1-1", "title": "...", "parent_key": "new-s1", "order": 0}`
 
 {% if sections %}
 **現在の既存セクション:**
@@ -136,45 +173,51 @@ sections 配列の各要素:
 ## タスク: 本文の拡張（加筆）
 
 {% if target_section %}
-対象セクション「{{ target_section.title }}」の本文を約{{ command_args[0] if command_args else "500" }}文字分拡張してください。
+対象セクション「{{ target_section.title }}」の本文を拡張してください。
 内容の一貫性を保ちながら、詳細な説明、具体例、論拠の補強を追加してください。
+拡張量などの具体的な指示は、ユーザーの入力（フリーテキスト）に従ってください。
 
 現在の本文:
 {{ target_section.content or '(本文なし)' }}
 
 `update_section` ツールを使用して、セクション ID `{{ target_section.id }}` の本文を更新してください。
 {% else %}
-現在選択されているセクションの本文を約{{ command_args[0] if command_args else "500" }}文字分拡張してください。
+現在選択されているセクションの本文を拡張してください。
+拡張量などの具体的な指示は、ユーザーの入力（フリーテキスト）に従ってください。
 {% endif %}
 
 {% elif command == "shorten" %}
 ## タスク: 本文の圧縮
 
 {% if target_section %}
-対象セクション「{{ target_section.title }}」の本文を約{{ command_args[0] if command_args else "500" }}文字に収まるように圧縮してください。
+対象セクション「{{ target_section.title }}」の本文を圧縮してください。
 重要な内容を維持しながら、冗長な表現を削除してください。
+圧縮後の文字数などの具体的な指示は、ユーザーの入力（フリーテキスト）に従ってください。
 
 現在の本文（{{ target_section.content | length }}文字）:
 {{ target_section.content or '(本文なし)' }}
 
 `update_section` ツールを使用して、セクション ID `{{ target_section.id }}` の本文を更新してください。
 {% else %}
-現在選択されているセクションの本文を約{{ command_args[0] if command_args else "500" }}文字に圧縮してください。
+現在選択されているセクションの本文を圧縮してください。
+圧縮後の文字数などの具体的な指示は、ユーザーの入力（フリーテキスト）に従ってください。
 {% endif %}
 
 {% elif command == "tone" %}
 ## タスク: 文体の変更
 
 {% if target_section %}
-対象セクション「{{ target_section.title }}」の文体を「{{ command_args[0] if command_args else "フォーマル" }}」に変更してください。
+対象セクション「{{ target_section.title }}」の文体を変更してください。
 内容は変更せず、表現のみを調整してください。
+文体の種類（フォーマル、カジュアルなど）は、ユーザーの入力（フリーテキスト）に従ってください。
 
 現在の本文:
 {{ target_section.content or '(本文なし)' }}
 
 `update_section` ツールを使用して、セクション ID `{{ target_section.id }}` の本文を更新してください。
 {% else %}
-現在選択されているセクションの文体を「{{ command_args[0] if command_args else "フォーマル" }}」に変更してください。
+現在選択されているセクションの文体を変更してください。
+文体の種類（フォーマル、カジュアルなど）は、ユーザーの入力（フリーテキスト）に従ってください。
 {% endif %}
 
 {% endif %}
@@ -187,8 +230,8 @@ sections 配列の各要素:
 - `update_section_title`: セクションのタイトルを変更する（section_id, title）
 - `delete_section`: セクションを削除する
 - `move_section`: セクションを別の親・位置に移動する（section_id, parent_id, order）
-- `set_document_structure`: 全セクションを削除して新しい骨子を一括作成する（/structure replace 用）
-- `create_document_structure`: 既存セクションを残したまま新しい骨子構造を一括追加する（/structure 追加モード用）
+- `set_document_structure`: 全セクションを削除して新しい骨子を一括作成する（/structure-replace 用）
+- `create_document_structure`: 既存セクションを残したまま新しい骨子構造を一括追加する（/structure-add 用）
 - `fetch_sources`: 参考文献の全文を取得する（最大4つのソースIDを指定）
 
 **構造生成ツール使用時の注意:**
@@ -290,5 +333,18 @@ sections 配列の各要素:
 {% endif %}
 
 ---
+
+{% if command == "structure" %}
+**ツール呼び出し前の必須確認チェックリスト:**
+以下を順番に確認してから `set_document_structure` / `create_document_structure` を呼び出してください：
+
+1. [ ] 全セクションに `key` が設定されているか
+2. [ ] 全セクションの `parent_key` が「この配列内の他の key」または「null」または「既存セクションID」のいずれかか
+3. [ ] ルートセクション（最上位）の `parent_key` が `null` になっているか
+4. [ ] 同じ親を持つセクションの `order` が 0 から連番になっているか
+5. [ ] 意図した階層の深さで parent_key が設定されているか（孫セクションが誤って親の子になっていないか）
+6. [ ] 同じ `parent_key` を持つセクション群のorderが、それぞれ独立して 0,1,2,... になっているか
+       （違う親のセクションと通し番号になっていないか）
+{% endif %}
 
 指示に基づいて、適切なツールを使用して処理を実行してください。

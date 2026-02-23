@@ -690,9 +690,12 @@ class LLMService:
         history_sources = [src_by_id[rid] for rid in history_ref_ids if rid in src_by_id]
         history_materials = [mat_by_id[rid] for rid in history_ref_ids if rid in mat_by_id]
 
+        # コマンド名の正規化（ハイフン区切り形式を内部形式に変換）
+        command_mode = self._normalize_command(command, command_args)
+
         system_content = template.render(
-            command=command,
-            command_args=command_args,
+            command=command_mode["base_command"],
+            command_mode=command_mode["mode"],
             enabled_rules=enabled_rules,
             sections=sorted_sections,
             context_scope=context_scope_value,
@@ -722,6 +725,31 @@ class LLMService:
         if user_message:
             messages.append({"role": "user", "content": user_message})
         return self._trim_history_by_size(messages)
+
+    @staticmethod
+    def _normalize_command(command: str, command_args: list[str]) -> dict:
+        """フロントエンドからのコマンド名を内部形式に変換する。
+
+        新しいコマンド名（ハイフン区切り）を従来の内部形式に変換：
+        - structure-replace → structure, mode=replace
+        - structure-section → structure, mode=section
+        - structure-add → structure, mode=add
+        - その他 → コマンド名をそのまま使用、modeは空文字列
+        """
+        # ハイフン区切りコマンドのパース
+        if "-" in command:
+            parts = command.split("-")
+            base = parts[0]
+            mode = "-".join(parts[1:]) if len(parts) > 1 else ""
+            return {"base_command": base, "mode": mode}
+
+        # 従来形式（command_argsで指定）は後方互換性のために維持
+        # 将来的には削除予定
+        if command == "structure" and command_args:
+            mode = command_args[0] if command_args else "add"
+            return {"base_command": "structure", "mode": mode}
+
+        return {"base_command": command, "mode": ""}
 
     def _build_chat_messages(
         self,

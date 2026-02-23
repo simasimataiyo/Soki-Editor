@@ -110,10 +110,11 @@ async def get_chat_history(
     return [m.model_dump() for m in history]
 
 
-@router.delete("/chat-history")
+@router.delete("/chat-history/{scope}")
 async def clear_chat_history(
-    project_id: str, scope: str = "all"
+    project_id: str, scope: str
 ) -> dict:
+    """指定したスコープの履歴を削除"""
     svc = get_service()
     try:
         await svc.clear_chat_history(project_id, scope)
