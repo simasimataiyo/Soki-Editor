@@ -213,14 +213,20 @@ const ReviewTab = (() => {
       return;
     }
 
-    // /review コマンド（フォーカス付きレビュー）
-    if (parsed.command && parsed.command.name === 'review') {
-      const focus = parsed.command.args[0] || null; // "structure", "rule", "source"
+    // フォーカス付きレビューコマンド（/review-structure, /review-rule, /review-source）
+    if (parsed.command && parsed.command.name.startsWith('review-')) {
+      const focus = parsed.command.name.replace('review-', ''); // "structure", "rule", "source"
       _doReview(project, parsed.freeText, focus, parsed.refs);
       return;
     }
 
-    // 通常レビュー（コマンドなし）
+    // 通常レビュー（/review またはコマンドなし）
+    if (parsed.command && parsed.command.name === 'review') {
+      _doReview(project, parsed.freeText, null, parsed.refs);
+      return;
+    }
+
+    // コマンドなしの場合は入力全体をプロンプトとして使用
     _doReview(project, rawInput, null, parsed.refs);
   }
 
@@ -238,7 +244,7 @@ const ReviewTab = (() => {
       context_scope: scope,
     };
 
-    // レビューフォーカスコマンド
+    // レビューフォーカス（"structure", "rule", "source" または null）
     if (reviewFocus) {
       body.command = reviewFocus;
     }

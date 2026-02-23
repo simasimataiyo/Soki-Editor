@@ -459,7 +459,21 @@ const EditTab = (() => {
     const result = await Modal.form('セクション編集', [
       { name: 'title', label: 'タイトル', type: 'text', value: sec.title },
       { name: 'parent_id', label: '親セクション', type: 'select', value: sec.parent_id || '', options: parentOptions },
-    ]);
+    ], {
+      confirmText: '保存',
+      extraButtons: [
+        {
+          id: 'delete',
+          label: '削除',
+          className: 'btn-danger',
+          onClick: async (_formData, overlay, resolve, closeModal) => {
+            await _deleteSection(sec);
+            resolve(null);
+            closeModal(overlay);
+          },
+        },
+      ],
+    });
     if (result === null) return;
 
     const newTitle = result.title.trim();

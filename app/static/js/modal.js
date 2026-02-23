@@ -26,17 +26,6 @@ const Modal = (() => {
     const overlay = _createOverlay();
     overlay.appendChild(modalEl);
     document.body.appendChild(overlay);
-
-    // Enterキーで最初のボタンをクリック
-    const firstButton = modalEl.querySelector('button:not([disabled])');
-    if (firstButton) {
-      firstButton.focus();
-      const handler = (e) => {
-        if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') firstButton.click();
-      };
-      modalEl.addEventListener('keydown', handler);
-    }
-
     // オーバーレイクリックで閉じない（明示的なキャンセルボタンのみ）
   }
 
@@ -75,17 +64,6 @@ const Modal = (() => {
       const overlay = modalEl.parentElement;
       const inputEl = document.getElementById(`${modalId}-input`);
 
-      // フォーカス設定
-      setTimeout(() => inputEl.focus(), 10);
-
-      // Enterキーで確定
-      inputEl.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          document.getElementById(`${modalId}-confirm`).click();
-        }
-      });
-
       // 確定ボタン
       document.getElementById(`${modalId}-confirm`).addEventListener('click', () => {
         resolve(inputEl.value);
@@ -98,13 +76,19 @@ const Modal = (() => {
         _closeModal(overlay);
       });
 
-      // Escキーでキャンセル
+      // キーハンドラ
       modalEl.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
+        if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+          e.preventDefault();
+          document.getElementById(`${modalId}-confirm`).click();
+        } else if (e.key === 'Escape') {
           resolve(null);
           _closeModal(overlay);
         }
       });
+
+      // フォーカス設定
+      setTimeout(() => inputEl.focus(), 10);
     });
   }
 
@@ -132,9 +116,10 @@ const Modal = (() => {
       _showModal(modalEl);
 
       const overlay = modalEl.parentElement;
+      const confirmBtn = document.getElementById(`${modalId}-confirm`);
 
       // 確定ボタン
-      document.getElementById(`${modalId}-confirm`).addEventListener('click', () => {
+      confirmBtn.addEventListener('click', () => {
         resolve(true);
         _closeModal(overlay);
       });
@@ -145,13 +130,19 @@ const Modal = (() => {
         _closeModal(overlay);
       });
 
-      // Escキーでキャンセル
+      // キーハンドラ（Enterで確定、Escapeでキャンセル）
       modalEl.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          confirmBtn.click();
+        } else if (e.key === 'Escape') {
           resolve(false);
           _closeModal(overlay);
         }
       });
+
+      // 確定ボタンにフォーカス
+      setTimeout(() => confirmBtn.focus(), 10);
     });
   }
 
@@ -185,9 +176,10 @@ const Modal = (() => {
 
       const overlay = modalEl.parentElement;
       const selectEl = document.getElementById(`${modalId}-select`);
+      const confirmBtn = document.getElementById(`${modalId}-confirm`);
 
       // 確定ボタン
-      document.getElementById(`${modalId}-confirm`).addEventListener('click', () => {
+      confirmBtn.addEventListener('click', () => {
         resolve(selectEl.value);
         _closeModal(overlay);
       });
@@ -204,13 +196,19 @@ const Modal = (() => {
         _closeModal(overlay);
       });
 
-      // Escキーでキャンセル
+      // キーハンドラ
       modalEl.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
+        if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+          e.preventDefault();
+          confirmBtn.click();
+        } else if (e.key === 'Escape') {
           resolve(null);
           _closeModal(overlay);
         }
       });
+
+      // selectにフォーカス
+      setTimeout(() => selectEl.focus(), 10);
     });
   }
 
@@ -219,6 +217,8 @@ const Modal = (() => {
    * @param {string} title - タイトル
    * @param {Array} fields - フィールド定義 [{name, label, type, value, options}]
    * @param {object} options - オプション
+   * @param {string} options.confirmText - 確定ボタンのテキスト（デフォルト: '追加'）
+   * @param {Array} options.extraButtons - 追加ボタン [{id, label, className, onClick}]
    * @returns {Promise<object|null>} 入力値オブジェクト（キャンセル時はnull）
    */
   async function form(title, fields, options = {}) {
@@ -255,7 +255,10 @@ const Modal = (() => {
         ${fieldHtml}
         <div class="modal-actions">
           <button class="btn btn-secondary" id="${modalId}-cancel">キャンセル</button>
-          <button class="btn btn-primary" id="${modalId}-confirm">追加</button>
+          ${options.extraButtons ? options.extraButtons.map(btn =>
+            `<button class="btn ${btn.className || 'btn-secondary'}" id="${modalId}-${btn.id}">${escHtml(btn.label)}</button>`
+          ).join('') : ''}
+          <button class="btn btn-primary" id="${modalId}-confirm">${escHtml(options.confirmText || '追加')}</button>
         </div>
       `;
 
@@ -263,25 +266,29 @@ const Modal = (() => {
       _showModal(modalEl);
 
       const overlay = modalEl.parentElement;
+      const confirmBtn = document.getElementById(`${modalId}-confirm`);
 
-      // 最初の入力欄にフォーカス
-      const firstInput = modalEl.querySelector('input, textarea, select');
-      if (firstInput) {
-        setTimeout(() => firstInput.focus(), 10);
-
-        // Enterキーで確定（textarea除く）
-        if (firstInput.tagName !== 'TEXTAREA') {
-          firstInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              document.getElementById(`${modalId}-confirm`).click();
-            }
-          });
-        }
+      // 追加ボタン（もしあれば）
+      if (options.extraButtons) {
+        options.extraButtons.forEach(btn => {
+          const btnEl = document.getElementById(`${modalId}-${btn.id}`);
+          if (btnEl && btn.onClick) {
+            btnEl.addEventListener('click', () => {
+              const result = {};
+              fields.forEach(field => {
+                const el = document.getElementById(`${modalId}-${field.name}`);
+                if (el) {
+                  result[field.name] = el.value;
+                }
+              });
+              btn.onClick(result, overlay, resolve, _closeModal);
+            });
+          }
+        });
       }
 
       // 確定ボタン
-      document.getElementById(`${modalId}-confirm`).addEventListener('click', () => {
+      confirmBtn.addEventListener('click', () => {
         const result = {};
         fields.forEach(field => {
           const el = document.getElementById(`${modalId}-${field.name}`);
@@ -299,13 +306,29 @@ const Modal = (() => {
         _closeModal(overlay);
       });
 
-      // Escキーでキャンセル
+      // キーハンドラ
       modalEl.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
+        if (e.key === 'Enter') {
+          // textarea 以外の入力フィールドで Enter が押された場合は確定
+          if (e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON') {
+            e.preventDefault();
+            confirmBtn.click();
+          }
+        } else if (e.key === 'Escape') {
           resolve(null);
           _closeModal(overlay);
         }
       });
+
+      // 最初の入力欄にフォーカス（なければ確定ボタンにフォーカス）
+      const firstInput = modalEl.querySelector('input:not([type="hidden"]), textarea, select');
+      setTimeout(() => {
+        if (firstInput) {
+          firstInput.focus();
+        } else {
+          confirmBtn.focus();
+        }
+      }, 10);
     });
   }
 

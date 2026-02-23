@@ -312,9 +312,20 @@
 
   <!-- モーダル: チャット履歴 -->
   <div class="modal-overlay" id="modal-chat-history" style="display:none">
-    <div class="modal modal-lg">
+    <div class="modal modal-xl">
       <h3>チャット履歴</h3>
-      <div id="chat-history-content" class="chat-history-content"></div>
+      <div class="chat-history-panes">
+        <!-- 左ペイン: スコープ一覧 -->
+        <div class="chat-history-scopes">
+          <div id="chat-history-scopes-list" class="chat-history-scopes-list"></div>
+        </div>
+        <!-- 右ペイン: チャット一覧 -->
+        <div class="chat-history-messages">
+          <div id="chat-history-messages-list" class="chat-history-messages-list">
+            <p class="chat-history-placeholder">左ペインからスコープを選択してください</p>
+          </div>
+        </div>
+      </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" id="btn-close-history">閉じる</button>
       </div>
