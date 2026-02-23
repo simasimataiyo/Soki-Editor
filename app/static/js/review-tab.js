@@ -12,10 +12,14 @@ const ReviewTab = (() => {
     if (project.review_system_prompt) {
       document.getElementById('review-prompt').value = project.review_system_prompt;
     }
-    // スコープセレクト（階層構造で表示）
+    _renderScopeSelect();
+  }
+
+  function _renderScopeSelect() {
     const sel = document.getElementById('review-scope');
+    if (!sel) return;
     sel.innerHTML = '<option value="all">全セクション(骨子)</option>';
-    const sorted = [...(project.sections || [])].sort((a, b) => a.order - b.order);
+    const sorted = [...(_project?.sections || [])].sort((a, b) => a.order - b.order);
     const roots = sorted.filter(s => !s.parent_id);
 
     function _renderOptions(sec, depth) {
@@ -31,6 +35,15 @@ const ReviewTab = (() => {
     }
 
     roots.forEach(sec => _renderOptions(sec, 1));
+  }
+
+  function render(project) {
+    _project = project;
+    // レビュー用プロンプトの復元
+    if (project.review_system_prompt) {
+      document.getElementById('review-prompt').value = project.review_system_prompt;
+    }
+    _renderScopeSelect();
     _renderPreview(project);
   }
 

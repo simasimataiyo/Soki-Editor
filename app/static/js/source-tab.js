@@ -627,7 +627,6 @@ const SourceTab = (() => {
 
       modal.querySelector('#pdf-btn-back').addEventListener('click', () => _showPageSelect());
       modal.querySelector('#pdf-btn-retry').addEventListener('click', () => _startAnalysis(pageNum));
-      modal.querySelector('#pdf-btn-skip').addEventListener('click', () => _showPageSelect());
 
       if (analysisText && !isError) {
         modal.querySelector('#pdf-btn-add').addEventListener('click', async () => {

@@ -115,7 +115,7 @@ async def analyze_source_image(
         raise HTTPException(status_code=422, detail="file_path が必要です")
 
     try:
-        text = await _llm_service.analyze_image(file_path, project.settings)
+        text = await _llm_service.analyze_image_with_vision(file_path, project.settings)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"画像解析失敗: {e}")
 
@@ -219,7 +219,7 @@ async def analyze_source_image_upload(
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(content)
             tmp_path = tmp.name
-        text = await _llm_service.analyze_image(tmp_path, project.settings)
+        text = await _llm_service.analyze_image_with_vision(tmp_path, project.settings)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"画像解析失敗: {e}")
     finally:
@@ -302,7 +302,7 @@ async def analyze_saved_pdf_pages(
             continue
         try:
             img_bytes = raw_path.read_bytes()
-            text = await _file_service.analyze_image_bytes_with_vision(
+            text = await _llm_service.analyze_image_bytes_with_vision(
                 img_bytes,
                 "image/jpeg",
                 project.settings,
@@ -354,7 +354,7 @@ async def analyze_saved_pdf_page_stream(
 
     async def event_stream():
         try:
-            async for chunk in _file_service.analyze_image_bytes_with_vision_stream(
+            async for chunk in _llm_service.analyze_image_bytes_with_vision_stream(
                 img_bytes, "image/jpeg", project.settings, prompt_text
             ):
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
@@ -450,7 +450,7 @@ async def analyze_pdf_pages(
     analyses = []
     for page_num, img_bytes in rendered:
         try:
-            text = await _file_service.analyze_image_bytes_with_vision(
+            text = await _llm_service.analyze_image_bytes_with_vision(
                 img_bytes,
                 "image/png",
                 project.settings,
@@ -510,7 +510,7 @@ async def analyze_pdf_page_stream(
 
     async def event_stream():
         try:
-            async for chunk in _file_service.analyze_image_bytes_with_vision_stream(
+            async for chunk in _llm_service.analyze_image_bytes_with_vision_stream(
                 img_bytes, "image/png", project.settings, prompt_text
             ):
                 yield f"data: {json.dumps({'text': chunk})}\n\n"

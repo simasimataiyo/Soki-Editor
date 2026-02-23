@@ -418,6 +418,7 @@ const EditTab = (() => {
     );
     sec.title = newTitle;
     _renderOutline();
+    _renderScopeSelect();
     const titleEl = document.querySelector(`#sec-block-${sec.id} h2,#sec-block-${sec.id} h3,#sec-block-${sec.id} h4`);
     if (titleEl) titleEl.textContent = newTitle;
   }
@@ -429,6 +430,8 @@ const EditTab = (() => {
     const oldSecs = [...project.sections];
     project.sections = project.sections.filter(s => s.id !== sec.id);
     _renderOutline();
+    _renderDocView();
+    _renderScopeSelect();
     document.getElementById(`sec-block-${sec.id}`)?.remove();
 
     UndoRedoManager.push({
@@ -466,6 +469,7 @@ const EditTab = (() => {
     );
     _renderOutline();
     _renderDocView();
+    _renderScopeSelect();
   }
 
   // ─── セクション追加ボタン ──────────────────────────────
@@ -482,6 +486,7 @@ const EditTab = (() => {
     project.sections.push(sec);
     _renderOutline();
     _renderDocView();
+    _renderScopeSelect();
   }
 
   async function _addSection() {
@@ -499,6 +504,7 @@ const EditTab = (() => {
     project.sections.push(sec);
     _renderOutline();
     _renderDocView();
+    _renderScopeSelect();
   }
 
   // ─── 文献・図表挿入ダイアログ ──────────────────────────
@@ -704,6 +710,7 @@ const EditTab = (() => {
 
     _renderOutline();
     _renderDocView();
+    _renderScopeSelect();
     showToast('セクションを移動しました', 'success');
   }
 
@@ -853,6 +860,7 @@ const EditTab = (() => {
 
     _renderOutline();
     _renderDocView();
+    _renderScopeSelect();
     _updateDocViewEditMode();
   }
 
