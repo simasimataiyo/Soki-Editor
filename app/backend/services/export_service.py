@@ -39,14 +39,23 @@ class ExportService:
                 pid = sections_by_id[pid].parent_id
             return d
 
-        for sec in sorted_sections:
-            depth = _depth(sec)
+        # 階層構造を維持してセクションを出力（再帰的）
+        roots = [s for s in sorted_sections if not s.parent_id]
+
+        def _render_section(sec: Section, depth: int) -> None:
             heading = "#" * depth
             lines.append(f"{heading} {sec.title}")
             if sec.content:
                 resolved = self.resolve_references(sec.content, ref_map, fig_map)
                 lines.append(resolved)
             lines.append("")
+            # 子セクションを再帰的に出力
+            children = [s for s in sorted_sections if s.parent_id == sec.id]
+            for child in sorted(children, key=lambda s: s.order):
+                _render_section(child, depth + 1)
+
+        for sec in roots:
+            _render_section(sec, 1)
 
         # 参考文献リスト（フラグが有効な場合のみ出力）
         if project.references_section_enabled:
