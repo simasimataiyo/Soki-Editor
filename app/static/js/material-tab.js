@@ -185,24 +185,29 @@ const MaterialTab = (() => {
     let saveTimer;
     const autoSave = () => {
       clearTimeout(saveTimer);
-      saveTimer = setTimeout(() => _saveMaterial(mat), 1000);
+      saveTimer = setTimeout(() => _saveMaterial(mat.id), 2000);
     };
     pane.querySelectorAll('input:not([readonly]), select').forEach(el => {
       el.addEventListener('input', autoSave);
       el.addEventListener('change', autoSave);
     });
 
-    // 名前フィールドの即時反映（ソースタブのtitleフィールドと同パターン）
+    // 名前フィールドの即時反映（常に最新のプロジェクトからマテリアルを参照）
     const nameEl = document.getElementById('mat-name');
     if (nameEl) {
       let nameTimer;
       nameEl.addEventListener('input', () => {
         clearTimeout(nameTimer);
         nameTimer = setTimeout(() => {
-          mat.name = nameEl.value;
-          _renderList();
-          const h2 = pane.querySelector('.detail-title-bar h2');
-          if (h2) h2.textContent = mat.name;
+          // 常に最新のプロジェクトからマテリアルを参照
+          const project = window.appState.getProject();
+          const currentMat = project.materials.find(m => m.id === mat.id);
+          if (currentMat) {
+            currentMat.name = nameEl.value;
+            _renderList();
+            const h2 = pane.querySelector('.detail-title-bar h2');
+            if (h2) h2.textContent = currentMat.name;
+          }
         }, 300);
       });
     }
@@ -228,8 +233,12 @@ const MaterialTab = (() => {
     }
   }
 
-  async function _saveMaterial(mat) {
+  async function _saveMaterial(matId) {
     const project = window.appState.getProject();
+    // マテリアルIDで常に最新を参照
+    const mat = project.materials.find(m => m.id === matId);
+    if (!mat) return;
+
     const body = {
       name: document.getElementById('mat-name')?.value || mat.name,
       type: document.getElementById('mat-type')?.value || mat.type,

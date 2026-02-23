@@ -7,7 +7,7 @@ const SourceTab = (() => {
   let _activeId = null;
 
   const BIB_TYPE_LABELS = {
-    paper: '論文', book: '図書', book_chapter: '図書の一部', web: 'Web'
+    paper: '論文', book: '図書', book_chapter: '図書の一部', web: 'Web', resource: 'リソース'
   };
 
   // 折りたたみ状態
@@ -144,6 +144,7 @@ const SourceTab = (() => {
             <textarea class="form-control" id="src-summary" rows="5">${escHtml(src.summary)}</textarea>
             <div class="source-actions" style="margin-top:8px">
               <button class="btn btn-secondary btn-sm" id="btn-summarize">ソースから要約生成</button>
+              <button class="btn btn-secondary btn-sm" id="btn-extract-bib">文献情報取得</button>
             </div>
           </div>
         </div>
@@ -215,6 +216,7 @@ const SourceTab = (() => {
     document.getElementById('btn-read-file').addEventListener('click', () => _readFile(src));
     document.getElementById('btn-analyze-image').addEventListener('click', () => _analyzeImage(src));
     document.getElementById('btn-summarize').addEventListener('click', () => _summarize(src));
+    document.getElementById('btn-extract-bib').addEventListener('click', () => _extractBibliography(src));
 
     // 内容テキストエリアへのドラッグ&ドロップ
     const dropAreaEl = pane.querySelector('.source-drop-area');
@@ -264,7 +266,7 @@ const SourceTab = (() => {
     let saveTimer;
     const autoSave = () => {
       clearTimeout(saveTimer);
-      saveTimer = setTimeout(() => _saveSource(src), 1000);
+      saveTimer = setTimeout(() => _saveSource(src.id), 2000);
     };
     pane.querySelectorAll('input:not([readonly]), textarea, select').forEach(el => {
       el.addEventListener('input', autoSave);
@@ -282,11 +284,13 @@ const SourceTab = (() => {
       book: ['title', 'author', 'year', 'publisher', 'publication_place', 'other'],
       book_chapter: ['title', 'author', 'year', 'publisher', 'editor', 'pages', 'other'],
       web: ['title', 'author', 'url', 'site_name', 'accessed_date', 'other'],
+      resource: ['title', 'author', 'created_date', 'other'],
     };
     const labels = {
       title:'タイトル', author:'著者', journal:'掲載誌', volume:'巻数', issue:'号数',
       pages:'ページ', year:'出版年', publisher:'出版社', publication_place:'出版地',
-      editor:'編者', url:'URL', site_name:'サイト名', accessed_date:'参照日', other:'その他',
+      editor:'編者', url:'URL', site_name:'サイト名', accessed_date:'参照日',
+      created_date:'作成日', other:'その他',
     };
 
     const fields = fieldSets[type] || [];
@@ -320,20 +324,27 @@ const SourceTab = (() => {
       let timer;
       el.addEventListener('input', () => {
         clearTimeout(timer);
-        timer = setTimeout(() => _saveSource(src), 1000);
-        // タイトル変更時はリスト・詳細ヘッダーを即時更新
+        timer = setTimeout(() => _saveSource(src.id), 2000);
+        // タイトル変更時は最新のソースオブジェクトを使用
         if (el.dataset.field === 'title') {
-          src.bibliography.title = el.value;
-          _renderList();
-          const h2 = document.querySelector('.detail-title-bar h2');
-          if (h2) h2.textContent = _displayTitle(src);
+          const project = window.appState.getProject();
+          const currentSrc = project.sources.find(s => s.id === src.id);
+          if (currentSrc) {
+            currentSrc.bibliography.title = el.value;
+            _renderList();
+            const h2 = document.querySelector('.detail-title-bar h2');
+            if (h2) h2.textContent = _displayTitle(currentSrc);
+          }
         }
       });
     });
   }
 
-  async function _saveSource(src) {
+  async function _saveSource(srcId) {
     const project = window.appState.getProject();
+    const src = project.sources.find(s => s.id === srcId);
+    if (!src) return;
+
     const bibType = document.getElementById('src-bib-type')?.value || src.bibliography.type;
     const bibFields = {};
     document.querySelectorAll('.bib-field').forEach(el => {
@@ -731,6 +742,21 @@ const SourceTab = (() => {
       if (idx >= 0) project.sources[idx] = updated;
       _renderDetail(src.id);
       showToast('要約を生成しました', 'success');
+    } catch (_) {}
+  }
+
+  async function _extractBibliography(src) {
+    const project = window.appState.getProject();
+    if (!(await Modal.confirm('LLMを使用して文献情報を抽出します。実行しますか？'))) return;
+    showToast('文献情報抽出中...', 'success');
+    try {
+      const updated = await ApiClient.post(
+        `/api/projects/${project.id}/sources/${src.id}/extract-bibliography`
+      );
+      const idx = project.sources.findIndex(s => s.id === src.id);
+      if (idx >= 0) project.sources[idx] = updated;
+      _renderDetail(src.id);
+      showToast('文献情報を抽出しました', 'success');
     } catch (_) {}
   }
 

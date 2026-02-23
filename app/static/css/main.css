@@ -104,6 +104,14 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   transition: background .15s;
   color: var(--color-text-muted);
   border-left: 2px solid transparent;
+  background: none;
+  border: none;
+  border-left: 2px solid transparent;
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
+  padding: 8px 4px;
+  text-align: center;
 }
 .nav-item:hover { background: var(--color-bg); }
 .nav-item.active {
@@ -117,8 +125,8 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   flex-shrink: 0;
 }
 .nav-label {
-  font-size: 10px;
-  line-height: 1;
+  font-size: 11px;
+  line-height: 1.2;
   white-space: nowrap;
 }
 
@@ -228,7 +236,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   gap: 4px;
   padding: 0 10px;
 }
-.outline-item.active { background: var(--color-primary-pale); }
+.outline-item.active { background: #e8eaed; color: var(--color-text); }
 .outline-item .item-title { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .outline-item.level-1 { padding-left: 10px; font-weight: 600; }
 .outline-item.level-2 { padding-left: 26px; }
@@ -1278,4 +1286,97 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .cmd-hint-desc {
   color: var(--color-text-muted);
   font-size: 12px;
+}
+
+/* ─── 保存状態インジケーター ───────────────────────────── */
+.save-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background 0.2s, color 0.2s;
+  margin-left: 8px;
+}
+
+.save-indicator.saving {
+  background: var(--color-primary-pale);
+  color: var(--color-primary);
+}
+
+.save-indicator.saved {
+  background: #e6f4ea;
+  color: #137333;
+}
+
+.save-indicator.error {
+  background: #fce8e6;
+  color: #c5221f;
+}
+
+/* ─── レスポンシブデザイン ───────────────────────────────── */
+
+@media (max-width: 1024px) {
+  :root {
+    --left-panel-w: 240px;
+  }
+}
+
+@media (max-width: 768px) {
+  .two-pane {
+    flex-direction: column;
+  }
+
+  .left-panel {
+    width: 100%;
+    max-height: 200px;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+  }
+}
+
+@media (max-width: 640px) {
+  :root {
+    --sidebar-w: 56px;
+  }
+
+  .nav-label {
+    display: none;
+  }
+
+  .nav-item {
+    padding: 12px 4px;
+  }
+
+  .top-bar {
+    padding: 0 12px;
+  }
+
+  .doc-view {
+    padding: 16px;
+  }
+}
+
+/* ─── フォーカスインジケーター ───────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ─── スキップリンク ───────────────────────────────────── */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  padding: 8px 16px;
+  background: var(--color-text);
+  color: var(--color-white);
+  text-decoration: none;
+  z-index: 10000;
+}
+
+.skip-link:focus {
+  top: 0;
 }

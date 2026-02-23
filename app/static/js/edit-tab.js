@@ -445,7 +445,7 @@ const EditTab = (() => {
         const sec = project.sections.find(s => s.id === sectionId);
         if (sec) sec[field] = value;
       } catch (_) {}
-    }, 800);
+    }, 2000);
   }
 
   // ─── セクション操作 ─────────────────────────────────────

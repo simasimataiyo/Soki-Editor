@@ -18,7 +18,7 @@ class LLMSettings(BaseModel):
 
 
 class Bibliography(BaseModel):
-    type: Literal["paper", "book", "book_chapter", "web"] = "paper"
+    type: Literal["paper", "book", "book_chapter", "web", "resource"] = "paper"
     include_in_references: bool = False
     title: str = ""
     author: str = ""
@@ -34,6 +34,7 @@ class Bibliography(BaseModel):
     site_name: Optional[str] = None
     accessed_date: Optional[str] = None
     other: Optional[str] = None
+    created_date: Optional[str] = None  # YYYY-MM-DD format (for resource type)
 
 
 class Source(BaseModel):

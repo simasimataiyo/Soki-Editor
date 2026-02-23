@@ -194,6 +194,14 @@ sections 配列の各要素:
 - `sections` 配列内の `parent_key` は必ず配列内の他の要素の `key` と一致するか、`null` である必要があります
 - 親セクションが子セクションより先に定義されている必要はありません（フロントエンドで順序付けされます）
 
+## 引用の挿入
+
+本文中で情報を引用する際は、以下の形式で引用マークを挿入してください：
+- `[^ref-xxx]` 形式（xxx はソースID）
+- 引用箇所の直後に挿入
+- 複数のソースを引用する場合: `[^ref-001][^ref-005]`
+- 引用は事実ベースの主張に対してのみ行い、一般的な知識や自身の推論には不要
+
 {% if user_message %}
 ## ユーザーからの追加指示
 
@@ -233,7 +241,7 @@ sections 配列の各要素:
 
 利用可能な参考文献：
 {% for source in source_summaries %}
-- {{ source.name }}: {{ source.summary or '(要約なし)' }}
+- [^{{ source.id }}] {{ source.name }}: {{ source.summary or '(要約なし)' }}
 {% endfor %}
 {% endif %}
 
