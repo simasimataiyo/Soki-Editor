@@ -49,10 +49,14 @@ const UndoRedoManager = (() => {
 
   // Ctrl+Z / Ctrl+Shift+Z / Ctrl+S
   document.addEventListener('keydown', async (e) => {
+    // contenteditable内ではブラウザのネイティブundo/redoに任せる
+    const inEditable = document.activeElement?.getAttribute('contenteditable') === 'true';
     if (e.ctrlKey && !e.shiftKey && e.key === 'z') {
+      if (inEditable) return;
       e.preventDefault();
       await undo();
     } else if (e.ctrlKey && e.shiftKey && e.key === 'Z') {
+      if (inEditable) return;
       e.preventDefault();
       await redo();
     } else if (e.ctrlKey && e.key === 's') {

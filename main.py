@@ -1,6 +1,7 @@
 """Soki Editor — アプリケーション起動スクリプト"""
 from __future__ import annotations
 
+import os
 import socket
 import threading
 import time
@@ -88,7 +89,11 @@ def main() -> None:
             min_size=(900, 600),
             resizable=True,
         )
-        webview.start(debug=True)
+        window.events.closed += lambda: os._exit(0)
+        try:
+            webview.start(debug=True)
+        finally:
+            os._exit(0)
     except ImportError:
         logger.warning("pywebview が見つかりません。ブラウザでアクセスしてください: http://127.0.0.1:%d/", port)
         # pywebview なし → スレッドが終了しないように待機

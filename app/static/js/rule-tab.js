@@ -31,8 +31,8 @@ const RuleTab = (() => {
       const catLi = document.createElement('li');
       catLi.className = 'rule-tree-category' + (cat.id === _activeCategoryId ? ' active' : '');
       catLi.innerHTML = `
-        <span class="rule-tree-toggle">${isCollapsed ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
-        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(cat.name)}</span>
+        <span class="rule-tree-toggle" data-action="toggle">${isCollapsed ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
+        <span class="item-title">${escHtml(cat.name)}</span>
       `;
 
       catLi.querySelector('.rule-tree-toggle').addEventListener('click', (e) => {
@@ -56,7 +56,7 @@ const RuleTab = (() => {
           const ruleLi = document.createElement('li');
           ruleLi.className = 'rule-tree-rule';
           const preview = (rule.content || '').substring(0, 30) + ((rule.content || '').length > 30 ? '...' : '');
-          ruleLi.innerHTML = `<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">› ${escHtml(preview)}</span>`;
+          ruleLi.innerHTML = `<span class="outline-toggle-spacer"></span><span class="item-title"> ${escHtml(preview)}</span>`;
           ruleLi.addEventListener('click', () => {
             const card = document.querySelector(`.rule-card[data-id="${rule.id}"]`);
             if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -237,6 +237,54 @@ const RuleTab = (() => {
     } catch (_) {}
   }
 
+  // 左パネル「新規追加」ボタンからルール追加（カテゴリ選択付き）
+  async function addRuleFromPanel() {
+    const project = window.appState.getProject();
+    if (!project) return;
+
+    const cats = [...project.rule_categories].sort((a, b) => a.order - b.order);
+    const catOptions = [
+      ...cats.map(c => ({ value: c.id, label: c.name })),
+      { value: '__new__', label: '＋ 新規カテゴリ...' },
+    ];
+
+    const defaultCatId = _activeCategoryId || (cats[0]?.id || '__new__');
+
+    const result = await Modal.form(
+      'ルール追加',
+      [
+        { name: 'content', label: 'ルール内容', type: 'textarea', value: '' },
+        { name: 'category_id', label: 'カテゴリ', type: 'select', value: defaultCatId, options: catOptions },
+      ]
+    );
+    if (!result) return;
+
+    let { content, category_id } = result;
+    if (!content.trim()) { showToast('ルール内容を入力してください', 'error'); return; }
+
+    if (category_id === '__new__') {
+      const newName = await Modal.prompt('カテゴリ追加', 'カテゴリ名を入力してください');
+      if (!newName) return;
+      try {
+        const cat = await ApiClient.post(`/api/projects/${project.id}/rule-categories`, { name: newName });
+        project.rule_categories.push(cat);
+        category_id = cat.id;
+      } catch (_) { return; }
+    }
+
+    try {
+      const rule = await ApiClient.post(`/api/projects/${project.id}/rules`, {
+        category_id,
+        content,
+        enabled: true,
+      });
+      project.rules.push(rule);
+      _activeCategoryId = category_id;
+      _renderAllSections();
+      _renderTree();
+    } catch (_) {}
+  }
+
   async function addRuleToCategory(categoryId) {
     const project = window.appState.getProject();
     if (!project) return;
@@ -254,33 +302,39 @@ const RuleTab = (() => {
     } catch (_) {}
   }
 
-  function exportCsv() {
+  async function exportCsv() {
     const project = window.appState.getProject();
     if (!project) return;
-    window.location.href = `/api/projects/${project.id}/rules/export`;
+    try {
+      const res = await fetch(`/api/projects/${project.id}/rules/export`);
+      if (!res.ok) { showToast('エクスポートに失敗しました', 'error'); return; }
+      const csvText = await res.text();
+      const dialog = await ApiClient.saveFileDialog('rules.csv');
+      if (!dialog || !dialog.path) return;
+      const writeResult = await ApiClient.writeFile(dialog.path, csvText);
+      if (writeResult.ok) {
+        showToast('エクスポート完了', 'success');
+      } else {
+        showToast('ファイル保存に失敗しました', 'error');
+      }
+    } catch (_) {
+      showToast('エクスポートに失敗しました', 'error');
+    }
   }
 
-  function importCsv() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.csv';
-    input.onchange = async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const project = window.appState.getProject();
-      const formData = new FormData();
-      formData.append('file', file);
-      try {
-        const res = await fetch(`/api/projects/${project.id}/rules/import`, {
-          method: 'POST', body: formData,
-        });
-        const data = await res.json();
-        showToast(`${data.imported} 件インポートしました`, 'success');
-        const updated = await ApiClient.get(`/api/projects/${project.id}`);
-        window.appState.setProject(updated);
-      } catch (_) {}
-    };
-    input.click();
+  async function importCsv() {
+    const project = window.appState.getProject();
+    if (!project) return;
+    try {
+      const dialog = await ApiClient.openFileDialog([['CSV ファイル', '*.csv']]);
+      if (!dialog || !dialog.path) return;
+      const data = await ApiClient.post(`/api/projects/${project.id}/rules/import-native`, { path: dialog.path });
+      showToast(`${data.imported} 件インポートしました`, 'success');
+      const updated = await ApiClient.get(`/api/projects/${project.id}`);
+      window.appState.setProject(updated);
+    } catch (_) {
+      showToast('インポートに失敗しました', 'error');
+    }
   }
 
   function bindEvents() {
@@ -294,5 +348,5 @@ const RuleTab = (() => {
     _sectionCollapsed = {};
   }
 
-  return { render, bindEvents, addCategory, addRuleToCategory, exportCsv, importCsv, reset };
+  return { render, bindEvents, addCategory, addRuleFromPanel, addRuleToCategory, exportCsv, importCsv, reset };
 })();

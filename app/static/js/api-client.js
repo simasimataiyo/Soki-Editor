@@ -127,6 +127,10 @@ const ApiClient = (() => {
     return _fetch('POST', '/api/dialog/open-directory', {});
   }
 
+  async function writeFile(path, content) {
+    return _fetch('POST', '/api/dialog/write-file', { path, content });
+  }
+
   return {
     get: (path) => _fetch('GET', path),
     post: (path, body) => _fetch('POST', path, body),
@@ -136,5 +140,6 @@ const ApiClient = (() => {
     openFileDialog,
     saveFileDialog,
     openDirectoryDialog,
+    writeFile,
   };
 })();

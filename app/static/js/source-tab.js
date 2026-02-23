@@ -167,6 +167,42 @@ const SourceTab = (() => {
     document.getElementById('btn-analyze-image').addEventListener('click', () => _analyzeImage(src));
     document.getElementById('btn-summarize').addEventListener('click', () => _summarize(src));
 
+    // 内容テキストエリアへのドラッグ&ドロップ
+    const fullTextEl = document.getElementById('src-full-text');
+    if (fullTextEl) {
+      fullTextEl.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        fullTextEl.classList.add('drag-over');
+      });
+      fullTextEl.addEventListener('dragleave', () => {
+        fullTextEl.classList.remove('drag-over');
+      });
+      fullTextEl.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        fullTextEl.classList.remove('drag-over');
+        const file = e.dataTransfer.files[0];
+        if (!file) return;
+        const project = window.appState.getProject();
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+          const res = await fetch(
+            `/api/projects/${project.id}/sources/${src.id}/read-file-upload`,
+            { method: 'POST', body: formData }
+          );
+          if (!res.ok) { showToast('読み込み失敗', 'error'); return; }
+          const updated = await res.json();
+          const idx = project.sources.findIndex(s => s.id === src.id);
+          if (idx >= 0) project.sources[idx] = updated;
+          _renderDetail(src.id);
+          showToast('ファイルを読み込みました', 'success');
+        } catch (_) {
+          showToast('ファイル読み込みに失敗しました', 'error');
+        }
+      });
+    }
+
     // 自動保存（デバウンス）
     let saveTimer;
     const autoSave = () => {
@@ -316,6 +352,11 @@ const SourceTab = (() => {
     input.onchange = async (e) => {
       const file = e.target.files[0];
       if (!file) return;
+      // PDFの場合はページ選択フローへ
+      if (file.name.toLowerCase().endsWith('.pdf')) {
+        await _analyzePdfWithPageSelection(src, file);
+        return;
+      }
       showToast('画像解析中...', 'success');
       const formData = new FormData();
       formData.append('file', file);
@@ -334,6 +375,104 @@ const SourceTab = (() => {
       }
     };
     input.click();
+  }
+
+  async function _analyzePdfWithPageSelection(src, file) {
+    const project = window.appState.getProject();
+    showToast('PDFを読み込み中...', 'success');
+
+    // Step 1: サムネイル取得
+    const formData1 = new FormData();
+    formData1.append('file', file);
+    let thumbnails;
+    try {
+      const res = await fetch(
+        `/api/projects/${project.id}/sources/${src.id}/pdf-thumbnails`,
+        { method: 'POST', body: formData1 }
+      );
+      if (!res.ok) { showToast('PDF読み込み失敗', 'error'); return; }
+      const data = await res.json();
+      thumbnails = data.thumbnails;
+    } catch (_) {
+      showToast('PDF読み込みに失敗しました', 'error');
+      return;
+    }
+    if (!thumbnails || thumbnails.length === 0) { showToast('ページが見つかりません', 'error'); return; }
+
+    // Step 2: ページ選択モーダル表示
+    const selectedPages = await _showPdfPageModal(thumbnails);
+    if (selectedPages === null || selectedPages.length === 0) return;
+
+    // Step 3: 選択ページをVision解析
+    showToast('画像認識中...', 'success');
+    const formData2 = new FormData();
+    formData2.append('file', file);
+    formData2.append('pages', selectedPages.join(','));
+    try {
+      const res = await fetch(
+        `/api/projects/${project.id}/sources/${src.id}/analyze-pdf-pages`,
+        { method: 'POST', body: formData2 }
+      );
+      if (!res.ok) { const d = await res.json(); showToast(d.detail || '解析失敗', 'error'); return; }
+      const updated = await res.json();
+      const idx = project.sources.findIndex(s => s.id === src.id);
+      if (idx >= 0) project.sources[idx] = updated;
+      _renderDetail(src.id);
+      showToast('画像認識完了', 'success');
+    } catch (_) {
+      showToast('画像認識に失敗しました', 'error');
+    }
+  }
+
+  function _showPdfPageModal(thumbnails) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      modal.style.maxWidth = '700px';
+      modal.style.width = '90vw';
+
+      const thumbsHtml = thumbnails.map(t => `
+        <label class="pdf-page-thumb">
+          <input type="checkbox" value="${t.page}" />
+          <img src="${escHtml(t.data)}" alt="${escHtml(t.label)}" />
+          <span class="pdf-page-label">${escHtml(t.label)}</span>
+        </label>
+      `).join('');
+
+      modal.innerHTML = `
+        <h3 style="margin-bottom:8px">ページを選択</h3>
+        <p style="color:var(--color-text-muted);font-size:13px;margin-bottom:12px">解析するページを選択してください（複数選択可）</p>
+        <div class="pdf-page-grid">${thumbsHtml}</div>
+        <div class="modal-actions" style="margin-top:16px">
+          <button class="btn btn-secondary" id="pdf-modal-cancel">キャンセル</button>
+          <button class="btn btn-primary" id="pdf-modal-confirm">解析実行</button>
+        </div>
+      `;
+
+      // チェックボックスの選択状態をラベルに反映
+      modal.querySelectorAll('.pdf-page-thumb input').forEach(cb => {
+        cb.addEventListener('change', () => {
+          cb.closest('.pdf-page-thumb').classList.toggle('selected', cb.checked);
+        });
+      });
+
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+
+      modal.querySelector('#pdf-modal-cancel').addEventListener('click', () => {
+        overlay.remove();
+        resolve(null);
+      });
+      modal.querySelector('#pdf-modal-confirm').addEventListener('click', () => {
+        const checked = [...modal.querySelectorAll('input[type="checkbox"]:checked')];
+        const pages = checked.map(cb => parseInt(cb.value));
+        overlay.remove();
+        resolve(pages);
+      });
+    });
   }
 
   async function _summarize(src) {
@@ -361,33 +500,40 @@ const SourceTab = (() => {
     });
   }
 
-  function exportCsv() {
+  async function exportCsv() {
     const project = window.appState.getProject();
     if (!project) return;
-    window.location.href = `/api/projects/${project.id}/sources/export`;
+    try {
+      const res = await fetch(`/api/projects/${project.id}/sources/export`);
+      if (!res.ok) { showToast('エクスポートに失敗しました', 'error'); return; }
+      const csvText = await res.text();
+      // pywebview ネイティブ保存ダイアログ
+      const dialog = await ApiClient.saveFileDialog('sources.csv');
+      if (!dialog || !dialog.path) return;
+      const writeResult = await ApiClient.writeFile(dialog.path, csvText);
+      if (writeResult.ok) {
+        showToast('エクスポート完了', 'success');
+      } else {
+        showToast('ファイル保存に失敗しました', 'error');
+      }
+    } catch (_) {
+      showToast('エクスポートに失敗しました', 'error');
+    }
   }
 
-  function importCsv() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.csv';
-    input.onchange = async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const project = window.appState.getProject();
-      const formData = new FormData();
-      formData.append('file', file);
-      try {
-        const res = await fetch(`/api/projects/${project.id}/sources/import`, {
-          method: 'POST', body: formData,
-        });
-        const data = await res.json();
-        showToast(`${data.imported} 件インポートしました`, 'success');
-        const updated = await ApiClient.get(`/api/projects/${project.id}`);
-        window.appState.setProject(updated);
-      } catch (_) {}
-    };
-    input.click();
+  async function importCsv() {
+    const project = window.appState.getProject();
+    if (!project) return;
+    try {
+      const dialog = await ApiClient.openFileDialog([['CSV ファイル', '*.csv']]);
+      if (!dialog || !dialog.path) return;
+      const data = await ApiClient.post(`/api/projects/${project.id}/sources/import-native`, { path: dialog.path });
+      showToast(`${data.imported} 件インポートしました`, 'success');
+      const updated = await ApiClient.get(`/api/projects/${project.id}`);
+      window.appState.setProject(updated);
+    } catch (_) {
+      showToast('インポートに失敗しました', 'error');
+    }
   }
 
   function reset() {

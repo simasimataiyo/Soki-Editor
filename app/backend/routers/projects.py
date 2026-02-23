@@ -54,7 +54,12 @@ async def create_project(body: ProjectCreate) -> Project:
         await svc.update_data_dir(project.id, actual_data_dir)
         project = await svc.get_project(project.id)
 
+    # デフォルトルールカテゴリを追加
+    for cat_name in ["表現方法", "心構え", "その他"]:
+        await svc.add_rule_category(project.id, cat_name)
+
     await svc.flush(project.id)
+    project = await svc.get_project(project.id)
     return project
 
 
@@ -188,6 +193,22 @@ def dialog_save_file(body: dict = {}) -> dict:
     svc = FileService()
     path = svc.save_file_dialog(body.get("default_filename", ""))
     return {"path": path}
+
+
+@router.post("/dialog/write-file")
+def dialog_write_file(body: dict) -> dict:
+    """指定パスにコンテンツを書き込む。"""
+    import pathlib
+
+    path = body.get("path", "")
+    content = body.get("content", "")
+    if not path:
+        return {"ok": False, "error": "path is required"}
+    try:
+        pathlib.Path(path).write_text(content, encoding="utf-8-sig")
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 @router.post("/dialog/open-directory")

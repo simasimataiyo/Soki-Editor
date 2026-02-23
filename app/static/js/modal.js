@@ -32,7 +32,7 @@ const Modal = (() => {
     if (firstButton) {
       firstButton.focus();
       const handler = (e) => {
-        if (e.key === 'Enter') firstButton.click();
+        if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') firstButton.click();
       };
       modalEl.addEventListener('keydown', handler);
     }
