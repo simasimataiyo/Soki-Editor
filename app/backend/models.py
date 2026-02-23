@@ -80,9 +80,12 @@ class Section(BaseModel):
 
 
 class ChatMessage(BaseModel):
-    role: Literal["user", "assistant"]
+    role: Literal["user", "assistant", "command"]
     content: str
     timestamp: datetime
+    command_name: Optional[str] = None  # コマンド名（role="command"の場合）
+    command_args: list[str] = []        # コマンド引数
+    explicit_refs: list[str] = []       # このメッセージで明示参照したソース/マテリアルID
 
 
 class ReviewComment(BaseModel):

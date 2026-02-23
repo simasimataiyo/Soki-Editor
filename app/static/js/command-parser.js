@@ -49,6 +49,11 @@ const CommandParser = (() => {
           return { style, rest: parts };
         },
       },
+      clear: {
+        description: '新しいスコープを作成して会話をリセット',
+        knownArgs: [],
+        requiresLLM: false,
+      },
     },
     review: {
       review: {

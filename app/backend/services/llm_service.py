@@ -557,6 +557,18 @@ class LLMService:
             mat_by_id[rid] for rid in explicit_refs if rid in mat_by_id
         ]
 
+        # 同一スコープの履歴を取得
+        history = project.chat_history.get(context_scope, [])
+
+        # 履歴中で明示参照されたソース/マテリアルの現在の状態を収集
+        history_ref_ids: set[str] = set()
+        for msg in history:
+            history_ref_ids.update(getattr(msg, "explicit_refs", []))
+        # 今回のコマンドで明示参照されたものは explicit_sources/materials に含まれるので除外
+        history_ref_ids -= set(explicit_refs)
+        history_sources = [src_by_id[rid] for rid in history_ref_ids if rid in src_by_id]
+        history_materials = [mat_by_id[rid] for rid in history_ref_ids if rid in mat_by_id]
+
         system_content = template.render(
             command=command,
             command_args=command_args,
@@ -567,11 +579,25 @@ class LLMService:
             source_summaries=source_summaries,
             explicit_sources=explicit_sources,
             explicit_materials=explicit_materials,
+            history_sources=history_sources,
+            history_materials=history_materials,
             user_message=user_message,
         )
 
-        # コマンドの場合はチャット履歴を含めない（ステートレス操作）
+        # 同一スコープの履歴（チャット履歴をコンテキストに追加）
+        history_messages = []
+        for msg in history:
+            if msg.role == "user":
+                history_messages.append({"role": "user", "content": msg.content})
+            elif msg.role == "assistant":
+                history_messages.append({"role": "assistant", "content": msg.content})
+            elif msg.role == "command":
+                # コマンド履歴も含める
+                history_messages.append({"role": "user", "content": msg.content})
+
+        # コマンドの場合もチャット履歴を含める（文脈を保持）
         messages: list[dict] = [{"role": "system", "content": system_content}]
+        messages.extend(history_messages)
         if user_message:
             messages.append({"role": "user", "content": user_message})
         return messages
@@ -598,6 +624,18 @@ class LLMService:
             for s in project.sources if s.summary
         ]
 
+        # チャット履歴の取得
+        history = project.chat_history.get(context_scope, [])
+
+        # 履歴中で明示参照されたソース/マテリアルの現在の状態を収集
+        src_by_id = {s.id: s for s in project.sources}
+        mat_by_id = {m.id: m for m in project.materials}
+        history_ref_ids: set[str] = set()
+        for msg in history:
+            history_ref_ids.update(getattr(msg, "explicit_refs", []))
+        history_sources = [src_by_id[rid] for rid in history_ref_ids if rid in src_by_id]
+        history_materials = [mat_by_id[rid] for rid in history_ref_ids if rid in mat_by_id]
+
         # システムプロンプトの生成
         system_content = template.render(
             enabled_rules=enabled_rules,
@@ -605,14 +643,17 @@ class LLMService:
             context_scope=context_scope_value,
             target_section=target_section,
             source_summaries=source_summaries,
-            full_sources=None  # _inject_full_sourcesで後から追加
+            history_sources=history_sources,
+            history_materials=history_materials,
         )
 
-        # チャット履歴の構築
-        history = project.chat_history.get(context_scope, [])
+        # チャット履歴の構築（role="command" は "user" にマッピング）
         messages: list[dict] = [{"role": "system", "content": system_content}]
         for msg in history:
-            messages.append({"role": msg.role, "content": msg.content})
+            if msg.role == "command":
+                messages.append({"role": "user", "content": msg.content})
+            else:
+                messages.append({"role": msg.role, "content": msg.content})
         messages.append({"role": "user", "content": user_message})
 
         return messages

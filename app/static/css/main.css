@@ -925,7 +925,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .file-browser-item.is-dir { font-weight: 500; }
 .file-browser-item.is-file { color: var(--color-text-muted); }
 .file-browser-icon { width: 16px; text-align: center; flex-shrink: 0; }
-.chat-history-content { display: flex; flex-direction: column; gap: 8px; max-height: 400px; overflow-y: auto; }
+.chat-history-content { display: flex; flex-direction: column; gap: 4px; max-height: 520px; overflow-y: auto; }
 .history-msg { padding: 8px 12px; border-radius: var(--radius); font-size: 13px; line-height: 1.5; }
 .history-msg.user { background: var(--color-text); color: var(--color-white); align-self: flex-end; max-width: 80%; }
 .history-msg.assistant { background: var(--color-bg); max-width: 80%; }
@@ -1375,6 +1375,89 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   color: var(--color-white);
   text-decoration: none;
   z-index: 10000;
+}
+
+/* ─── チャット履歴アイテム ───────────────────────────────── */
+.chat-history-item {
+  padding: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.chat-history-item:last-child {
+  border-bottom: none;
+}
+
+.chat-history-role {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.chat-history-role.user {
+  color: var(--color-primary);
+}
+
+.chat-history-role.assistant {
+  color: var(--color-success);
+}
+
+.chat-history-role.command {
+  color: var(--color-warning);
+}
+
+.chat-history-content {
+  font-size: 14px;
+  line-height: 1.5;
+  margin-bottom: 8px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.chat-history-time {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* ─── 履歴モーダル: スコープ表示 ───────────────────────── */
+.history-scope-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--color-bg);
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+.history-scope-header:first-child { margin-top: 0; }
+.history-scope-header.current {
+  border-color: var(--color-primary);
+  background: var(--color-primary-pale);
+}
+.history-scope-label {
+  font-weight: 600;
+  font-size: 13px;
+  flex: 1;
+}
+.history-scope-badge {
+  font-size: 11px;
+  background: var(--color-primary);
+  color: var(--color-white);
+  border-radius: 10px;
+  padding: 1px 8px;
+}
+.history-scope-switch {
+  font-size: 12px;
+  padding: 2px 10px;
+}
+.history-scope-empty {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  padding: 4px 12px 8px;
 }
 
 .skip-link:focus {

@@ -185,11 +185,7 @@ const EditTab = (() => {
       window.appState.setSelectedSectionId(sec.id);
       _updateDocViewEditMode();
 
-      // chat-scopeを自動的に選択中セクションに更新
-      const scopeSel = document.getElementById('chat-scope');
-      if (scopeSel && scopeSel.querySelector(`option[value="${sec.id}"]`)) {
-        scopeSel.value = sec.id;
-      }
+      AppShell.setCurrentScope(sec.id);
     });
 
     // ダブルクリックでタイトル編集
@@ -359,11 +355,7 @@ const EditTab = (() => {
         if (window.appState.getSelectedSectionId() !== sec.id) {
           window.appState.setSelectedSectionId(sec.id);
           _updateDocViewEditMode();
-          // chat-scopeを自動的に選択中セクションに更新
-          const scopeSel = document.getElementById('chat-scope');
-          if (scopeSel && scopeSel.querySelector(`option[value="${sec.id}"]`)) {
-            scopeSel.value = sec.id;
-          }
+          AppShell.setCurrentScope(sec.id);
         }
         e.stopPropagation();
         return;
@@ -373,11 +365,7 @@ const EditTab = (() => {
       if (!e.target.closest('.section-actions') && !e.target.closest('.section-floating-actions')) {
         window.appState.setSelectedSectionId(sec.id);
         _updateDocViewEditMode();
-        // chat-scopeを自動的に選択中セクションに更新
-        const scopeSel = document.getElementById('chat-scope');
-        if (scopeSel && scopeSel.querySelector(`option[value="${sec.id}"]`)) {
-          scopeSel.value = sec.id;
-        }
+        AppShell.setCurrentScope(sec.id);
       }
     });
 
@@ -619,36 +607,8 @@ const EditTab = (() => {
     contentEl.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
-  // ─── コンテキストスコープセレクト ─────────────────────
-
-  function _renderScopeSelect() {
-    const sel = document.getElementById('chat-scope');
-    sel.innerHTML = '<option value="all">全セクション(骨子)</option>';
-    const sorted = [...(_project?.sections || [])].sort((a, b) => a.order - b.order);
-    const roots = sorted.filter(s => !s.parent_id);
-
-    function _renderOptions(sec, depth) {
-      const opt = document.createElement('option');
-      opt.value = sec.id;
-      opt.textContent = '  '.repeat(depth - 1) + sec.title;
-      sel.appendChild(opt);
-
-      const children = sorted.filter(s => s.parent_id === sec.id);
-      children.sort((a, b) => a.order - b.order).forEach(child => {
-        _renderOptions(child, depth + 1);
-      });
-    }
-
-    roots.forEach(sec => _renderOptions(sec, 1));
-
-    // 選択中のセクションがあれば自動的に選択
-    const selectedId = window.appState.getSelectedSectionId();
-    if (selectedId && sel.querySelector(`option[value="${selectedId}"]`)) {
-      sel.value = selectedId;
-    } else {
-      sel.value = 'all';
-    }
-  }
+  // _renderScopeSelect は chat-scope ドロップダウン廃止により削除済み
+  function _renderScopeSelect() {}
 
   // ─── ユーティリティ ────────────────────────────────────
 
@@ -825,11 +785,8 @@ const EditTab = (() => {
         }
       }
     } else {
-      // 全セクション非選択時はchat-scopeを「全セクション(骨子)」に戻す
-      const scopeSel = document.getElementById('chat-scope');
-      if (scopeSel) {
-        scopeSel.value = 'all';
-      }
+      // 全セクション非選択時はスコープを「全セクション(骨子)」に戻す
+      AppShell.setCurrentScope('all');
     }
   }
 
