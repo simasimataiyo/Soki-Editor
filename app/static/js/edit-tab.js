@@ -116,14 +116,10 @@ const EditTab = (() => {
         _dragState.position = 'after';
         _dragState.targetId = sec.id;
         _updateDragVisuals(sec.id, 'after');
-      } else if (hasChildren && !isCollapsed) {
+      } else {
         _dragState.position = 'child';
         _dragState.targetId = sec.id;
         _updateDragVisuals(sec.id, 'child');
-      } else {
-        _dragState.position = 'after';
-        _dragState.targetId = sec.id;
-        _updateDragVisuals(sec.id, 'after');
       }
     });
 
@@ -439,19 +435,59 @@ const EditTab = (() => {
   // ─── セクション操作 ─────────────────────────────────────
 
   async function _editSectionMeta(sec) {
-    const newTitle = await Modal.prompt('セクション編集', 'タイトルを入力してください', sec.title);
-    if (newTitle === null) return;
-
     const project = window.appState.getProject();
+    const sections = project.sections;
+
+    // 自分と子孫のIDセットを作成（親選択肢から除外してループを防ぐ）
+    function getDescendantIds(id) {
+      const children = sections.filter(s => s.parent_id === id);
+      return [id, ...children.flatMap(c => getDescendantIds(c.id))];
+    }
+    const excludeIds = new Set(getDescendantIds(sec.id));
+
+    const parentOptions = [
+      { value: '', label: 'ルート（親なし）' },
+      ...sections
+        .filter(s => !excludeIds.has(s.id))
+        .sort((a, b) => a.order - b.order)
+        .map(s => ({
+          value: s.id,
+          label: '　'.repeat(_sectionDepth(s, sections) - 1) + s.title,
+        })),
+    ];
+
+    const result = await Modal.form('セクション編集', [
+      { name: 'title', label: 'タイトル', type: 'text', value: sec.title },
+      { name: 'parent_id', label: '親セクション', type: 'select', value: sec.parent_id || '', options: parentOptions },
+    ]);
+    if (result === null) return;
+
+    const newTitle = result.title.trim();
+    const newParentId = result.parent_id || null;
+
+    const updateData = {};
+    if (newTitle && newTitle !== sec.title) updateData.title = newTitle;
+    if (newParentId !== sec.parent_id) {
+      updateData.parent_id = newParentId;
+      // 新しい親の末尾に追加
+      const siblings = sections.filter(s => s.parent_id === newParentId && s.id !== sec.id);
+      updateData.order = siblings.length > 0 ? Math.max(...siblings.map(s => s.order)) + 1 : 0;
+    }
+
+    if (Object.keys(updateData).length === 0) return;
+
     await ApiClient.put(
       `/api/projects/${project.id}/sections/${sec.id}`,
-      { title: newTitle }
+      updateData
     );
-    sec.title = newTitle;
+    if (updateData.title !== undefined) sec.title = updateData.title;
+    if ('parent_id' in updateData) {
+      sec.parent_id = newParentId;
+      sec.order = updateData.order;
+    }
     _renderOutline();
+    _renderDocView();
     _renderScopeSelect();
-    const titleEl = document.querySelector(`#sec-block-${sec.id} h2,#sec-block-${sec.id} h3,#sec-block-${sec.id} h4`);
-    if (titleEl) titleEl.textContent = newTitle;
   }
 
   async function _deleteSection(sec) {
