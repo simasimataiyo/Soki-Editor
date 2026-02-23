@@ -17,10 +17,8 @@ from app.backend.models import Bibliography, Source, SourceUpdate
 from app.backend.routers.projects import get_service
 from app.backend.services.file_service import FileService
 from app.backend.services.llm_service import LLMService
-from app.backend.services.vector_store_service import VectorStoreService
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["sources"])
-_vs_service = VectorStoreService()
 _llm_service = LLMService()
 _file_service = FileService()
 
@@ -64,10 +62,7 @@ async def update_source(project_id: str, source_id: str, body: SourceUpdate) -> 
 async def delete_source(project_id: str, source_id: str) -> dict:
     svc = get_service()
     try:
-        project = await svc.get_project(project_id)
         await svc.delete_source(project_id, source_id)
-        # VectorStore と連動削除
-        await _vs_service.remove_source(project, source_id)
         return {"status": "ok"}
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -552,8 +547,6 @@ async def summarize_source(project_id: str, source_id: str) -> Source:
     updated = await svc.update_source(
         project_id, source_id, SourceUpdate(summary=summary)
     )
-    # VectorStore にインデックス登録
-    await _vs_service.upsert_source(project, source_id, summary)
     return updated
 
 

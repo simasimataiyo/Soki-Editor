@@ -189,10 +189,16 @@ sections 配列の各要素:
 - `move_section`: セクションを別の親・位置に移動する（section_id, parent_id, order）
 - `set_document_structure`: 全セクションを削除して新しい骨子を一括作成する（/structure replace 用）
 - `create_document_structure`: 既存セクションを残したまま新しい骨子構造を一括追加する（/structure 追加モード用）
+- `fetch_sources`: 参考文献の全文を取得する（最大4つのソースIDを指定）
 
 **構造生成ツール使用時の注意:**
 - `sections` 配列内の `parent_key` は必ず配列内の他の要素の `key` と一致するか、`null` である必要があります
 - 親セクションが子セクションより先に定義されている必要はありません（フロントエンドで順序付けされます）
+
+**ソースの参照について:**
+参考文献の概要一覧が提供されています。タスクの実行にソースの全文が必要な場合は、
+`fetch_sources` ツールでソースIDを最大4つまで指定して全文を取得してください。
+「指定されたソース」セクションに既に全文が掲載されているソースについては `fetch_sources` は不要です。
 
 ## 引用の挿入
 
@@ -212,7 +218,7 @@ sections 配列の各要素:
 {% endfor %}
 {% endif %}
 
-{% if context_scope == "all" %}
+{% if sections %}
 ## 文書アウトライン
 
 論文の全体構造は以下の通りです：
@@ -220,14 +226,18 @@ sections 配列の各要素:
 {% for section in sections %}
 - {{ section.title }}: {{ section.summary or '(概要なし)' }}
 {% endfor %}
-{% elif target_section %}
+{% endif %}
+
+{% if target_section %}
 ## 対象セクション
 
 現在編集中のセクション：
 {{ target_section.title }}: {{ target_section.summary or '(概要なし)' }}
 
+{% if command not in ["rewrite", "expand", "shorten", "tone"] %}
 **本文**:
 {{ target_section.content or '(本文なし)' }}
+{% endif %}
 {% endif %}
 
 {% if source_summaries %}

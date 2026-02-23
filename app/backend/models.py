@@ -134,7 +134,6 @@ class ProjectMeta(BaseModel):
 class ChatRequest(BaseModel):
     user_message: str
     context_scope: str = "all"
-    use_full_sources: bool = False
     command: Optional[str] = None          # "structure", "draft", "rewrite", etc.
     command_args: list[str] = []           # ["replace"], ["500"], etc.
     explicit_refs: list[str] = []          # ["ref-abc123", "fig-def456"]
@@ -143,7 +142,6 @@ class ChatRequest(BaseModel):
 class ReviewRequest(BaseModel):
     system_prompt: str
     context_scope: str = "all"
-    use_full_sources: bool = False
     command: Optional[str] = None          # "structure", "rule", "source"
     command_args: list[str] = []
     explicit_refs: list[str] = []

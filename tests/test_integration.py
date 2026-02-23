@@ -2,8 +2,6 @@
 
 テスト対象:
 - チャット SSE ストリームの chunk → tool_call → done イベント順序
-- 要約生成後に VectorStoreService へのインデックス登録
-- ソース削除後に類似検索が該当 ID を返さない
 - エクスポート結果の全セクション含有・参照番号変換・参考文献末尾付与
 - ルール・ソースの CSV インポート・エクスポートのラウンドトリップ一致
 - プロジェクト作成時の JSON ファイルパスとデータディレクトリの分離
@@ -14,7 +12,7 @@ import csv
 import io
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -171,6 +169,11 @@ class TestExportEndpoint:
         self, ac: httpx.AsyncClient, pid: str, tmp_svc: ProjectService
     ) -> None:
         """include_in_references=True のソースが末尾の参考文献に含まれること。"""
+        # 参考文献セクションを有効にする
+        project = await tmp_svc.get_project(pid)
+        project.references_section_enabled = True
+        tmp_svc._mark_dirty(pid)
+
         src = await tmp_svc.add_source(pid)
         await tmp_svc.update_source(
             pid,
@@ -371,7 +374,6 @@ class TestChatSseEventOrder:
                 json={
                     "user_message": "テスト",
                     "context_scope": "all",
-                    "use_full_sources": False,
                 },
             )
         assert resp.status_code == 200
@@ -415,7 +417,6 @@ class TestChatSseEventOrder:
                 json={
                     "user_message": "セクションを修正して",
                     "context_scope": "all",
-                    "use_full_sources": False,
                 },
             )
         assert resp.status_code == 200
@@ -433,14 +434,14 @@ class TestChatSseEventOrder:
         assert events.index("tool_call") < events.index("done")
 
 
-# ─── 6. 要約生成後の VectorStore インデックス登録 ──────────────────────
+# ─── 6. 要約生成 ──────────────────────────────────────────────────────
 
 
-class TestSummarizeAndVectorIndex:
-    async def test_summarize_calls_vector_store_upsert(
+class TestSummarize:
+    async def test_summarize_saves_summary(
         self, ac: httpx.AsyncClient, pid: str, tmp_svc: ProjectService
     ) -> None:
-        """要約生成後に VectorStoreService.upsert_source が呼ばれること。"""
+        """要約生成後にソースの summary フィールドが更新されること。"""
         src = await tmp_svc.add_source(pid)
         await tmp_svc.update_source(
             pid,
@@ -452,37 +453,31 @@ class TestSummarizeAndVectorIndex:
             ),
         )
 
-        with patch("app.backend.routers.sources._llm_service") as mock_llm, \
-             patch("app.backend.routers.sources._vs_service") as mock_vs:
+        with patch("app.backend.routers.sources._llm_service") as mock_llm:
             mock_llm.generate_summary = AsyncMock(return_value="要約テキスト")
-            mock_vs.upsert_source = AsyncMock()
 
             resp = await ac.post(f"/api/projects/{pid}/sources/{src.id}/summarize")
 
         assert resp.status_code == 200
-        mock_vs.upsert_source.assert_called_once()
         # 要約がソースに保存されていること
         project = await tmp_svc.get_project(pid)
         updated_src = next(s for s in project.sources if s.id == src.id)
         assert updated_src.summary == "要約テキスト"
 
 
-# ─── 7. ソース削除後の類似検索 ──────────────────────────────────────────
+# ─── 7. ソース削除 ──────────────────────────────────────────────────────
 
 
-class TestSourceDeletionAndVectorSearch:
-    async def test_delete_source_removes_from_vector_store(
+class TestSourceDeletion:
+    async def test_delete_source_removes_from_project(
         self, ac: httpx.AsyncClient, pid: str, tmp_svc: ProjectService
     ) -> None:
-        """ソース削除時に VectorStoreService.remove_source が呼ばれること。"""
+        """ソース削除時にプロジェクトから除去されること。"""
         src = await tmp_svc.add_source(pid)
 
-        with patch("app.backend.routers.sources._vs_service") as mock_vs:
-            mock_vs.remove_source = AsyncMock()
-            resp = await ac.delete(f"/api/projects/{pid}/sources/{src.id}")
+        resp = await ac.delete(f"/api/projects/{pid}/sources/{src.id}")
 
         assert resp.status_code == 200
-        mock_vs.remove_source.assert_called_once()
 
         # ソースがプロジェクトから削除されていること
         project = await tmp_svc.get_project(pid)
