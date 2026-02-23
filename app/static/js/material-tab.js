@@ -265,8 +265,28 @@ const MaterialTab = (() => {
   }
 
   async function _editMaterialName(mat) {
-    const newName = await Modal.prompt('マテリアル名編集', '名前を入力してください', mat.name);
-    if (newName === null || newName === mat.name) return;
+    const result = await Modal.form('マテリアル編集', [
+      { name: 'name', label: '名前', type: 'text', value: mat.name }
+    ], {
+      confirmText: '保存',
+      extraButtons: [
+        {
+          id: 'delete',
+          label: '削除',
+          className: 'btn-danger',
+          onClick: async (_formData, overlay, resolve, closeModal) => {
+            await _deleteMaterial(mat);
+            resolve(null);
+            closeModal(overlay);
+          },
+        },
+      ],
+    });
+    if (result === null) return;
+
+    const newName = result.name.trim();
+    if (!newName || newName === mat.name) return;
+
     const project = window.appState.getProject();
     try {
       const updated = await ApiClient.put(

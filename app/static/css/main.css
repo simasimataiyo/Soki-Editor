@@ -699,7 +699,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .rule-cards { list-style: none; display: flex; flex-direction: column; gap: 8px; }
 .rule-card {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
   padding: 12px 16px;
   border: 1px solid var(--color-border);
@@ -775,12 +775,26 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 }
 .review-section-text { padding: 14px; line-height: 1.7; overflow-wrap: break-word; font-size: 14px; user-select: text; }
 .review-section-comments { padding: 0 0 0 16px; display: flex; flex-direction: column; gap: 10px; }
+/* ─── レビューカード ───────────────────────────────────── */
+.review-section-comments { padding: 0 0 0 16px; display: flex; flex-direction: column; gap: 10px; }
 .comment-card { border: 1px solid var(--color-border); border-radius: var(--radius); overflow: hidden; background: var(--color-surface); }
 .comment-card-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--color-border); background: var(--color-bg); }
-.comment-card-header .comment-label { font-size: 12px; font-weight: 600; }
+.comment-card-header .comment-label { font-size: 12px; font-weight: 600; cursor: pointer; color: var(--color-primary); }
+.comment-card-header .comment-label:hover { color: var(--color-primary-light); }
 .comment-card-header .comment-close { background: none; border: none; cursor: pointer; font-size: 16px; color: var(--color-text-muted); padding: 0 2px; }
 .comment-card-header .comment-close:hover { color: var(--color-text); }
 .comment-card-body { padding: 10px 12px; font-size: 13px; line-height: 1.6; }
+.comment-card-section { padding: 12px; }
+.comment-card-problem { font-weight: 600; color: var(--color-text); margin-bottom: 6px; }
+.comment-card-solution { color: var(--color-text-muted); line-height: 1.5; }
+.comment-card-actions { padding: 8px 12px; border-top: 1px solid var(--color-border-light); display: flex; gap: 8px; }
+.comment-card-actions .btn { font-size: 12px; padding: 4px 10px; }
+
+/* セクションごとの全削除ボタン */
+.review-comments-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 0 8px 0; border-bottom: 1px solid var(--color-border-light); margin-bottom: 8px; }
+.review-comments-title { font-size: 12px; font-weight: 600; color: var(--color-text-muted); }
+.btn-clear-comments { font-size: 11px; color: var(--color-text-muted); background: none; border: 1px solid var(--color-border-light); padding: 2px 8px; border-radius: 4px; cursor: pointer; }
+.btn-clear-comments:hover { color: var(--color-danger); border-color: var(--color-danger); }
 
 /* ─── マテリアルリスト（縦型カード） ─────────────────────── */
 .material-card-list { padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; }

@@ -109,10 +109,15 @@ const RuleTab = (() => {
         <span class="chevron">${isCollapsed ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
         <h3>${escHtml(cat.name)}</h3>
         <div class="header-actions">
-          <button class="btn-icon-edit" data-action="edit" title="カテゴリ名編集">
-            ${SVG_EDIT_PEN}
+          <button class="btn-icon" data-action="add-rule" title="ルール追加">
+            ${SVG_ADD_CHILD}
           </button>
-          <button class="btn-icon-edit" data-action="delete" title="カテゴリ削除" style="color:var(--color-text-muted)">×</button>
+          <button class="btn-icon" data-action="edit" title="カテゴリ名編集">
+            ${SVG_EDIT}
+          </button>
+          <button class="btn-icon" data-action="delete" title="カテゴリ削除">
+            ${SVG_DELETE}
+          </button>
         </div>
       `;
       section.appendChild(header);
@@ -155,6 +160,12 @@ const RuleTab = (() => {
         _deleteCategory(cat);
       });
 
+      // ルール追加
+      header.querySelector('[data-action="add-rule"]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        addRuleToCategory(cat.id);
+      });
+
       container.appendChild(section);
     });
   }
@@ -169,7 +180,9 @@ const RuleTab = (() => {
         <span class="slider"></span>
       </label>
       <div class="rule-text" contenteditable="true">${escHtml(rule.content)}</div>
-      <button class="rule-delete" data-action="delete" title="削除">×</button>
+      <button class="btn-icon rule-delete" data-action="delete" title="削除">
+        ${SVG_DELETE}
+      </button>
     `;
 
     const toggle = li.querySelector('.rule-toggle');
@@ -188,8 +201,28 @@ const RuleTab = (() => {
   }
 
   async function _editCategory(cat) {
-    const newName = await Modal.prompt('カテゴリ名編集', 'カテゴリ名を入力してください', cat.name);
+    const result = await Modal.form('カテゴリ編集', [
+      { name: 'name', label: '名前', type: 'text', value: cat.name }
+    ], {
+      confirmText: '保存',
+      extraButtons: [
+        {
+          id: 'delete',
+          label: '削除',
+          className: 'btn-danger',
+          onClick: async (_formData, overlay, resolve, closeModal) => {
+            await _deleteCategory(cat);
+            resolve(null);
+            closeModal(overlay);
+          },
+        },
+      ],
+    });
+    if (result === null) return;
+
+    const newName = result.name.trim();
     if (!newName || newName === cat.name) return;
+
     const project = window.appState.getProject();
     try {
       await ApiClient.put(
@@ -244,7 +277,7 @@ const RuleTab = (() => {
   async function addCategory() {
     const project = window.appState.getProject();
     if (!project) return;
-    const name = await Modal.prompt('カテゴリ追加', 'カテゴリ名を入力してください');
+    const name = await Modal.prompt('カテゴリ追加', 'カテゴリを入力してください');
     if (!name) return;
     try {
       const cat = await ApiClient.post(`/api/projects/${project.id}/rule-categories`, { name });
@@ -280,7 +313,7 @@ const RuleTab = (() => {
     if (!content.trim()) { showToast('ルール内容を入力してください', 'error'); return; }
 
     if (category_id === '__new__') {
-      const newName = await Modal.prompt('カテゴリ追加', 'カテゴリ名を入力してください');
+      const newName = await Modal.prompt('カテゴリ追加', 'カテゴリを入力してください');
       if (!newName) return;
       try {
         const cat = await ApiClient.post(`/api/projects/${project.id}/rule-categories`, { name: newName });
@@ -314,6 +347,7 @@ const RuleTab = (() => {
         enabled: true,
       });
       project.rules.push(rule);
+      _activeCategoryId = categoryId;
       _renderAllSections();
       _renderTree();
     } catch (_) {}

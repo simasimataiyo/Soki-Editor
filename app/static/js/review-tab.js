@@ -1,10 +1,12 @@
 /**
  * ReviewTab — レビュー UI・marked.js プレビュー・コマンド対応（タスク 17）
+ * 更新: チャットバー共通化、カード形式の指摘表示
  */
 
 const ReviewTab = (() => {
   let _project = null;
   let _sseCtrl = null;
+  let _commentsBySection = {}; // セクションIDごとのコメント配列
 
   function _renderScopeSelect() {
     const sel = document.getElementById('review-scope');
@@ -32,7 +34,7 @@ const ReviewTab = (() => {
     _project = project;
     // レビュー用プロンプトの復元
     if (project.review_system_prompt) {
-      document.getElementById('review-prompt').value = project.review_system_prompt;
+      ChatBarCommon.setValue('review-prompt', project.review_system_prompt);
     }
     _renderScopeSelect();
     _renderPreview(project);
@@ -100,6 +102,19 @@ const ReviewTab = (() => {
 
     const commentsDiv = document.createElement('div');
     commentsDiv.className = 'review-section-comments';
+    commentsDiv.dataset.sectionId = sec.id;
+
+    // コメントエリアヘッダー
+    const comments = _commentsBySection[sec.id] || [];
+    if (comments.length > 0) {
+      const commentsHeader = document.createElement('div');
+      commentsHeader.className = 'review-comments-header';
+      commentsHeader.innerHTML = `
+        <span class="review-comments-title">${comments.length}件の指摘</span>
+        <button class="btn-clear-comments" data-action="clear-comments" data-section-id="${sec.id}">すべて削除</button>
+      `;
+      commentsDiv.appendChild(commentsHeader);
+    }
 
     content.appendChild(textDiv);
     content.appendChild(commentsDiv);
@@ -156,50 +171,205 @@ const ReviewTab = (() => {
     container.appendChild(block);
   }
 
-  function _addCommentCard(sectionId, comment) {
-    const block = document.querySelector(`.review-section-block[data-section-id="${sectionId}"]`);
-    const panel = block ? block.querySelector('.review-section-comments') : null;
-    if (!panel) return;
+  /**
+   * コメントをパースして問題点と改善策に分割
+   * @param {string} comment - LLMからのコメント
+   * @returns {{problem: string, solution: string}|null}
+   */
+  function _parseComment(comment) {
+    // フォーマットの判定: 問題点と改善策の区切りを探す
+    // パターン1: 「問題点:」「改善策:」「問題:」「解決策:」など
+    const patterns = [
+      /(?:問題点|問題)[：:]\s*(.+?)(?:\n|$)(?:改善策|解決策|対処法|改善)[：:]\s*(.+)/s,
+      /(?:改善策|解決策|対処法|改善)[：:]\s*(.+?)(?:\n|$)(?:問題点|問題)[：:]\s*(.+)/s,
+    ];
 
+    for (const pattern of patterns) {
+      const match = comment.match(pattern);
+      if (match) {
+        let problem = match[1].trim();
+        let solution = match[2].trim();
+
+        // 文字数制限（100-140文字以内）
+        problem = _truncateText(problem, 140);
+        solution = _truncateText(solution, 140);
+
+        return { problem, solution, original: comment };
+      }
+    }
+
+    // パターンが見つからない場合は全文を問題点として表示
+    const truncated = _truncateText(comment, 140);
+    return { problem: truncated, solution: '', original: comment };
+  }
+
+  /**
+   * テキストを指定文字数以内に切り詰める
+   */
+  function _truncateText(text, maxLength) {
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength - 1) + '…';
+  }
+
+  /**
+   * コメントカードを追加
+   */
+  function _addCommentCard(sectionId, comment) {
+    // コメントを保存
+    if (!_commentsBySection[sectionId]) {
+      _commentsBySection[sectionId] = [];
+    }
+    const parsed = _parseComment(comment);
+    _commentsBySection[sectionId].push(parsed);
+
+    // DOMを更新
+    _updateCommentsSection(sectionId);
+  }
+
+  /**
+   * セクションのコメントエリアを更新
+   */
+  function _updateCommentsSection(sectionId) {
+    const block = document.querySelector(`.review-section-block[data-section-id="${sectionId}"]`);
+    if (!block) return;
+
+    const commentsDiv = block.querySelector('.review-section-comments');
+    if (!commentsDiv) return;
+
+    // 既存のカードを削除（ヘッダーは残す）
+    const existingCards = commentsDiv.querySelectorAll('.comment-card');
+    existingCards.forEach(card => card.remove());
+
+    const comments = _commentsBySection[sectionId] || [];
+
+    // ヘッダーの更新
+    const existingHeader = commentsDiv.querySelector('.review-comments-header');
+    if (comments.length === 0) {
+      if (existingHeader) existingHeader.remove();
+    } else if (existingHeader) {
+      // 件数テキストを更新
+      const countEl = existingHeader.querySelector('.review-comments-title');
+      if (countEl) countEl.textContent = `${comments.length}件の指摘`;
+    } else {
+      const header = document.createElement('div');
+      header.className = 'review-comments-header';
+      header.innerHTML = `
+        <span class="review-comments-title">${comments.length}件の指摘</span>
+        <button class="btn-clear-comments" data-action="clear-comments" data-section-id="${sectionId}">すべて削除</button>
+      `;
+      commentsDiv.insertBefore(header, commentsDiv.firstChild);
+    }
+
+    // カードを追加
+    comments.forEach((comment, index) => {
+      const card = _createCommentCard(sectionId, comment, index);
+      commentsDiv.appendChild(card);
+    });
+
+    // ヘッダーのボタンイベント
+    const header = commentsDiv.querySelector('.review-comments-header');
+    if (header) {
+      const clearBtn = header.querySelector('[data-action="clear-comments"]');
+      if (clearBtn) {
+        clearBtn.onclick = (e) => {
+          e.stopPropagation();
+          _clearComments(sectionId);
+        };
+      }
+    }
+  }
+
+  /**
+   * コメントカードを作成
+   */
+  function _createCommentCard(sectionId, parsed, index) {
     const card = document.createElement('div');
     card.className = 'comment-card';
+    card.dataset.commentIndex = index;
+
     card.innerHTML = `
       <div class="comment-card-header">
-        <span class="comment-label">プロンプトにコピー</span>
+        <span class="comment-label" data-action="copy-to-edit">プロンプトにコピー</span>
         <button class="comment-close" data-action="close">×</button>
       </div>
-      <div class="comment-card-body">${escHtml(comment)}</div>
+      <div class="comment-card-section">
+        ${parsed.problem ? `<div class="comment-card-problem">${escHtml(parsed.problem)}</div>` : ''}
+        ${parsed.solution ? `<div class="comment-card-solution">${escHtml(parsed.solution)}</div>` : ''}
+      </div>
+      <div class="comment-card-actions">
+        <button class="btn btn-secondary btn-sm" data-action="copy-to-edit">プロンプトにコピー</button>
+      </div>
     `;
 
-    card.querySelector('.comment-label').addEventListener('click', () => {
-      document.getElementById('chat-input').value = comment;
+    // プロンプトにコピー
+    const copyToEdit = () => {
+      const textToCopy = `問題: ${parsed.problem}\n改善: ${parsed.solution}`;
+      // エディットタブに切り替えてチャット入力欄にセット
+      document.getElementById('chat-input').value = textToCopy;
       AppShell.switchTab('edit');
-    });
-    card.querySelector('.comment-label').style.cursor = 'pointer';
+      showToast('エディットタブにコピーしました', 'success');
+    };
 
+    card.querySelectorAll('[data-action="copy-to-edit"]').forEach(el => {
+      el.addEventListener('click', copyToEdit);
+    });
+
+    // 個別削除
     card.querySelector('[data-action="close"]').addEventListener('click', () => {
-      card.remove();
+      _removeComment(sectionId, index);
     });
 
-    panel.appendChild(card);
+    return card;
+  }
+
+  /**
+   * コメントを削除
+   */
+  function _removeComment(sectionId, index) {
+    if (!_commentsBySection[sectionId]) return;
+    _commentsBySection[sectionId].splice(index, 1);
+    _updateCommentsSection(sectionId);
+  }
+
+  /**
+   * セクションの全コメントを削除
+   */
+  function _clearComments(sectionId) {
+    if (!_commentsBySection[sectionId]) return;
+
+    const comments = _commentsBySection[sectionId];
+    if (comments.length === 0) return;
+
+    Modal.confirm(`${comments.length}件の指摘を削除しますか？`).then(confirmed => {
+      if (confirmed) {
+        _commentsBySection[sectionId] = [];
+        _updateCommentsSection(sectionId);
+
+        const block = document.querySelector(`.review-section-block[data-section-id="${sectionId}"]`);
+        if (block) {
+          const header = block.querySelector('.review-comments-header');
+          if (header) header.remove();
+        }
+        showToast('指摘を削除しました', 'success');
+      }
+    });
   }
 
   function bindEvents() {
-    document.getElementById('btn-review-send').addEventListener('click', _startReview);
+    // チャットバー共通処理を使用
+    ChatBarCommon.init('review-prompt', 'btn-review-send', 'review', {
+      onSend: _startReview,
+    });
   }
 
   // ─── コマンド対応レビュー送信 ──────────────────────────
 
-  async function _startReview() {
+  async function _startReview(parsed) {
     const project = window.appState.getProject();
     if (!project) return;
     if (_sseCtrl) _sseCtrl.abort();
 
-    const rawInput = document.getElementById('review-prompt').value.trim();
-    if (!rawInput) { showToast('レビュー指示を入力してください', 'error'); return; }
-
-    // コマンド解析
-    const parsed = CommandParser.parse(rawInput, 'review');
+    const freeText = parsed.freeText || '';
 
     // 不明コマンドエラー
     if (parsed.error) {
@@ -209,42 +379,37 @@ const ReviewTab = (() => {
 
     // /prompt コマンド（LLMを介さない即時実行）
     if (parsed.command && parsed.command.name === 'prompt') {
-      await _handlePromptCommand(parsed.command.args, parsed.freeText);
+      await _handlePromptCommand(parsed.command.args, freeText);
       return;
     }
 
-    // フォーカス付きレビューコマンド（/review-structure, /review-rule, /review-source）
-    if (parsed.command && parsed.command.name.startsWith('review-')) {
-      const focus = parsed.command.name.replace('review-', ''); // "structure", "rule", "source"
-      _doReview(project, parsed.freeText, focus, parsed.refs);
-      return;
-    }
-
-    // 通常レビュー（/review またはコマンドなし）
+    // /review コマンド（フォーカス付きレビュー）
     if (parsed.command && parsed.command.name === 'review') {
-      _doReview(project, parsed.freeText, null, parsed.refs);
+      const focus = parsed.command.args[0] || null; // "structure", "rule", "source"
+      await _doReview(project, freeText, focus, parsed.refs);
       return;
     }
 
-    // コマンドなしの場合は入力全体をプロンプトとして使用
-    _doReview(project, rawInput, null, parsed.refs);
+    // 通常レビュー（コマンドなし）
+    await _doReview(project, freeText, null, parsed.refs);
   }
 
   function _doReview(project, systemPrompt, reviewFocus, refs) {
     const scope = document.getElementById('review-scope').value;
-    // 各セクションのコメントエリアをクリア
-    document.querySelectorAll('.review-section-comments').forEach(el => { el.innerHTML = ''; });
-
-    const btn = document.getElementById('btn-review-send');
-    btn.disabled = true;
-    btn.textContent = '...';
+    // 各セクションのコメントをクリア
+    _commentsBySection = {};
+    document.querySelectorAll('.review-section-comments').forEach(el => {
+      el.innerHTML = '';
+      const header = el.parentElement?.querySelector('.review-comments-header');
+      if (header) header.remove();
+    });
 
     const body = {
       system_prompt: systemPrompt || '',
       context_scope: scope,
     };
 
-    // レビューフォーカス（"structure", "rule", "source" または null）
+    // レビューフォーカスコマンド
     if (reviewFocus) {
       body.command = reviewFocus;
     }
@@ -254,23 +419,87 @@ const ReviewTab = (() => {
       body.explicit_refs = refs.map(r => r.id);
     }
 
-    _sseCtrl = ApiClient.openSSE(
-      `/api/projects/${project.id}/review`,
-      body,
-      {
-        onReviewComment: (sectionId, comment) => _addCommentCard(sectionId, comment),
-        onDone: () => {
-          btn.disabled = false;
-          btn.textContent = '↑';
-          showToast('レビュー完了', 'success');
-        },
-        onError: (msg) => {
-          btn.disabled = false;
-          btn.textContent = '↑';
-          showToast(`レビューエラー: ${msg}`, 'error');
-        },
+    // チャット応答表示用コンテナ（review-bar の先頭に追加）
+    const reviewBar = document.getElementById('review-bar');
+    // 前回のレスポンスエリアがあれば削除
+    const existingResponseEl = reviewBar.querySelector('.llm-response-area');
+    if (existingResponseEl) existingResponseEl.remove();
+
+    const responseEl = document.createElement('div');
+    responseEl.className = 'llm-response-area';
+    reviewBar.insertBefore(responseEl, reviewBar.firstChild);
+
+    let isStreaming = false;
+    let isHovering = false;
+    let hoverTimer = null;
+
+    function startLoading() {
+      responseEl.innerHTML = '<div class="pdf-analysis-spinner"></div>';
+    }
+
+    function scheduleAutoClose() {
+      if (hoverTimer) clearTimeout(hoverTimer);
+      hoverTimer = setTimeout(() => {
+        if (!isHovering && !isStreaming) {
+          responseEl.remove();
+        }
+      }, 3000);
+    }
+
+    function clearAutoClose() {
+      if (hoverTimer) {
+        clearTimeout(hoverTimer);
+        hoverTimer = null;
       }
-    );
+    }
+
+    responseEl.addEventListener('mouseenter', () => {
+      isHovering = true;
+      clearAutoClose();
+    });
+
+    responseEl.addEventListener('mouseleave', () => {
+      isHovering = false;
+      if (!isStreaming) {
+        scheduleAutoClose();
+      }
+    });
+
+    startLoading();
+
+    return new Promise((resolve) => {
+      _sseCtrl = ApiClient.openSSE(
+        `/api/projects/${project.id}/review`,
+        body,
+        {
+          onChunk: (text) => {
+            if (!isStreaming) {
+              responseEl.innerHTML = '';
+              isStreaming = true;
+            }
+            responseEl.textContent += text;
+            responseEl.scrollTop = responseEl.scrollHeight;
+          },
+          onReviewComment: (sectionId, comment) => _addCommentCard(sectionId, comment),
+          onDone: () => {
+            isStreaming = false;
+            if (!responseEl.textContent.trim()) {
+              responseEl.textContent = '完了!';
+            }
+            if (!isHovering) {
+              scheduleAutoClose();
+            }
+            resolve();
+          },
+          onError: (msg) => {
+            isStreaming = false;
+            responseEl.remove();
+            showToast(`レビューエラー: ${msg}`, 'error');
+            resolve();
+          },
+        }
+      );
+    });
   }
 
   // ─── プロンプト管理コマンド ─────────────────────────────
@@ -288,7 +517,7 @@ const ReviewTab = (() => {
     }
 
     if (action === 'save') {
-      const prompt = document.getElementById('review-prompt').value.trim();
+      const prompt = ChatBarCommon.getValue('review-prompt');
       if (!prompt) {
         showToast('保存するプロンプトが空です', 'error');
         return;
@@ -307,7 +536,7 @@ const ReviewTab = (() => {
       try {
         const prompts = await ApiClient.get(`/api/projects/${project.id}/saved-prompts`);
         if (prompts[name]) {
-          document.getElementById('review-prompt').value = prompts[name];
+          ChatBarCommon.setValue('review-prompt', prompts[name]);
           showToast(`プロンプト「${name}」を読み込みました`, 'success');
         } else {
           showToast(`プロンプト「${name}」が見つかりません`, 'error');
@@ -323,6 +552,7 @@ const ReviewTab = (() => {
 
   function reset() {
     _project = null;
+    _commentsBySection = {};
     if (_sseCtrl) { _sseCtrl.abort(); _sseCtrl = null; }
   }
 
