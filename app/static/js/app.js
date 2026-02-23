@@ -292,9 +292,18 @@ const AppShell = (() => {
     const btn = document.getElementById('btn-chat-send');
     btn.disabled = true;
 
+    // /structure section コマンドの場合、選択中のセクションを対象にする
+    let contextScope = scope;
+    if (parsed.command && parsed.command.name === 'structure' && parsed.command.args.includes('section')) {
+      const selectedSectionId = window.appState.getSelectedSectionId();
+      if (selectedSectionId) {
+        contextScope = selectedSectionId;
+      }
+    }
+
     // リクエストボディ構築
     const body = {
-      context_scope: scope,
+      context_scope: contextScope,
       use_full_sources: useFullSources,
     };
 
@@ -317,24 +326,57 @@ const AppShell = (() => {
     // チャット応答表示用コンテナ（チャットバー上部に追加）
     const chatBar = document.getElementById('chat-bar');
     const responseEl = document.createElement('div');
-    responseEl.style.cssText = 'padding:8px 12px;background:var(--color-primary-pale);border-radius:6px;font-size:13px;line-height:1.6;white-space:pre-wrap';
+    responseEl.className = 'llm-response-area';
     chatBar.insertBefore(responseEl, chatBar.firstChild);
+
+    // LLM実行中のスピナー表示
+    let isStreaming = false;
+
+    function startLoading() {
+      responseEl.innerHTML = '<div class="pdf-analysis-spinner"></div>';
+    }
+
+    function stopLoading() {
+      if (isStreaming) {
+        // ストリーミング中はスピナーを削除して文字を表示
+        responseEl.innerHTML = '';
+      } else {
+        // ツール実行完了など
+        responseEl.textContent = '完了!';
+      }
+    }
+
+    // アニメーション開始
+    startLoading();
 
     _currentSseCtrl = ApiClient.openSSE(
       `/api/projects/${project.id}/chat`,
       body,
       {
         onChunk: (text) => {
+          if (!isStreaming) {
+            // 初回のみスピナーと文字を削除を消去
+            stopLoading();
+            responseEl.innerHTML = '';
+          }
+          isStreaming = true;
           responseEl.textContent += text;
         },
         onToolCall: async (tool, args) => {
+          isStreaming = false;
+          stopLoading();
           await _applyToolCall(project, tool, args);
         },
         onDone: () => {
+          if (!isStreaming) {
+            // ストリーミングでない場合のみ「完了!」表示
+            stopLoading();
+          }
           btn.disabled = false;
           setTimeout(() => responseEl.remove(), 10000);
         },
         onError: (msg) => {
+          stopLoading();
           btn.disabled = false;
           showToast(`チャットエラー: ${msg}`, 'error');
           responseEl.remove();
@@ -403,6 +445,92 @@ const AppShell = (() => {
         const { section_id } = args;
         await ApiClient.delete(`/api/projects/${project.id}/sections/${section_id}`);
         project.sections = project.sections.filter(s => s.id !== section_id);
+        EditTab.render(project);
+
+      } else if (tool === 'update_section_title') {
+        const { section_id, title } = args;
+        const sec = project.sections.find(s => s.id === section_id);
+        if (!sec) return;
+        const oldTitle = sec.title;
+        await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { title });
+        sec.title = title;
+        EditTab.render(project);
+
+        UndoRedoManager.push({
+          do: async () => {
+            await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { title });
+            sec.title = title;
+            EditTab.render(project);
+          },
+          undo: async () => {
+            await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { title: oldTitle });
+            sec.title = oldTitle;
+            EditTab.render(project);
+          },
+        });
+
+      } else if (tool === 'move_section') {
+        const { section_id, parent_id = null, order } = args;
+        const sec = project.sections.find(s => s.id === section_id);
+        if (!sec) return;
+        const oldParentId = sec.parent_id;
+        const oldOrder = sec.order;
+        await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { parent_id, order });
+        sec.parent_id = parent_id;
+        sec.order = order;
+        EditTab.render(project);
+
+        UndoRedoManager.push({
+          do: async () => {
+            await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { parent_id, order });
+            sec.parent_id = parent_id;
+            sec.order = order;
+            EditTab.render(project);
+          },
+          undo: async () => {
+            await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { parent_id: oldParentId, order: oldOrder });
+            sec.parent_id = oldParentId;
+            sec.order = oldOrder;
+            EditTab.render(project);
+          },
+        });
+
+      } else if (tool === 'set_document_structure' || tool === 'create_document_structure') {
+        const { sections: newSections } = args;
+        const isReplace = tool === 'set_document_structure';
+
+        if (isReplace) {
+          for (const sec of [...project.sections]) {
+            await ApiClient.delete(`/api/projects/${project.id}/sections/${sec.id}`);
+          }
+          project.sections = [];
+        }
+
+        // key → 実際の section_id のマッピング（親参照解決に使用）
+        const keyToId = {};
+
+        // 階層順にソート：ルートから下位へ（親を先に作成するため）
+        // key のハイフンの数で階層レベルを判定し、同レベル内では order でソート
+        const sorted = [...newSections].sort((a, b) => {
+          const aLevel = a.parent_key ? a.parent_key.split('-').length : 0;
+          const bLevel = b.parent_key ? b.parent_key.split('-').length : 0;
+          if (aLevel !== bLevel) return aLevel - bLevel;
+          return (a.order ?? 0) - (b.order ?? 0);
+        });
+
+        for (const item of sorted) {
+          const parentId = item.parent_key ? (keyToId[item.parent_key] ?? null) : null;
+          const created = await ApiClient.post(`/api/projects/${project.id}/sections`, {
+            title: item.title,
+            summary: item.summary ?? '',
+            content: '',
+            parent_id: parentId,
+            order: item.order ?? 0,
+          });
+          keyToId[item.key] = created.id;
+          project.sections.push(created);
+        }
+
         EditTab.render(project);
       }
     } catch (e) {

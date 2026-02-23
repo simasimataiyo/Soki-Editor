@@ -471,7 +471,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   color: var(--color-text);
 }
 
-.section-body { padding: 32px; }
+.section-body { padding: 0 32px 16px 32px; }
 .section-body.collapsed { display: none; }
 
 .section-summary {
@@ -582,6 +582,18 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .select-sm { font-size: 12px; border: 1px solid var(--color-border); border-radius: var(--radius); padding: 4px 8px; background: var(--color-surface); }
 .checkbox-label { display: flex; align-items: center; gap: 4px; font-size: 13px; cursor: pointer; white-space: nowrap; }
 
+.llm-response-area {
+  max-height: 30vh;
+  padding:8px 12px;
+  background:var(--color-primary-pale);
+  border-radius:8px;
+  font-size:1rem;
+  line-height:1.4;
+  white-space:pre-wrap;
+  display:flex;
+  overflow-y: scroll;
+  align-items:center;
+}
 /* ─── 送信ボタン ─────────────────────────────────────────── */
 .btn-send { width: 32px; height: 32px; border-radius: 50%; background: var(--color-text); color: var(--color-white); font-size: 16px; display: flex; align-items: center; justify-content: center; border: none; cursor: pointer; transition: background .15s; margin-left: auto; flex-shrink: 0; }
 .btn-send:hover:not(:disabled) { background: var(--color-text-hover); }

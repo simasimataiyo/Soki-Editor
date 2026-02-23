@@ -19,6 +19,26 @@ const SourceTab = (() => {
     return src.bibliography?.title || src.name;
   }
 
+  async function _editSourceName(src) {
+    const newName = await Modal.prompt('ソース名編集', 'ソース名を入力してください', src.name);
+    if (newName === null || newName === src.name) return;
+    const project = window.appState.getProject();
+    try {
+      const updated = await ApiClient.put(
+        `/api/projects/${project.id}/sources/${src.id}`,
+        { name: newName }
+      );
+      src.name = newName;
+      const idx = project.sources.findIndex(s => s.id === src.id);
+      if (idx >= 0) project.sources[idx] = updated;
+      _renderList();
+      if (_activeId === src.id) {
+        const h2 = document.querySelector('.detail-title-bar h2');
+        if (h2) h2.textContent = _displayTitle(src);
+      }
+    } catch (_) {}
+  }
+
   /** ローディングオーバーレイを表示 */
   function _showLoading(message = '処理中...') {
     if (_loadingOverlay) return;
@@ -63,6 +83,11 @@ const SourceTab = (() => {
         window.appState.setState({ activeSourceId: src.id });
         _renderList();
         _renderDetail(src.id);
+      });
+      // ダブルクリックでタイトル編集
+      li.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        _editSourceName(src);
       });
       list.appendChild(li);
     });

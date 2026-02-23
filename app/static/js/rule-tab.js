@@ -45,7 +45,24 @@ const RuleTab = (() => {
         _activeCategoryId = cat.id;
         _renderTree();
         const block = document.querySelector(`.rule-category-section[data-category-id="${cat.id}"]`);
-        if (block) block.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (block) {
+          // トップバーの高さを考慮して位置調整
+          const topBar = document.querySelector('.top-bar');
+          const topBarHeight = topBar ? topBar.offsetHeight : 0;
+          // scrollIntoViewでまずビュー内に表示
+          block.scrollIntoView({ block: 'start' });
+          // 少し遅延後にトップバーの高さ分を調整
+          requestAnimationFrame(() => {
+            const rect = block.getBoundingClientRect();
+            const scrollTop = window.scrollY + rect.top - topBarHeight;
+            window.scrollTo({ behavior: 'smooth', top: Math.max(0, scrollTop) });
+          });
+        }
+      });
+      // ダブルクリックでカテゴリ名編集
+      catLi.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        _editCategory(cat);
       });
 
       list.appendChild(catLi);
