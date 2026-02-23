@@ -14,12 +14,25 @@ class ApiError extends Error {
 const ApiClient = (() => {
   const BASE = '';  // 同一オリジン
 
+  // 保存状態管理
+  function _setSaveStatus(status, message) {
+    const el = document.getElementById('save-status');
+    if (!el) return;
+    el.className = `save-indicator ${status}`;
+    el.textContent = message;
+  }
+
   async function _fetch(method, path, body) {
     const opts = {
       method,
       headers: { 'Content-Type': 'application/json' },
     };
     if (body !== undefined) opts.body = JSON.stringify(body);
+
+    // PUTリクエスト時に保存状態を表示
+    if (method === 'PUT') {
+      _setSaveStatus('saving', '保存中...');
+    }
 
     const res = await fetch(BASE + path, opts);
     if (!res.ok) {
@@ -28,9 +41,15 @@ const ApiClient = (() => {
         const data = await res.json();
         detail = data.detail || detail;
       } catch (_) {}
+      if (method === 'PUT') {
+        _setSaveStatus('error', '保存エラー');
+      }
       const err = new ApiError(res.status, detail);
       _handleError(err);
       throw err;
+    }
+    if (method === 'PUT') {
+      _setSaveStatus('saved', '保存済み');
     }
     if (res.status === 204) return null;
     return res.json();

@@ -33,7 +33,7 @@ _DEFAULT_REGISTRY = _APPDATA_DIR / "projects_registry.json"
 class ProjectService:
     """プロジェクトデータのインメモリキャッシュと JSON 永続化を担う。"""
 
-    DEBOUNCE_SECONDS = 5
+    DEBOUNCE_SECONDS = 10
 
     def __init__(self, registry_path: Optional[str] = None) -> None:
         self._registry_path = Path(registry_path) if registry_path else _DEFAULT_REGISTRY

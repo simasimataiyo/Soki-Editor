@@ -557,13 +557,43 @@ async def summarize_source(project_id: str, source_id: str) -> Source:
     return updated
 
 
+@router.post("/sources/{source_id}/extract-bibliography", response_model=Source)
+async def extract_bibliography(project_id: str, source_id: str) -> Source:
+    """LLMを使用してソース全文から文献情報を抽出する"""
+    svc = get_service()
+    try:
+        project = await svc.get_project(project_id)
+    except KeyError:
+        _not_found(project_id)
+
+    src_map = {s.id: s for s in project.sources}
+    src = src_map.get(source_id)
+    if not src:
+        raise HTTPException(status_code=404, detail="ソースが見つかりません")
+
+    if not src.full_text:
+        raise HTTPException(status_code=400, detail="全文が登録されていません")
+
+    try:
+        bibliography = await _llm_service.extract_bibliography(
+            src.full_text,
+            src.bibliography.type,
+            project.settings,
+        )
+        return await svc.update_source(
+            project_id, source_id, SourceUpdate(bibliography=bibliography)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"文献情報抽出失敗: {e}")
+
+
 # ─── CSV エクスポート・インポート ─────────────────────────────
 
 _SOURCE_CSV_FIELDS = [
     "id", "name", "bib_type", "title", "author", "journal",
     "volume", "issue", "pages", "year", "publisher",
     "publication_place", "editor", "url", "site_name",
-    "accessed_date", "include_in_references",
+    "accessed_date", "created_date", "include_in_references",
 ]
 
 
@@ -597,6 +627,7 @@ async def export_sources_csv(project_id: str) -> StreamingResponse:
             "url": b.url or "",
             "site_name": b.site_name or "",
             "accessed_date": b.accessed_date or "",
+            "created_date": b.created_date or "",
             "include_in_references": b.include_in_references,
         })
 
@@ -643,6 +674,7 @@ async def import_sources_csv_native(project_id: str, body: dict) -> dict:
             url=row.get("url") or None,
             site_name=row.get("site_name") or None,
             accessed_date=row.get("accessed_date") or None,
+            created_date=row.get("created_date") or None,
             include_in_references=str(row.get("include_in_references", "False")).lower() == "true",
         )
         src = await svc.add_source(project_id)
@@ -685,6 +717,7 @@ async def import_sources_csv(project_id: str, file: UploadFile) -> dict:
             url=row.get("url") or None,
             site_name=row.get("site_name") or None,
             accessed_date=row.get("accessed_date") or None,
+            created_date=row.get("created_date") or None,
             include_in_references=str(row.get("include_in_references", "False")).lower() == "true",
         )
         src = await svc.add_source(project_id)

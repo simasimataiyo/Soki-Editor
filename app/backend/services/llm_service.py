@@ -355,6 +355,42 @@ class LLMService:
                 "要約生成完了: model=%s, elapsed=%.2fs", settings.model, elapsed
             )
 
+    async def extract_bibliography(
+        self, full_text: str, bib_type: str, settings: LLMSettings
+    ) -> Bibliography:
+        """全文テキストから文献情報を抽出する"""
+        from app.backend.models import Bibliography
+
+        client = self._make_client(settings)
+        template = self._load_template("bibliography_extraction.jinja2")
+
+        system_prompt = template.render(
+            source_id="",
+            source_name="",
+            bib_type=bib_type,
+            full_text=full_text[:10000],  # Limit to avoid token overflow
+        )
+
+        start = time.time()
+        try:
+            response = await client.chat.completions.create(
+                model=settings.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                ],
+                response_format={"type": "json_object"},
+            )
+            content = response.choices[0].message.content or "{}"
+            bib_data = json.loads(content)
+
+            # Build Bibliography object, keeping existing type
+            return Bibliography(type=bib_type, **bib_data)
+        finally:
+            elapsed = time.time() - start
+            logger.info(
+                "文献情報抽出完了: type=%s, elapsed=%.2fs", bib_type, elapsed
+            )
+
     async def analyze_image_with_vision(
         self, file_path: str, settings: LLMSettings
     ) -> str:
@@ -506,7 +542,7 @@ class LLMService:
             context_scope_value = "section"
 
         source_summaries = [
-            {"name": s.name, "summary": s.summary}
+            {"id": s.id, "name": s.name, "summary": s.summary}
             for s in project.sources
             if s.summary
         ]
@@ -558,7 +594,7 @@ class LLMService:
             context_scope_value = "section"
 
         source_summaries = [
-            {"name": s.name, "summary": s.summary}
+            {"id": s.id, "name": s.name, "summary": s.summary}
             for s in project.sources if s.summary
         ]
 
