@@ -80,7 +80,13 @@ const AppShell = (() => {
     // チャット送信（Edit タブ）
     document.getElementById('btn-chat-send').addEventListener('click', _sendChat);
     document.getElementById('chat-input').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _sendChat(); }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        // オートコンプリートポップアップ表示中はEnter送信を抑止
+        const acPopup = document.querySelector('.autocomplete-popup');
+        if (acPopup && acPopup.style.display !== 'none') return;
+        e.preventDefault();
+        _sendChat();
+      }
     });
 
     // チャット入力欄リサイズハンドル
@@ -143,6 +149,9 @@ const AppShell = (() => {
     document.getElementById('btn-add-rule-from-panel').addEventListener('click', () => {
       RuleTab.addRuleFromPanel();
     });
+
+    // @ オートコンプリートポップアップの初期化
+    AutocompletePopup.attachAll(['chat-input', 'review-prompt']);
 
     // statechange 購読
     document.addEventListener('statechange', (e) => {
@@ -261,9 +270,49 @@ const AppShell = (() => {
     const scope = document.getElementById('chat-scope').value;
     const useFullSources = document.getElementById('chat-full-sources').checked;
 
+    // コマンド解析
+    const parsed = CommandParser.parse(message, 'edit');
+
+    // 不明コマンドのエラー表示
+    if (parsed.error) {
+      showToast(parsed.error, 'error');
+      return;
+    }
+
+    // 破壊的操作の確認ダイアログ
+    if (parsed.command && parsed.command.isDangerous) {
+      const confirmed = await Modal.confirm(
+        '既存のセクション構造をすべて削除して再生成します。よろしいですか？',
+        { danger: true, confirmText: '実行' }
+      );
+      if (!confirmed) return;
+    }
+
     input.value = '';
     const btn = document.getElementById('btn-chat-send');
     btn.disabled = true;
+
+    // リクエストボディ構築
+    const body = {
+      context_scope: scope,
+      use_full_sources: useFullSources,
+    };
+
+    if (parsed.command) {
+      // コマンドモード: ユーザーメッセージにフリーテキスト（追加指示）を渡す
+      body.user_message = parsed.freeText || `/${parsed.command.name} ${parsed.command.args.join(' ')}`.trim();
+      body.command = parsed.command.name;
+      body.command_args = parsed.command.args;
+    } else {
+      // 通常チャットモード
+      body.user_message = parsed.freeText || message;
+    }
+
+    // @参照がある場合はIDリストを追加
+    if (parsed.refs.length > 0) {
+      body.explicit_refs = parsed.refs.map(r => r.id);
+      body.use_full_sources = true;
+    }
 
     // チャット応答表示用コンテナ（チャットバー上部に追加）
     const chatBar = document.getElementById('chat-bar');
@@ -273,7 +322,7 @@ const AppShell = (() => {
 
     _currentSseCtrl = ApiClient.openSSE(
       `/api/projects/${project.id}/chat`,
-      { user_message: message, context_scope: scope, use_full_sources: useFullSources },
+      body,
       {
         onChunk: (text) => {
           responseEl.textContent += text;
@@ -349,6 +398,12 @@ const AppShell = (() => {
         sec.summary = summary;
         const summaryEl = document.querySelector(`[data-sec-id="${section_id}"][data-field="summary"]`);
         if (summaryEl) summaryEl.innerText = summary;
+
+      } else if (tool === 'delete_section') {
+        const { section_id } = args;
+        await ApiClient.delete(`/api/projects/${project.id}/sections/${section_id}`);
+        project.sections = project.sections.filter(s => s.id !== section_id);
+        EditTab.render(project);
       }
     } catch (e) {
       showToast(`ツールコール適用エラー: ${e.message}`, 'error');

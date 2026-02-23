@@ -67,6 +67,20 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_section",
+            "description": "指定セクションを削除する",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "section_id": {"type": "string", "description": "削除するセクションのID"},
+                },
+                "required": ["section_id"],
+            },
+        },
+    },
 ]
 
 # Tool Calling 非対応モデルの識別キーワード
@@ -110,14 +124,24 @@ class LLMService:
         context_scope: str,
         use_full_sources: bool,
         vector_store_service: "VectorStoreService",
+        command: str | None = None,
+        command_args: list[str] | None = None,
+        explicit_refs: list[str] | None = None,
     ) -> AsyncGenerator[str, None]:
         """SSE ペイロード文字列を yield する。形式: data: {json}\\n\\n"""
         settings = project.settings
         client = self._make_client(settings)
-        messages = self._build_chat_messages(project, user_message, context_scope)
 
-        # ソース全文参照
-        if use_full_sources:
+        if command:
+            messages = self._build_command_messages(
+                project, user_message, context_scope,
+                command, command_args or [], explicit_refs or [],
+            )
+        else:
+            messages = self._build_chat_messages(project, user_message, context_scope)
+
+        # ソース全文参照（コマンドモードでは explicit_refs で既に注入済み）
+        if use_full_sources and not command:
             messages = await self._inject_full_sources(
                 project, user_message, messages, vector_store_service
             )
@@ -153,6 +177,8 @@ class LLMService:
         context_scope: str,
         use_full_sources: bool,
         vector_store_service: "VectorStoreService",
+        review_focus: str | None = None,
+        explicit_refs: list[str] | None = None,
     ) -> AsyncGenerator[str, None]:
         """セクションごとに review_comment SSE イベントを yield する。"""
         settings = project.settings
@@ -162,13 +188,30 @@ class LLMService:
         # レビュー用システムプロンプトをテンプレート化
         template = self._load_template("review_system.jinja2")
         rendered_system_prompt = template.render(
-            additional_prompt=system_prompt if system_prompt else ""
+            additional_prompt=system_prompt if system_prompt else "",
+            review_focus=review_focus,
         )
+
+        # 明示参照ソースの全文をコンテキストに追加
+        explicit_source_context = ""
+        if explicit_refs:
+            src_by_id = {s.id: s for s in project.sources}
+            source_texts = []
+            for rid in explicit_refs:
+                src = src_by_id.get(rid)
+                if src and src.full_text:
+                    source_texts.append(f"### {src.name}\n{src.full_text[:3000]}")
+            if source_texts:
+                explicit_source_context = (
+                    "\n\n## 指定されたソース（参照用）\n"
+                    + "\n\n".join(source_texts)
+                )
 
         for sec in sorted_sections:
             section_context = f"# {sec.title}\n{sec.summary}\n\n{sec.content}"
+            review_system = rendered_system_prompt + explicit_source_context
             messages = [
-                {"role": "system", "content": rendered_system_prompt},
+                {"role": "system", "content": review_system},
                 {
                     "role": "user",
                     "content": f"以下のセクションをレビューしてください:\n\n{section_context}",
@@ -340,6 +383,65 @@ class LLMService:
             ],
         )
         return response.choices[0].message.content or ""
+
+    def _build_command_messages(
+        self,
+        project: Project,
+        user_message: str,
+        context_scope: str,
+        command: str,
+        command_args: list[str],
+        explicit_refs: list[str],
+    ) -> list[dict]:
+        """コマンド専用のシステムプロンプトを構築する。"""
+        template = self._load_template("command_system.jinja2")
+
+        enabled_rules = [r for r in project.rules if r.enabled]
+        sorted_sections = sorted(project.sections, key=lambda s: s.order)
+
+        if context_scope == "all":
+            target_section = None
+            context_scope_value = "all"
+        else:
+            target_section = next(
+                (s for s in sorted_sections if s.id == context_scope), None
+            )
+            context_scope_value = "section"
+
+        source_summaries = [
+            {"name": s.name, "summary": s.summary}
+            for s in project.sources
+            if s.summary
+        ]
+
+        # 明示参照されたソース・マテリアルを解決
+        src_by_id = {s.id: s for s in project.sources}
+        mat_by_id = {m.id: m for m in project.materials}
+        explicit_sources = [
+            src_by_id[rid] for rid in explicit_refs if rid in src_by_id
+        ]
+        explicit_materials = [
+            mat_by_id[rid] for rid in explicit_refs if rid in mat_by_id
+        ]
+
+        system_content = template.render(
+            command=command,
+            command_args=command_args,
+            enabled_rules=enabled_rules,
+            sections=sorted_sections,
+            context_scope=context_scope_value,
+            target_section=target_section,
+            source_summaries=source_summaries,
+            explicit_sources=explicit_sources,
+            explicit_materials=explicit_materials,
+            user_message=user_message,
+        )
+
+        # コマンドの場合はチャット履歴を含めない（ステートレス操作）
+        messages: list[dict] = [{"role": "system", "content": system_content}]
+        if user_message:
+            messages.append({"role": "user", "content": user_message})
+        return messages
 
     def _build_chat_messages(
         self, project: Project, user_message: str, context_scope: str
