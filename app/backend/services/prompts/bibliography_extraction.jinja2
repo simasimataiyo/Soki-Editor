@@ -1,0 +1,52 @@
+以下のソース全文から文献情報を抽出し、JSON形式で返してください。
+
+ソースID: {{ source_id }}
+ソース名: {{ source_name }}
+ソースタイプ: {{ bib_type }}
+
+本文:
+{{ full_text }}
+
+抽出項目（ソースタイプに応じて）:
+
+{% if bib_type == "paper" %}
+- title: 論文タイトル
+- author: 著者名
+- journal: 掲載誌名
+- volume: 巻数
+- issue: 号数
+- pages: ページ範囲
+- year: 出版年
+
+{% elif bib_type == "book" %}
+- title: 書籍タイトル
+- author: 著者名
+- year: 出版年
+- publisher: 出版社
+- publication_place: 出版地
+
+{% elif bib_type == "book_chapter" %}
+- title: 章タイトル
+- author: 著者名
+- year: 出版年
+- publisher: 出版社
+- editor: 編者名
+- pages: ページ範囲
+
+{% elif bib_type == "web" %}
+- title: ページタイトル
+- author: 著者名
+- url: URL
+- site_name: サイト名
+- accessed_date: 参照日（YYYY-MM-DD形式）
+
+{% elif bib_type == "resource" %}
+- title: 資料タイトル
+- author: 作成者
+- created_date: 作成日（YYYY-MM-DD形式）
+- other: その他の備考情報
+
+{% endif %}
+
+情報が見つからない項目は空文字列にしてください。
+有効なJSONのみを返してください。Markdown形式や説明文を含めないでください。

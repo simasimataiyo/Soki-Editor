@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soki-editor"
+version = "0.1.0"
+description = "LLM-assisted long-form document editor"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pywebview>=5.3",
+    "openai>=1.59",
+    "langchain-core>=0.3",
+    "langchain-openai>=0.2",
+    "langchain-chroma>=0.1",
+    "chromadb>=0.5",
+    "markitdown[all]>=0.1",
+    "PyMuPDF>=1.24",
+    "Pillow>=11.0",
+    "Jinja2>=3.1",
+    "python-multipart>=0.0.18",
+    "pydantic>=2.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.28",
+    "pytest-mock>=3.14",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
