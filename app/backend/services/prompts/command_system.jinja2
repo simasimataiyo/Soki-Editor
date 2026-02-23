@@ -202,12 +202,6 @@ sections 配列の各要素:
 - 複数のソースを引用する場合: `[^ref-001][^ref-005]`
 - 引用は事実ベースの主張に対してのみ行い、一般的な知識や自身の推論には不要
 
-{% if user_message %}
-## ユーザーからの追加指示
-
-{{ user_message }}
-{% endif %}
-
 {% if enabled_rules %}
 ## 執筆ルール
 
@@ -264,6 +258,23 @@ sections 配列の各要素:
 以下のマテリアルを参照してください：
 
 {% for mat in explicit_materials %}
+- {{ mat.name }} ({{ mat.type }}): {{ mat.caption or '(キャプションなし)' }}
+{% endfor %}
+{% endif %}
+
+{% if history_sources %}
+## 会話中に参照されたソース（現在の状態）
+
+以下のソースはこの会話の過去のターンで参照されました。ソース内容はその後更新されている可能性があります：
+{% for source in history_sources %}
+- [^{{ source.id }}] {{ source.name }}: {{ source.summary or '(要約なし)' }}
+{% endfor %}
+{% endif %}
+
+{% if history_materials %}
+## 会話中に参照されたマテリアル（現在の状態）
+
+{% for mat in history_materials %}
 - {{ mat.name }} ({{ mat.type }}): {{ mat.caption or '(キャプションなし)' }}
 {% endfor %}
 {% endif %}

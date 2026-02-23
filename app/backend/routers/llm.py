@@ -34,18 +34,6 @@ async def chat_stream(project_id: str, body: ChatRequest) -> StreamingResponse:
     except KeyError:
         _not_found(project_id)
 
-    # コマンドでない場合のみチャット履歴に追加
-    if not body.command:
-        await svc.append_chat_message(
-            project_id,
-            body.context_scope,
-            ChatMessage(
-                role="user",
-                content=body.user_message,
-                timestamp=datetime.now(),
-            ),
-        )
-
     async def _stream_with_history() -> AsyncGenerator[str, None]:
         accumulated = []
         async for chunk in _llm_service.chat_stream(
@@ -59,26 +47,46 @@ async def chat_stream(project_id: str, body: ChatRequest) -> StreamingResponse:
             explicit_refs=body.explicit_refs if body.explicit_refs else None,
         ):
             yield chunk
-            # chunk イベントを蓄積してアシスタントメッセージを記録（コマンド以外）
-            if not body.command:
-                import json as _json
-                if chunk.startswith("data:"):
-                    try:
-                        data = _json.loads(chunk[5:].strip())
-                        if data.get("type") == "chunk":
-                            accumulated.append(data.get("text", ""))
-                        elif data.get("type") == "done" and accumulated:
+            # done イベント時にまとめて履歴保存（LLM呼び出し前に保存すると重複するため）
+            import json as _json
+            if chunk.startswith("data:"):
+                try:
+                    data = _json.loads(chunk[5:].strip())
+                    if data.get("type") == "chunk" and not body.command:
+                        accumulated.append(data.get("text", ""))
+                    elif data.get("type") == "done":
+                        if body.command:
+                            # コマンド履歴を保存
+                            await svc.append_command_message(
+                                project_id,
+                                body.context_scope,
+                                body.command,
+                                body.command_args or [],
+                            )
+                        else:
+                            # ユーザーメッセージと応答を保存
                             await svc.append_chat_message(
                                 project_id,
                                 body.context_scope,
                                 ChatMessage(
-                                    role="assistant",
-                                    content="".join(accumulated),
+                                    role="user",
+                                    content=body.user_message,
                                     timestamp=datetime.now(),
+                                    explicit_refs=body.explicit_refs or [],
                                 ),
                             )
-                    except Exception:
-                        pass
+                            if accumulated:
+                                await svc.append_chat_message(
+                                    project_id,
+                                    body.context_scope,
+                                    ChatMessage(
+                                        role="assistant",
+                                        content="".join(accumulated),
+                                        timestamp=datetime.now(),
+                                    ),
+                                )
+                except Exception:
+                    pass
 
     return StreamingResponse(
         _stream_with_history(),
@@ -114,6 +122,31 @@ async def clear_chat_history(
     try:
         await svc.clear_chat_history(project_id, scope)
         return {"status": "ok"}
+    except KeyError:
+        _not_found(project_id)
+
+
+@router.get("/chat-history/all-scopes")
+async def get_all_scopes_history(project_id: str) -> dict:
+    """全スコープの履歴を返す（履歴モーダル用）"""
+    svc = get_service()
+    try:
+        project = await svc.get_project(project_id)
+    except KeyError:
+        _not_found(project_id)
+    return {
+        scope: [m.model_dump() for m in messages]
+        for scope, messages in project.chat_history.items()
+    }
+
+
+@router.post("/chat-history/new-scope")
+async def create_new_scope(project_id: str) -> dict:
+    """新しいスコープを作成して返す（/clearコマンド用）"""
+    svc = get_service()
+    try:
+        new_scope = await svc.create_new_scope(project_id)
+        return {"status": "ok", "new_scope": new_scope}
     except KeyError:
         _not_found(project_id)
 

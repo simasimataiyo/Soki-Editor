@@ -62,6 +62,7 @@ const AppShell = (() => {
   };
 
   let _currentSseCtrl = null;
+  let _currentScope = 'all';
 
   function init() {
     // タブ切り替え
@@ -135,7 +136,6 @@ const AppShell = (() => {
     document.getElementById('btn-close-history').addEventListener('click', () => {
       document.getElementById('modal-chat-history').style.display = 'none';
     });
-    document.getElementById('btn-clear-history').addEventListener('click', _clearChatHistory);
 
     // 各タブのイベント
     EditTab.bindEvents();
@@ -190,10 +190,15 @@ const AppShell = (() => {
 
   function enterEditor(project) {
     _resetAllTabs();
+    _currentScope = 'all';
     window.appState.setProject(project);
     document.getElementById('project-name-display').textContent = project.name || '';
     _showScreen('editor-screen');
     switchTab('edit');
+  }
+
+  function setCurrentScope(scope) {
+    _currentScope = scope;
   }
 
   function _showScreen(screenId) {
@@ -267,7 +272,6 @@ const AppShell = (() => {
     const message = input.value.trim();
     if (!message) return;
 
-    const scope = document.getElementById('chat-scope').value;
     const useFullSources = document.getElementById('chat-full-sources').checked;
 
     // コマンド解析
@@ -276,6 +280,25 @@ const AppShell = (() => {
     // 不明コマンドのエラー表示
     if (parsed.error) {
       showToast(parsed.error, 'error');
+      return;
+    }
+
+    // /clear コマンド: LLM を呼ばずに新スコープを作成して終了
+    if (parsed.command && parsed.command.name === 'clear') {
+      input.value = '';
+      const btn = document.getElementById('btn-chat-send');
+      btn.disabled = true;
+      try {
+        const result = await ApiClient.post(
+          `/api/projects/${project.id}/chat-history/new-scope`
+        );
+        _currentScope = result.new_scope;
+        showToast(`新しいスコープ「${result.new_scope}」を作成しました`, 'success');
+      } catch (error) {
+        showToast('スコープの作成に失敗しました', 'error');
+      } finally {
+        btn.disabled = false;
+      }
       return;
     }
 
@@ -293,7 +316,7 @@ const AppShell = (() => {
     btn.disabled = true;
 
     // /structure section コマンドの場合、選択中のセクションを対象にする
-    let contextScope = scope;
+    let contextScope = _currentScope;
     if (parsed.command && parsed.command.name === 'structure' && parsed.command.args.includes('section')) {
       const selectedSectionId = window.appState.getSelectedSectionId();
       if (selectedSectionId) {
@@ -543,37 +566,87 @@ const AppShell = (() => {
   async function _showChatHistory() {
     const project = window.appState.getProject();
     if (!project) return;
-    const scope = document.getElementById('chat-scope').value;
-    const history = await ApiClient.get(
-      `/api/projects/${project.id}/chat-history?scope=${encodeURIComponent(scope)}`
+
+    const allScopes = await ApiClient.get(
+      `/api/projects/${project.id}/chat-history/all-scopes`
     );
+
     const container = document.getElementById('chat-history-content');
     container.innerHTML = '';
-    if (!history.length) {
+
+    const scopeKeys = Object.keys(allScopes);
+    if (!scopeKeys.length) {
       container.innerHTML = '<p style="color:var(--color-text-muted)">履歴がありません</p>';
     } else {
-      history.forEach(msg => {
-        const div = document.createElement('div');
-        div.className = `history-msg ${msg.role}`;
-        div.textContent = msg.content;
-        container.appendChild(div);
+      // スコープを名称順に表示（all を先頭, scope-N を番号順に）
+      const sorted = scopeKeys.sort((a, b) => {
+        if (a === 'all') return -1;
+        if (b === 'all') return 1;
+        const na = parseInt(a.split('-')[1]) || 0;
+        const nb = parseInt(b.split('-')[1]) || 0;
+        return na - nb;
+      });
+
+      sorted.forEach(scopeKey => {
+        const msgs = allScopes[scopeKey];
+        const isCurrent = scopeKey === _currentScope;
+        const scopeLabel = scopeKey === 'all'
+          ? '全セクション (骨子)'
+          : `スコープ ${scopeKey.split('-')[1]}`;
+
+        // スコープヘッダー
+        const header = document.createElement('div');
+        header.className = 'history-scope-header' + (isCurrent ? ' current' : '');
+        header.innerHTML = `
+          <span class="history-scope-label">${escHtml(scopeLabel)}</span>
+          ${isCurrent ? '<span class="history-scope-badge">現在</span>' : ''}
+          <button class="btn btn-sm btn-tertiary history-scope-switch" data-scope="${escHtml(scopeKey)}" title="このスコープに切り替え">切替</button>
+        `;
+        container.appendChild(header);
+
+        // メッセージ一覧
+        if (!msgs.length) {
+          const empty = document.createElement('p');
+          empty.className = 'history-scope-empty';
+          empty.textContent = 'メッセージなし';
+          container.appendChild(empty);
+        } else {
+          msgs.forEach(msg => {
+            const div = document.createElement('div');
+            div.className = `history-msg ${msg.role}`;
+            if (msg.role === 'command') {
+              div.innerHTML = `
+                <div class="chat-history-role command">コマンド</div>
+                <div class="chat-history-content">${escHtml(msg.content)}</div>
+                <div class="chat-history-time">${new Date(msg.timestamp).toLocaleString('ja-JP')}</div>
+              `;
+            } else {
+              const roleLabel = msg.role === 'user' ? 'あなた' : 'AI';
+              div.innerHTML = `
+                <div class="chat-history-role ${msg.role}">${roleLabel}</div>
+                <div class="chat-history-content">${escHtml(msg.content)}</div>
+                <div class="chat-history-time">${new Date(msg.timestamp).toLocaleString('ja-JP')}</div>
+              `;
+            }
+            container.appendChild(div);
+          });
+        }
+      });
+
+      // 切替ボタンのイベント
+      container.querySelectorAll('.history-scope-switch').forEach(btn => {
+        btn.addEventListener('click', () => {
+          _currentScope = btn.dataset.scope;
+          document.getElementById('modal-chat-history').style.display = 'none';
+          showToast(`スコープを切り替えました`, 'success');
+        });
       });
     }
+
     document.getElementById('modal-chat-history').style.display = 'flex';
   }
 
-  async function _clearChatHistory() {
-    const project = window.appState.getProject();
-    if (!project) return;
-    const scope = document.getElementById('chat-scope').value;
-    await ApiClient.delete(
-      `/api/projects/${project.id}/chat-history?scope=${encodeURIComponent(scope)}`
-    );
-    document.getElementById('modal-chat-history').style.display = 'none';
-    showToast('履歴を削除しました', 'success');
-  }
-
-  return { init, switchTab, enterEditor };
+  return { init, switchTab, enterEditor, setCurrentScope };
 })();
 
 // ─── エントリーポイント ──────────────────────────────────
