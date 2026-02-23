@@ -175,26 +175,60 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 }
 .btn-add-item:hover { background: var(--color-bg); }
 
+/* ─── 左パネル リスト共通 ───────────────────────────────── */
+.outline-list,
+.item-list,
+.material-card-list,
+.rule-tree {
+  list-style: none;
+  overflow-y: auto;
+  flex: 1;
+}
+.outline-item,
+.item-list li,
+.material-card,
+.rule-tree-category,
+.rule-tree-rule {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  transition: background .1s;
+  overflow: hidden;
+}
+.outline-item:hover,
+.item-list li:hover,
+.material-card:hover,
+.rule-tree-category:hover,
+.rule-tree-rule:hover {
+  background: var(--color-bg);
+}
+
 /* ─── アイテムリスト（共通） ─────────────────────────────── */
-.item-list { list-style: none; overflow-y: auto; flex: 1; }
-.item-list li { padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--color-border); transition: background .1s; display: flex; align-items: center; gap: 8px; }
-.item-list li:hover { background: var(--color-bg); }
+.item-list li { padding: 0 14px; border-bottom: 1px solid var(--color-border); gap: 8px; }
 .item-list li.active { background: var(--color-text); color: var(--color-white); }
 .item-list .item-icon { width: 16px; height: 16px; flex-shrink: 0; opacity: .5; }
 .item-list li.active .item-icon { opacity: .9; }
 .item-list .item-name { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ─── アウトラインパネル ─────────────────────────────────── */
-.outline-list { list-style: none; overflow-y: auto; flex: 1; padding: 4px 0; }
-.outline-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 10px;
-  cursor: pointer;
-  transition: background .1s;
+/* ─── ドラッグ&ドロップ ─────────────────────────────────── */
+#src-full-text.drag-over {
+  border-color: var(--color-text);
+  background: var(--color-primary-pale);
+  outline: 2px dashed var(--color-text);
 }
-.outline-item:hover { background: var(--color-bg); }
+.material-preview.drag-over {
+  border: 2px dashed var(--color-text);
+  background: var(--color-primary-pale);
+}
+
+/* ─── アウトラインパネル ─────────────────────────────────── */
+.outline-list { padding: 4px 0; }
+.outline-item {
+  border-bottom: 1px solid var(--color-border-light);
+  gap: 4px;
+  padding: 0 10px;
+}
 .outline-item.active { background: var(--color-primary-pale); }
 .outline-item .item-title { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .outline-item.level-1 { padding-left: 10px; font-weight: 600; }
@@ -344,10 +378,10 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   border-radius: 0;
   overflow: visible;
 }
-.section-block.depth-2 { margin-left: 24px; }
-.section-block.depth-3 { margin-left: 48px; }
-.section-block.depth-4 { margin-left: 72px; }
-.section-block.depth-5 { margin-left: 96px; }
+.section-block.depth-2 { margin-left: 12px; }
+.section-block.depth-3 { margin-left: 24px; }
+.section-block.depth-4 { margin-left: 36px; }
+.section-block.depth-5 { margin-left: 48px; }
 
 .section-block .section-header {
   padding: 6px 0;
@@ -442,7 +476,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .section-body.collapsed { display: none; }
 
 .section-summary {
-  padding: 8px 14px;
+  padding: 8px 0;
   background: var(--color-primary-pale);
   font-size: 13px;
   color: var(--color-text-muted);
@@ -466,6 +500,10 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 }
 .section-block.selected .section-content {
   min-height: 16em; /* 編集中は10行分の縦幅を確保 */
+}
+.section-block.selected .section-summary,
+.section-block.selected > .section-body > .section-content-wrapper > .section-content {
+  margin-right: 32px;
 }
 .section-content[contenteditable] { outline: none; }
 .section-content[contenteditable]:focus { background: var(--color-bg); border-radius: 4px; padding: 4px; }
@@ -562,34 +600,40 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 /* ─── ルールタブ ─────────────────────────────────────────── */
 
 /* ルール左パネル ツリー */
-.rule-tree { list-style: none; overflow-y: auto; flex: 1; padding: 4px 0; }
+.rule-tree { padding: 4px 0; }
 .rule-tree-category {
-  display: flex;
-  align-items: center;
+  border-bottom: 1px solid var(--color-border-light);
   gap: 4px;
-  padding: 6px 12px;
-  cursor: pointer;
+  padding: 0 10px;
   font-weight: 600;
   font-size: 13px;
-  transition: background .1s;
 }
-.rule-tree-category:hover { background: var(--color-bg); }
 .rule-tree-category.active { background: var(--color-text); color: var(--color-white); }
+.rule-tree-category.active .item-title { color: var(--color-white); }
 .rule-tree-rule {
-  display: flex;
-  align-items: center;
+  border-bottom: 1px solid var(--color-border-light);
   gap: 4px;
-  padding: 4px 12px 4px 32px;
-  cursor: pointer;
+  padding: 0 10px 0 10px;
   font-size: 12px;
   color: var(--color-text-muted);
-  transition: background .1s;
-  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.rule-tree-rule:hover { background: var(--color-bg); }
-.rule-tree-toggle { width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--color-text-muted); }
+.rule-tree-toggle {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 3px;
+  transition: background .1s;
+}
+.rule-tree-toggle:hover { background: var(--color-border); }
+.rule-tree-category.active .rule-tree-toggle { color: var(--color-white-opacity-80); }
 
 /* ルール右パネル カテゴリブロック */
 .rule-all-view { display: flex; flex-direction: column; gap: 0; overflow-y: auto; flex: 1; }
@@ -601,8 +645,8 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .rule-category-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 14px 0;
+  gap: 6px;
+  padding: 6px 0;
   cursor: pointer;
   user-select: none;
 }
@@ -625,6 +669,11 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   display: flex;
   gap: 4px;
   flex-shrink: 0;
+  opacity: 0;
+  transition: opacity .15s;
+}
+.rule-category-section:hover .rule-category-header .header-actions {
+  opacity: 1;
 }
 .rule-category-body { padding: 0 0 8px; }
 .rule-category-body.collapsed { display: none; }
@@ -715,14 +764,11 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .comment-card-body { padding: 10px 12px; font-size: 13px; line-height: 1.6; }
 
 /* ─── マテリアルリスト（縦型カード） ─────────────────────── */
-.material-card-list { list-style: none; overflow-y: auto; flex: 1; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+.material-card-list { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
 .material-card {
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  padding: 10px 12px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
+  padding: 0 12px;
   gap: 10px;
   transition: border-color .15s, background .15s;
 }
@@ -730,11 +776,11 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .material-card.active { background: var(--color-text); color: var(--color-white); border-color: var(--color-text); }
 .material-card-info { flex: 1; min-width: 0; }
 .material-card-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.material-card-desc { font-size: 11px; color: var(--color-text-muted); margin-top: 3px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.material-card-desc { font-size: 11px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .material-card.active .material-card-desc { color: var(--color-white-opacity-70); }
 .material-card-thumb {
-  width: 64px;
-  height: 48px;
+  width: 44px;
+  height: 32px;
   flex-shrink: 0;
   border-radius: 4px;
   background: var(--color-bg);
@@ -948,4 +994,44 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 }
 .section-title-toggle:hover {
   background: var(--color-bg);
+}
+
+/* ─── PDFページ選択モーダル ────────────────────────────────── */
+.pdf-page-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 10px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 4px;
+}
+.pdf-page-thumb {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  padding: 4px;
+  transition: border-color .15s, background .15s;
+}
+.pdf-page-thumb.selected,
+.pdf-page-thumb:has(input:checked) {
+  border-color: var(--color-text);
+  background: var(--color-primary-pale);
+}
+.pdf-page-thumb input {
+  display: none;
+}
+.pdf-page-thumb img {
+  width: 100%;
+  height: 120px;
+  object-fit: contain;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+}
+.pdf-page-label {
+  font-size: 11px;
+  color: var(--color-text-muted);
 }

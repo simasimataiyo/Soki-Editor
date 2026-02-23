@@ -141,7 +141,7 @@ const AppShell = (() => {
 
     // ルール左パネルの新規追加ボタン
     document.getElementById('btn-add-rule-from-panel').addEventListener('click', () => {
-      RuleTab.addCategory();
+      RuleTab.addRuleFromPanel();
     });
 
     // statechange 購読
@@ -213,7 +213,6 @@ const AppShell = (() => {
       rule: [
         { id: 'btn-rule-import-top', label: 'インポート', handler: () => RuleTab.importCsv() },
         { id: 'btn-rule-export-top', label: 'エクスポート', handler: () => RuleTab.exportCsv() },
-        { id: 'btn-add-category-top', label: 'セクション追加', handler: () => RuleTab.addCategory() },
       ],
       review: [
         { id: 'btn-export-top', label: 'エクスポート', handler: async () => {
@@ -221,16 +220,15 @@ const AppShell = (() => {
           try {
             const res = await fetch(`/api/projects/${project.id}/export`);
             if (!res.ok) { showToast('エクスポートに失敗しました', 'error'); return; }
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${project.name}.md`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            showToast('エクスポート完了', 'success');
+            const mdText = await res.text();
+            const dialog = await ApiClient.saveFileDialog(`${project.name}.md`);
+            if (!dialog || !dialog.path) return;
+            const writeResult = await ApiClient.writeFile(dialog.path, mdText);
+            if (writeResult.ok) {
+              showToast('エクスポート完了', 'success');
+            } else {
+              showToast('ファイル保存に失敗しました', 'error');
+            }
           } catch (e) {
             showToast('エクスポートに失敗しました', 'error');
           }

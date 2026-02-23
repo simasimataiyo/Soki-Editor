@@ -1,6 +1,8 @@
 """ソース CRUD・ファイル読み込み・CSV インポート/エクスポート API"""
 from __future__ import annotations
 
+import asyncio
+import base64
 import csv
 import io
 import json
@@ -8,7 +10,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from app.backend.models import Bibliography, Source, SourceUpdate
@@ -154,7 +156,8 @@ async def read_source_file_upload(
                 pass
 
     return await svc.update_source(
-        project_id, source_id, SourceUpdate(full_text=text)
+        project_id, source_id,
+        SourceUpdate(full_text=text, file_path=file.filename or "")
     )
 
 
@@ -188,6 +191,107 @@ async def analyze_source_image_upload(
 
     return await svc.update_source(
         project_id, source_id, SourceUpdate(full_text=text)
+    )
+
+
+# ─── PDFページ選択・解析 ───────────────────────────────────
+
+
+@router.post("/sources/{source_id}/pdf-thumbnails")
+async def get_pdf_thumbnails(
+    project_id: str, source_id: str, file: UploadFile
+) -> dict:
+    """PDFの各ページをサムネイル画像として返す（base64 JPEG）。"""
+    import fitz  # PyMuPDF
+
+    content = await file.read()
+    try:
+        doc = await asyncio.to_thread(fitz.open, stream=content, filetype="pdf")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"PDF解析失敗: {e}")
+
+    def _render_thumbnails(doc):
+        thumbs = []
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            pix = page.get_pixmap(dpi=72)
+            img_bytes = pix.tobytes("jpeg")
+            b64 = base64.b64encode(img_bytes).decode()
+            thumbs.append({
+                "page": page_num,
+                "label": f"p.{page_num + 1}",
+                "data": f"data:image/jpeg;base64,{b64}",
+            })
+        doc.close()
+        return thumbs
+
+    thumbnails = await asyncio.to_thread(_render_thumbnails, doc)
+    return {"total": len(thumbnails), "thumbnails": thumbnails}
+
+
+@router.post("/sources/{source_id}/analyze-pdf-pages", response_model=Source)
+async def analyze_pdf_pages(
+    project_id: str,
+    source_id: str,
+    file: UploadFile,
+    pages: str = Form(...),
+) -> Source:
+    """PDFの選択ページをVision APIで解析してfull_textに追記する。"""
+    import fitz  # PyMuPDF
+
+    svc = get_service()
+    try:
+        project = await svc.get_project(project_id)
+    except KeyError:
+        _not_found(project_id)
+
+    page_indices = []
+    for p in pages.split(","):
+        p = p.strip()
+        if p.isdigit():
+            page_indices.append(int(p))
+    if not page_indices:
+        raise HTTPException(status_code=422, detail="ページ番号が必要です")
+
+    content = await file.read()
+
+    def _render_pages(content_bytes, indices):
+        doc = fitz.open(stream=content_bytes, filetype="pdf")
+        results = []
+        for page_num in indices:
+            if page_num >= len(doc):
+                continue
+            page = doc.load_page(page_num)
+            pix = page.get_pixmap(dpi=150)
+            results.append((page_num, pix.tobytes("png")))
+        doc.close()
+        return results
+
+    try:
+        rendered = await asyncio.to_thread(_render_pages, content, page_indices)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"PDFレンダリング失敗: {e}")
+
+    analyses = []
+    for page_num, img_bytes in rendered:
+        try:
+            text = await _file_service.analyze_image_bytes_with_vision(
+                img_bytes,
+                "image/png",
+                project.settings,
+                f"このPDFの{page_num + 1}ページ目の内容を詳しく説明してください。",
+            )
+            analyses.append(f"--- {page_num + 1}ページ目 ---\n{text}")
+        except Exception as e:
+            analyses.append(f"--- {page_num + 1}ページ目 ---\n[解析失敗: {e}]")
+
+    src = next((s for s in project.sources if s.id == source_id), None)
+    existing = src.full_text if src else ""
+    separator = "\n\n" if existing else ""
+    new_text = existing + separator + "\n\n".join(analyses)
+
+    return await svc.update_source(
+        project_id, source_id, SourceUpdate(full_text=new_text)
     )
 
 
@@ -272,6 +376,54 @@ async def export_sources_csv(project_id: str) -> StreamingResponse:
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=sources.csv"},
     )
+
+
+@router.post("/sources/import-native")
+async def import_sources_csv_native(project_id: str, body: dict) -> dict:
+    """pywebview 用: ファイルパスを受け取って CSV インポート。"""
+    file_path = body.get("path", "")
+    if not file_path:
+        raise HTTPException(status_code=400, detail="path is required")
+    try:
+        text = Path(file_path).read_text(encoding="utf-8-sig")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    svc = get_service()
+    try:
+        await svc.get_project(project_id)
+    except KeyError:
+        _not_found(project_id)
+
+    reader = csv.DictReader(io.StringIO(text))
+    imported = 0
+    for row in reader:
+        bib = Bibliography(
+            type=row.get("bib_type", "paper"),
+            title=row.get("title", ""),
+            author=row.get("author", ""),
+            journal=row.get("journal") or None,
+            volume=row.get("volume") or None,
+            issue=row.get("issue") or None,
+            pages=row.get("pages") or None,
+            year=row.get("year") or None,
+            publisher=row.get("publisher") or None,
+            publication_place=row.get("publication_place") or None,
+            editor=row.get("editor") or None,
+            url=row.get("url") or None,
+            site_name=row.get("site_name") or None,
+            accessed_date=row.get("accessed_date") or None,
+            include_in_references=str(row.get("include_in_references", "False")).lower() == "true",
+        )
+        src = await svc.add_source(project_id)
+        await svc.update_source(
+            project_id,
+            src.id,
+            SourceUpdate(name=row.get("name", src.name), bibliography=bib),
+        )
+        imported += 1
+
+    return {"imported": imported}
 
 
 @router.post("/sources/import")

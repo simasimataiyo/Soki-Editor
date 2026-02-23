@@ -366,6 +366,13 @@ const EditTab = (() => {
     ['summary', 'content'].forEach(field => {
       const el = block.querySelector(`[data-field="${field}"]`);
       el.addEventListener('input', () => _debounceSave(sec.id, field, el));
+      // Tabキーでインデント挿入
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Tab' && el.getAttribute('contenteditable') === 'true') {
+          e.preventDefault();
+          document.execCommand('insertText', false, '    ');
+        }
+      });
     });
 
     container.appendChild(block);
@@ -403,16 +410,13 @@ const EditTab = (() => {
   async function _editSectionMeta(sec) {
     const newTitle = await Modal.prompt('セクション編集', 'タイトルを入力してください', sec.title);
     if (newTitle === null) return;
-    const newSummary = await Modal.prompt('セクション編集', '概要を入力してください', sec.summary);
-    if (newSummary === null) return;
 
     const project = window.appState.getProject();
-    const updated = await ApiClient.put(
+    await ApiClient.put(
       `/api/projects/${project.id}/sections/${sec.id}`,
-      { title: newTitle, summary: newSummary }
+      { title: newTitle }
     );
     sec.title = newTitle;
-    sec.summary = newSummary;
     _renderOutline();
     const titleEl = document.querySelector(`#sec-block-${sec.id} h2,#sec-block-${sec.id} h3,#sec-block-${sec.id} h4`);
     if (titleEl) titleEl.textContent = newTitle;

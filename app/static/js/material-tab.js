@@ -135,6 +135,42 @@ const MaterialTab = (() => {
     document.getElementById('btn-delete-material').addEventListener('click', () => _deleteMaterial(mat));
     document.getElementById('btn-upload-material').addEventListener('click', () => _uploadFile(mat));
 
+    // サムネイル表示エリアへのドラッグ&ドロップ
+    const previewEl = pane.querySelector('.material-preview');
+    if (previewEl) {
+      previewEl.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        previewEl.classList.add('drag-over');
+      });
+      previewEl.addEventListener('dragleave', () => {
+        previewEl.classList.remove('drag-over');
+      });
+      previewEl.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        previewEl.classList.remove('drag-over');
+        const file = e.dataTransfer.files[0];
+        if (!file) return;
+        const project = window.appState.getProject();
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+          const res = await fetch(`/api/projects/${project.id}/materials/${mat.id}/upload`, {
+            method: 'POST', body: formData,
+          });
+          if (!res.ok) { showToast('アップロード失敗', 'error'); return; }
+          const updated = await res.json();
+          const idx = project.materials.findIndex(m => m.id === mat.id);
+          if (idx >= 0) project.materials[idx] = updated;
+          _renderList();
+          _renderDetail(mat.id);
+          showToast('アップロード完了', 'success');
+        } catch (_) {
+          showToast('アップロードに失敗しました', 'error');
+        }
+      });
+    }
+
     // 自動保存
     let saveTimer;
     const autoSave = () => {

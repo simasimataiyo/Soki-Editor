@@ -127,6 +127,48 @@ async def export_rules_csv(project_id: str) -> StreamingResponse:
     )
 
 
+@router.post("/rules/import-native")
+async def import_rules_csv_native(project_id: str, body: dict) -> dict:
+    """pywebview 用: ファイルパスを受け取って CSV インポート。"""
+    from pathlib import Path
+
+    file_path = body.get("path", "")
+    if not file_path:
+        raise HTTPException(status_code=400, detail="path is required")
+    try:
+        text = Path(file_path).read_text(encoding="utf-8-sig")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    svc = get_service()
+    try:
+        project = await svc.get_project(project_id)
+    except KeyError:
+        _not_found(project_id)
+
+    reader = csv.reader(io.StringIO(text))
+    cat_name_to_id: dict[str, str] = {
+        c.name: c.id for c in project.rule_categories
+    }
+    imported = 0
+    for row in reader:
+        if len(row) < 2 or row[0] == "カテゴリ":
+            continue
+        cat_name, content_text = row[0].strip(), row[1].strip()
+        if not content_text:
+            continue
+        if cat_name not in cat_name_to_id:
+            cat = await svc.add_rule_category(project_id, cat_name)
+            cat_name_to_id[cat_name] = cat.id
+        await svc.add_rule(
+            project_id,
+            RuleCreate(category_id=cat_name_to_id[cat_name], content=content_text),
+        )
+        imported += 1
+
+    return {"imported": imported}
+
+
 @router.post("/rules/import")
 async def import_rules_csv(project_id: str, file: UploadFile) -> dict:
     svc = get_service()
