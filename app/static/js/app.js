@@ -78,58 +78,16 @@ const AppShell = (() => {
       ProjectSelector.init();
     });
 
-    // チャット送信（Edit タブ）
-    document.getElementById('btn-chat-send').addEventListener('click', _sendChat);
-    document.getElementById('chat-input').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        // オートコンプリートポップアップ表示中はEnter送信を抑止
-        const acPopup = document.querySelector('.autocomplete-popup');
-        if (acPopup && acPopup.style.display !== 'none') return;
-        e.preventDefault();
-        _sendChat();
-      }
+    // チャット送信（Edit タブ）- 共通モジュールを使用
+    ChatBarCommon.init('chat-input', 'btn-chat-send', 'edit', {
+      onSend: _sendChat,
     });
 
-    // チャット入力欄リサイズハンドル
-    function initResizeHandle(handleId, textareaId) {
-      const resizeHandle = document.getElementById(handleId);
-      const textarea = document.getElementById(textareaId);
-      if (!resizeHandle || !textarea) return;
-
-      let isResizing = false;
-      let startY = 0;
-      let startHeight = 0;
-
-      resizeHandle.addEventListener('mousedown', (e) => {
-        isResizing = true;
-        startY = e.clientY;
-        startHeight = textarea.offsetHeight;
-        resizeHandle.classList.add('dragging');
-        document.body.style.userSelect = 'none';
-        document.body.style.cursor = 'ns-resize';
-        e.preventDefault();
-      });
-
-      document.addEventListener('mousemove', (e) => {
-        if (!isResizing) return;
-        const dy = e.clientY - startY;
-        const newHeight = Math.max(40, Math.min(300, startHeight - dy));
-        textarea.style.height = newHeight + 'px';
-      });
-
-      document.addEventListener('mouseup', () => {
-        if (isResizing) {
-          isResizing = false;
-          resizeHandle.classList.remove('dragging');
-          document.body.style.userSelect = '';
-          document.body.style.cursor = '';
-        }
-      });
-    }
-
     // チャット入力欄とレビュー入力欄のリサイズハンドルを初期化
-    initResizeHandle('chat-resize-handle', 'chat-input');
-    initResizeHandle('review-resize-handle', 'review-prompt');
+    if (window.initResizeHandle) {
+      window.initResizeHandle('chat-resize-handle', 'chat-input');
+      window.initResizeHandle('review-resize-handle', 'review-prompt');
+    }
 
     // チャット履歴
     document.getElementById('btn-chat-history').addEventListener('click', _showChatHistory);
@@ -263,19 +221,12 @@ const AppShell = (() => {
 
   // ─── チャット機能 ──────────────────────────────────────
 
-  async function _sendChat() {
+  async function _sendChat(parsed) {
     const project = window.appState.getProject();
     if (!project) return;
     if (_currentSseCtrl) _currentSseCtrl.abort();
 
-    const input = document.getElementById('chat-input');
-    const message = input.value.trim();
-    if (!message) return;
-
-    // コマンド解析
-    const parsed = CommandParser.parse(message, 'edit');
-
-    // 不明コマンドのエラー表示
+    // 不明コマンドのエラー表示（コマンドパース済み）
     if (parsed.error) {
       showToast(parsed.error, 'error');
       return;
@@ -283,7 +234,7 @@ const AppShell = (() => {
 
     // /clear コマンド: LLM を呼ばずに新スコープを作成して終了
     if (parsed.command && parsed.command.name === 'clear') {
-      input.value = '';
+      ChatBarCommon.clear('chat-input');
       const btn = document.getElementById('btn-chat-send');
       btn.disabled = true;
       try {
@@ -309,7 +260,7 @@ const AppShell = (() => {
       if (!confirmed) return;
     }
 
-    input.value = '';
+    ChatBarCommon.clear('chat-input');
     const btn = document.getElementById('btn-chat-send');
     btn.disabled = true;
 
@@ -335,7 +286,7 @@ const AppShell = (() => {
       body.command_args = []; // 引数は廃止
     } else {
       // 通常チャットモード
-      body.user_message = parsed.freeText || message;
+      body.user_message = parsed.freeText || '';
     }
 
     // @参照がある場合はIDリストを追加
@@ -406,11 +357,10 @@ const AppShell = (() => {
       {
         onChunk: (text) => {
           if (!isStreaming) {
-            // 初回のみスピナーと文字を削除を消去
-            stopLoading();
+            // 初回のみスピナーを消去
             responseEl.innerHTML = '';
+            isStreaming = true;
           }
-          isStreaming = true;
           responseEl.textContent += text;
           // ストリーム中は常に最下部へスクロール
           responseEl.scrollTop = responseEl.scrollHeight;

@@ -20,8 +20,28 @@ const SourceTab = (() => {
   }
 
   async function _editSourceName(src) {
-    const newName = await Modal.prompt('ソース名編集', 'ソース名を入力してください', src.name);
-    if (newName === null || newName === src.name) return;
+    const result = await Modal.form('ソース編集', [
+      { name: 'name', label: '名前', type: 'text', value: src.name }
+    ], {
+      confirmText: '保存',
+      extraButtons: [
+        {
+          id: 'delete',
+          label: '削除',
+          className: 'btn-danger',
+          onClick: async (_formData, overlay, resolve, closeModal) => {
+            await _deleteSource(src);
+            resolve(null);
+            closeModal(overlay);
+          },
+        },
+      ],
+    });
+    if (result === null) return;
+
+    const newName = result.name.trim();
+    if (!newName || newName === src.name) return;
+
     const project = window.appState.getProject();
     try {
       const updated = await ApiClient.put(
