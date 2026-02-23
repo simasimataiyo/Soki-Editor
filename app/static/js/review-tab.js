@@ -33,7 +33,9 @@ const ReviewTab = (() => {
       container.innerHTML = '';
 
       previews.forEach(p => {
-        const sec = project.sections.find(s => s.id === p.section_id);
+        const isReferences = (p.section_id === '__references__');
+        const sec = isReferences ? null : project.sections.find(s => s.id === p.section_id);
+        const title = isReferences ? '参考文献' : (sec ? sec.title : p.section_id);
         const isCollapsed = _sectionCollapsed[p.section_id];
 
         const block = document.createElement('div');
@@ -44,8 +46,8 @@ const ReviewTab = (() => {
         const header = document.createElement('div');
         header.className = 'review-section-header';
         header.innerHTML = `
-          <span class="chevron${isCollapsed ? ' collapsed' : ''}">&#x2304;</span>
-          <h3>${escHtml(sec ? sec.title : p.section_id)}</h3>
+          <span class="chevron">${isCollapsed ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
+          <h3>${escHtml(title)}</h3>
         `;
         block.appendChild(header);
 
@@ -71,7 +73,7 @@ const ReviewTab = (() => {
         // 折りたたみイベント
         header.addEventListener('click', () => {
           _sectionCollapsed[p.section_id] = !_sectionCollapsed[p.section_id];
-          header.querySelector('.chevron').classList.toggle('collapsed');
+          header.querySelector('.chevron').innerHTML = _sectionCollapsed[p.section_id] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN;
           body.classList.toggle('collapsed');
         });
 
@@ -149,5 +151,11 @@ const ReviewTab = (() => {
     );
   }
 
-  return { render, bindEvents };
+  function reset() {
+    _project = null;
+    if (_sseCtrl) { _sseCtrl.abort(); _sseCtrl = null; }
+    _sectionCollapsed = {};
+  }
+
+  return { render, bindEvents, reset };
 })();

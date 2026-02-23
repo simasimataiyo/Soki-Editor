@@ -52,6 +52,8 @@ def _start_uvicorn(port: int) -> None:
         access_log=False,
     )
 
+def _destroy(window):
+    window.destroy()
 
 def main() -> None:
     port = _find_free_port()
@@ -86,7 +88,7 @@ def main() -> None:
             min_size=(900, 600),
             resizable=True,
         )
-        webview.start(debug=False)
+        webview.start(debug=True)
     except ImportError:
         logger.warning("pywebview が見つかりません。ブラウザでアクセスしてください: http://127.0.0.1:%d/", port)
         # pywebview なし → スレッドが終了しないように待機

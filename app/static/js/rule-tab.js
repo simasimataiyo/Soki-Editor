@@ -31,7 +31,7 @@ const RuleTab = (() => {
       const catLi = document.createElement('li');
       catLi.className = 'rule-tree-category' + (cat.id === _activeCategoryId ? ' active' : '');
       catLi.innerHTML = `
-        <span class="rule-tree-toggle">${isCollapsed ? '›' : '⌄'}</span>
+        <span class="rule-tree-toggle">${isCollapsed ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(cat.name)}</span>
       `;
 
@@ -89,11 +89,11 @@ const RuleTab = (() => {
       const header = document.createElement('div');
       header.className = 'rule-category-header';
       header.innerHTML = `
-        <span class="chevron${isCollapsed ? ' collapsed' : ''}">&#x2304;</span>
+        <span class="chevron">${isCollapsed ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
         <h3>${escHtml(cat.name)}</h3>
         <div class="header-actions">
           <button class="btn-icon-edit" data-action="edit" title="カテゴリ名編集">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            ${SVG_EDIT_PEN}
           </button>
           <button class="btn-icon-edit" data-action="delete" title="カテゴリ削除" style="color:var(--color-text-muted)">×</button>
         </div>
@@ -116,13 +116,13 @@ const RuleTab = (() => {
       header.querySelector('.chevron').addEventListener('click', (e) => {
         e.stopPropagation();
         _sectionCollapsed[cat.id] = !_sectionCollapsed[cat.id];
-        header.querySelector('.chevron').classList.toggle('collapsed');
+        header.querySelector('.chevron').innerHTML = _sectionCollapsed[cat.id] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN;
         body.classList.toggle('collapsed');
       });
 
       header.querySelector('h3').addEventListener('click', () => {
         _sectionCollapsed[cat.id] = !_sectionCollapsed[cat.id];
-        header.querySelector('.chevron').classList.toggle('collapsed');
+        header.querySelector('.chevron').innerHTML = _sectionCollapsed[cat.id] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN;
         body.classList.toggle('collapsed');
       });
 
@@ -171,7 +171,7 @@ const RuleTab = (() => {
   }
 
   async function _editCategory(cat) {
-    const newName = prompt('カテゴリ名:', cat.name);
+    const newName = await Modal.prompt('カテゴリ名編集', 'カテゴリ名を入力してください', cat.name);
     if (!newName || newName === cat.name) return;
     const project = window.appState.getProject();
     try {
@@ -185,7 +185,7 @@ const RuleTab = (() => {
   }
 
   async function _deleteCategory(cat) {
-    if (!confirm(`カテゴリ「${cat.name}」と配下のルールをすべて削除しますか？`)) return;
+    if (!(await Modal.confirm(`カテゴリ「${cat.name}」と配下のルールをすべて削除しますか？`))) return;
     const project = window.appState.getProject();
     try {
       await ApiClient.delete(`/api/projects/${project.id}/rule-categories/${cat.id}`);
@@ -227,7 +227,7 @@ const RuleTab = (() => {
   async function addCategory() {
     const project = window.appState.getProject();
     if (!project) return;
-    const name = prompt('カテゴリ名:');
+    const name = await Modal.prompt('カテゴリ追加', 'カテゴリ名を入力してください');
     if (!name) return;
     try {
       const cat = await ApiClient.post(`/api/projects/${project.id}/rule-categories`, { name });
@@ -240,7 +240,7 @@ const RuleTab = (() => {
   async function addRuleToCategory(categoryId) {
     const project = window.appState.getProject();
     if (!project) return;
-    const content = prompt('ルール内容:');
+    const content = await Modal.prompt('ルール追加', 'ルール内容を入力してください');
     if (!content) return;
     try {
       const rule = await ApiClient.post(`/api/projects/${project.id}/rules`, {
@@ -287,5 +287,12 @@ const RuleTab = (() => {
     // ボタンはトップバーと各カテゴリブロック内で管理
   }
 
-  return { render, bindEvents, addCategory, addRuleToCategory, exportCsv, importCsv };
+  function reset() {
+    _project = null;
+    _activeCategoryId = null;
+    _catCollapsed = {};
+    _sectionCollapsed = {};
+  }
+
+  return { render, bindEvents, addCategory, addRuleToCategory, exportCsv, importCsv, reset };
 })();

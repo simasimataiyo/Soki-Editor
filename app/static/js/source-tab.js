@@ -13,6 +13,11 @@ const SourceTab = (() => {
   // 折りたたみ状態
   let _sectionCollapsed = {};
 
+  /** 表示用タイトル: 文献情報のタイトル → name のフォールバック */
+  function _displayTitle(src) {
+    return src.bibliography?.title || src.name;
+  }
+
   function render(project) {
     _project = project;
     _renderList();
@@ -29,8 +34,8 @@ const SourceTab = (() => {
       li.dataset.id = src.id;
       if (src.id === _activeId) li.classList.add('active');
       li.innerHTML = `
-        <svg class="item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-        <span class="item-name">${escHtml(src.name)}</span>
+        ${SVG_DOCUMENT}
+        <span class="item-name">${escHtml(_displayTitle(src))}</span>
       `;
       li.addEventListener('click', () => {
         _activeId = src.id;
@@ -52,33 +57,13 @@ const SourceTab = (() => {
       <div class="source-detail-scroll">
         <!-- タイトルバー -->
         <div class="detail-title-bar">
-          <h2>${escHtml(src.name)}</h2>
-          <button class="btn-icon-edit" id="btn-edit-source-name" title="名前を編集">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-          </button>
-        </div>
-
-        <!-- 設定セクション -->
-        <div class="collapsible-section">
-          <div class="collapsible-header" data-section="settings">
-            <span class="chevron${_sectionCollapsed['settings'] ? ' collapsed' : ''}">&#x2304;</span>
-            <h3>設定</h3>
-          </div>
-          <div class="collapsible-body${_sectionCollapsed['settings'] ? ' collapsed' : ''}">
-            <div class="form-group" style="margin-bottom:12px">
-              <label>ID</label>
-              <input type="text" class="form-control" id="src-id-display" value="${escHtml(src.id)}" readonly />
-            </div>
-            <div style="display:flex;justify-content:flex-end">
-              <button class="btn btn-danger btn-sm" id="btn-delete-source">削除</button>
-            </div>
-          </div>
+          <h2>${escHtml(_displayTitle(src))}</h2>
         </div>
 
         <!-- 文献情報セクション -->
         <div class="collapsible-section">
           <div class="collapsible-header" data-section="bibliography">
-            <span class="chevron${_sectionCollapsed['bibliography'] ? ' collapsed' : ''}">&#x2304;</span>
+            <span class="chevron">${_sectionCollapsed['bibliography'] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
             <h3>文献情報</h3>
           </div>
           <div class="collapsible-body${_sectionCollapsed['bibliography'] ? ' collapsed' : ''}">
@@ -106,7 +91,7 @@ const SourceTab = (() => {
         <!-- 要約セクション -->
         <div class="collapsible-section">
           <div class="collapsible-header" data-section="summary">
-            <span class="chevron${_sectionCollapsed['summary'] ? ' collapsed' : ''}">&#x2304;</span>
+            <span class="chevron">${_sectionCollapsed['summary'] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
             <h3>要約</h3>
           </div>
           <div class="collapsible-body${_sectionCollapsed['summary'] ? ' collapsed' : ''}">
@@ -120,7 +105,7 @@ const SourceTab = (() => {
         <!-- 内容セクション -->
         <div class="collapsible-section">
           <div class="collapsible-header" data-section="content">
-            <span class="chevron${_sectionCollapsed['content'] ? ' collapsed' : ''}">&#x2304;</span>
+            <span class="chevron">${_sectionCollapsed['content'] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
             <h3>内容</h3>
           </div>
           <div class="collapsible-body${_sectionCollapsed['content'] ? ' collapsed' : ''}">
@@ -138,6 +123,24 @@ const SourceTab = (() => {
             </div>
           </div>
         </div>
+
+        <!-- 設定セクション -->
+        <div class="collapsible-section">
+          <div class="collapsible-header" data-section="settings">
+            <span class="chevron">${_sectionCollapsed['settings'] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
+            <h3>設定</h3>
+          </div>
+          <div class="collapsible-body${_sectionCollapsed['settings'] ? ' collapsed' : ''}">
+            <div class="form-group" style="margin-bottom:12px">
+              <label>ID</label>
+              <input type="text" class="form-control" id="src-id-display" value="${escHtml(src.id)}" readonly />
+            </div>
+            <div style="display:flex;justify-content:flex-end">
+              <button class="btn btn-danger btn-sm" id="btn-delete-source">ソース削除</button>
+            </div>
+          </div>
+        </div>
+
       </div>
     `;
 
@@ -150,19 +153,9 @@ const SourceTab = (() => {
         _sectionCollapsed[key] = !_sectionCollapsed[key];
         const chevron = header.querySelector('.chevron');
         const body = header.nextElementSibling;
-        chevron.classList.toggle('collapsed');
+        chevron.innerHTML = _sectionCollapsed[key] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN;
         body.classList.toggle('collapsed');
       });
-    });
-
-    // 名前編集
-    document.getElementById('btn-edit-source-name').addEventListener('click', () => {
-      const newName = prompt('ソース名:', src.name);
-      if (newName && newName !== src.name) {
-        src.name = newName;
-        _renderDetail(src.id);
-        _renderList();
-      }
     });
 
     document.getElementById('src-bib-type').addEventListener('change', (e) => {
@@ -235,6 +228,13 @@ const SourceTab = (() => {
       el.addEventListener('input', () => {
         clearTimeout(timer);
         timer = setTimeout(() => _saveSource(src), 1000);
+        // タイトル変更時はリスト・詳細ヘッダーを即時更新
+        if (el.dataset.field === 'title') {
+          src.bibliography.title = el.value;
+          _renderList();
+          const h2 = document.querySelector('.detail-title-bar h2');
+          if (h2) h2.textContent = _displayTitle(src);
+        }
       });
     });
   }
@@ -247,7 +247,10 @@ const SourceTab = (() => {
       bibFields[el.dataset.field] = el.value;
     });
 
-    const nameEl = document.querySelector('.detail-title-bar h2');
+    // 文献情報のタイトルをソース名に同期
+    if (bibFields.title) {
+      src.name = bibFields.title;
+    }
     const body = {
       name: src.name,
       full_text: document.getElementById('src-full-text')?.value || '',
@@ -268,7 +271,7 @@ const SourceTab = (() => {
   }
 
   async function _deleteSource(src) {
-    if (!confirm(`「${src.name}」を削除しますか？`)) return;
+    if (!(await Modal.confirm(`「${_displayTitle(src)}」を削除しますか？`))) return;
     const project = window.appState.getProject();
     try {
       await ApiClient.delete(`/api/projects/${project.id}/sources/${src.id}`);
@@ -387,5 +390,11 @@ const SourceTab = (() => {
     input.click();
   }
 
-  return { render, bindEvents, exportCsv, importCsv };
+  function reset() {
+    _project = null;
+    _activeId = null;
+    _sectionCollapsed = {};
+  }
+
+  return { render, bindEvents, exportCsv, importCsv, reset };
 })();

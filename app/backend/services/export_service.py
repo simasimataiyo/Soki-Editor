@@ -48,21 +48,22 @@ class ExportService:
                 lines.append(resolved)
             lines.append("")
 
-        # 参考文献リスト
-        numbered = [
-            (src_id, num)
-            for src_id, num in sorted(ref_map.items(), key=lambda x: x[1])
-        ]
-        if numbered:
-            lines.append("## 参考文献")
-            src_by_id = {s.id: s for s in project.sources}
-            for src_id, num in numbered:
-                src = src_by_id.get(src_id)
-                if src:
-                    bib = src.bibliography
-                    entry = self._format_bibliography(bib)
-                    lines.append(f"[{num}] {entry}")
-            lines.append("")
+        # 参考文献リスト（フラグが有効な場合のみ出力）
+        if project.references_section_enabled:
+            numbered = [
+                (src_id, num)
+                for src_id, num in sorted(ref_map.items(), key=lambda x: x[1])
+            ]
+            if numbered:
+                lines.append("## 参考文献")
+                src_by_id = {s.id: s for s in project.sources}
+                for src_id, num in numbered:
+                    src = src_by_id.get(src_id)
+                    if src:
+                        bib = src.bibliography
+                        entry = self._format_bibliography(bib)
+                        lines.append(f"[{num}] {entry}")
+                lines.append("")
 
         return "\n".join(lines)
 
@@ -144,6 +145,20 @@ class ExportService:
             resolved = self.resolve_references(sec.content, ref_map, fig_map)
             previews.append(
                 SectionPreview(section_id=sec.id, rendered_content=resolved)
+            )
+        # 参考文献セクションが有効な場合、末尾に追加
+        if project.references_section_enabled and ref_map:
+            src_by_id = {s.id: s for s in project.sources}
+            bib_lines: list[str] = []
+            for src_id, num in sorted(ref_map.items(), key=lambda x: x[1]):
+                src = src_by_id.get(src_id)
+                if src:
+                    bib_lines.append(f"[{num}] {self._format_bibliography(src.bibliography)}")
+            previews.append(
+                SectionPreview(
+                    section_id="__references__",
+                    rendered_content="\n".join(bib_lines),
+                )
             )
         return previews
 

@@ -84,10 +84,16 @@
                 <div class="panel-header">
                   <span>Outline</span>
                 </div>
-                <button class="btn-add-item" id="btn-add-chapter">新規追加</button>
+                <button class="btn-add-item" id="btn-add-chapter">セクション追加</button>
                 <ul class="outline-list" id="outline-list"></ul>
                 <div class="outline-references" id="outline-references">
-                  <span class="icon">≡</span> 参考文献
+                  <span class="outline-references-label">
+                    <span class="icon">≡</span> 参考文献
+                  </span>
+                  <label class="toggle-switch mini" title="参考文献リストの自動生成を有効化">
+                    <input type="checkbox" id="references-section-enabled" />
+                    <span class="slider"></span>
+                  </label>
                 </div>
               </aside>
               <!-- 右メインエリア: ドキュメントビュー -->
@@ -97,12 +103,15 @@
             </div>
             <!-- チャット入力バー -->
             <div class="chat-bar" id="chat-bar">
-              <textarea
-                id="chat-input"
-                class="chat-textarea"
-                placeholder="What would you like to know?"
-                rows="2"
-              ></textarea>
+              <div class="chat-textarea-wrapper">
+                <textarea
+                  id="chat-input"
+                  class="chat-textarea"
+                  placeholder="What would you like to know?"
+                  rows="2"
+                ></textarea>
+                <div class="chat-resize-handle" id="chat-resize-handle" title="ドラッグで高さ調整"></div>
+              </div>
               <div class="chat-controls">
                 <button class="btn btn-secondary btn-sm" id="btn-chat-history" title="チャット履歴">≡</button>
                 <select id="chat-scope" class="select-sm">
@@ -177,12 +186,15 @@
             </div>
             <!-- レビュー送信バー -->
             <div class="chat-bar" id="review-bar">
-              <textarea
-                id="review-prompt"
-                class="chat-textarea"
-                placeholder="ここにレビュー用のシステムプロンプトを入力する..."
-                rows="2"
-              ></textarea>
+              <div class="chat-textarea-wrapper">
+                <textarea
+                  id="review-prompt"
+                  class="chat-textarea"
+                  placeholder="ここにレビュー用のシステムプロンプトを入力する..."
+                  rows="2"
+                ></textarea>
+                <div class="chat-resize-handle" id="review-resize-handle" title="ドラッグで高さ調整"></div>
+              </div>
               <div class="chat-controls">
                 <select id="review-scope" class="select-sm">
                   <option value="all">全セクション(骨子)</option>
@@ -303,6 +315,7 @@
   <script src="/static/js/api-client.js"></script>
   <script src="/static/js/state-manager.js"></script>
   <script src="/static/js/undo-redo-manager.js"></script>
+  <script src="/static/js/modal.js"></script>
   <script src="/static/js/project-selector.js"></script>
   <script src="/static/js/edit-tab.js"></script>
   <script src="/static/js/source-tab.js"></script>

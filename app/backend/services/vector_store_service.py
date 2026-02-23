@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from langchain_chroma import Chroma
+    from chromadb.config import Settings
 
 from app.backend.models import Project
 
@@ -75,6 +76,7 @@ class VectorStoreService:
             return self._cache[project.id]
 
         from langchain_chroma import Chroma
+        from chromadb.config import Settings
 
         persist_dir = str(
             __import__("pathlib").Path(project.data_dir)
@@ -84,9 +86,12 @@ class VectorStoreService:
         collection_name = f"project_{project.id}_sources"
         embeddings = self._get_embeddings(project.settings)
 
+        client_settings = Settings(anonymized_telemetry=False)
+
         store = Chroma(
             collection_name=collection_name,
             embedding_function=embeddings,
+            client_settings=client_settings,
             persist_directory=persist_dir,
         )
         self._cache[project.id] = store

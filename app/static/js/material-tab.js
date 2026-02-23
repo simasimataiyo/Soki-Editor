@@ -33,7 +33,7 @@ const MaterialTab = (() => {
         <div class="material-card-thumb">
           ${imgSrc
             ? `<img src="${imgSrc}" alt="thumbnail" />`
-            : '<span class="thumb-placeholder"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></span>'}
+            : `<span class="thumb-placeholder">${SVG_IMAGE_SM}</span>`}
         </div>
       `;
       li.addEventListener('click', () => {
@@ -59,35 +59,19 @@ const MaterialTab = (() => {
         <!-- タイトルバー -->
         <div class="detail-title-bar">
           <h2>${escHtml(mat.name)}</h2>
-          <button class="btn-icon-edit" id="btn-edit-material-name" title="名前を編集">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-          </button>
-        </div>
-
-        <!-- 設定セクション -->
-        <div class="collapsible-section">
-          <div class="collapsible-header" data-section="mat-settings">
-            <span class="chevron${_sectionCollapsed['mat-settings'] ? ' collapsed' : ''}">&#x2304;</span>
-            <h3>設定</h3>
-          </div>
-          <div class="collapsible-body${_sectionCollapsed['mat-settings'] ? ' collapsed' : ''}">
-            <div class="form-group" style="margin-bottom:12px">
-              <label>ID</label>
-              <input type="text" class="form-control" value="${escHtml(mat.id)}" readonly />
-            </div>
-            <div style="display:flex;justify-content:flex-end">
-              <button class="btn btn-danger btn-sm" id="btn-delete-material">削除</button>
-            </div>
-          </div>
         </div>
 
         <!-- 図表情報セクション -->
         <div class="collapsible-section">
           <div class="collapsible-header" data-section="mat-info">
-            <span class="chevron${_sectionCollapsed['mat-info'] ? ' collapsed' : ''}">&#x2304;</span>
+            <span class="chevron">${_sectionCollapsed['mat-info'] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
             <h3>図表情報</h3>
           </div>
           <div class="collapsible-body${_sectionCollapsed['mat-info'] ? ' collapsed' : ''}">
+            <div class="form-group" style="margin-bottom:10px">
+              <label>名前</label>
+              <input type="text" class="form-control" id="mat-name" value="${escHtml(mat.name)}" />
+            </div>
             <div class="form-group" style="margin-bottom:10px;max-width:200px">
               <label>種類</label>
               <select class="form-control" id="mat-type">
@@ -113,8 +97,26 @@ const MaterialTab = (() => {
         <div class="material-preview">
           ${imgSrc
             ? `<img src="${imgSrc}" alt="preview" />`
-            : '<span class="preview-placeholder"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></span>'}
+            : `<span class="preview-placeholder">${SVG_IMAGE_LG}</span>`}
         </div>
+
+        <!-- 設定セクション -->
+        <div class="collapsible-section">
+          <div class="collapsible-header" data-section="mat-settings">
+            <span class="chevron">${_sectionCollapsed['mat-settings'] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
+            <h3>設定</h3>
+          </div>
+          <div class="collapsible-body${_sectionCollapsed['mat-settings'] ? ' collapsed' : ''}">
+            <div class="form-group" style="margin-bottom:12px">
+              <label>ID</label>
+              <input type="text" class="form-control" value="${escHtml(mat.id)}" readonly />
+            </div>
+            <div style="display:flex;justify-content:flex-end">
+              <button class="btn btn-danger btn-sm" id="btn-delete-material">削除</button>
+            </div>
+          </div>
+        </div>
+        
       </div>
     `;
 
@@ -125,19 +127,9 @@ const MaterialTab = (() => {
         _sectionCollapsed[key] = !_sectionCollapsed[key];
         const chevron = header.querySelector('.chevron');
         const body = header.nextElementSibling;
-        chevron.classList.toggle('collapsed');
+        chevron.innerHTML = _sectionCollapsed[key] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN;
         body.classList.toggle('collapsed');
       });
-    });
-
-    // 名前編集
-    document.getElementById('btn-edit-material-name').addEventListener('click', () => {
-      const newName = prompt('マテリアル名:', mat.name);
-      if (newName && newName !== mat.name) {
-        mat.name = newName;
-        _renderDetail(mat.id);
-        _renderList();
-      }
     });
 
     document.getElementById('btn-delete-material').addEventListener('click', () => _deleteMaterial(mat));
@@ -153,12 +145,47 @@ const MaterialTab = (() => {
       el.addEventListener('input', autoSave);
       el.addEventListener('change', autoSave);
     });
+
+    // 名前フィールドの即時反映（ソースタブのtitleフィールドと同パターン）
+    const nameEl = document.getElementById('mat-name');
+    if (nameEl) {
+      let nameTimer;
+      nameEl.addEventListener('input', () => {
+        clearTimeout(nameTimer);
+        nameTimer = setTimeout(() => {
+          mat.name = nameEl.value;
+          _renderList();
+          const h2 = pane.querySelector('.detail-title-bar h2');
+          if (h2) h2.textContent = mat.name;
+        }, 300);
+      });
+    }
+  }
+
+  async function _updateFigureCaptionsInSections(mat) {
+    const project = window.appState.getProject();
+    if (!project) return;
+    const newCaption = mat.caption || mat.name;
+    const figPattern = new RegExp(`!\\[[^\\]]*\\]\\(([^"]*"${mat.id}")\\)`, 'g');
+
+    for (const sec of project.sections) {
+      if (!sec.content) continue;
+      const updated = sec.content.replace(figPattern, `![${newCaption}]($1)`);
+      if (updated !== sec.content) {
+        sec.content = updated;
+        try {
+          await ApiClient.put(`/api/projects/${project.id}/sections/${sec.id}`, { content: updated });
+        } catch (_) {}
+        const contentEl = document.querySelector(`[data-field="content"][data-sec-id="${sec.id}"]`);
+        if (contentEl) contentEl.innerText = updated;
+      }
+    }
   }
 
   async function _saveMaterial(mat) {
     const project = window.appState.getProject();
     const body = {
-      name: mat.name,
+      name: document.getElementById('mat-name')?.value || mat.name,
       type: document.getElementById('mat-type')?.value || mat.type,
       caption: document.getElementById('mat-caption')?.value || mat.caption,
     };
@@ -167,11 +194,12 @@ const MaterialTab = (() => {
       const idx = project.materials.findIndex(m => m.id === mat.id);
       if (idx >= 0) project.materials[idx] = updated;
       _renderList();
+      _updateFigureCaptionsInSections(updated);
     } catch (_) {}
   }
 
   async function _deleteMaterial(mat) {
-    if (!confirm(`「${mat.name}」を削除しますか？`)) return;
+    if (!(await Modal.confirm(`「${mat.name}」を削除しますか？`))) return;
     const project = window.appState.getProject();
     try {
       await ApiClient.delete(`/api/projects/${project.id}/materials/${mat.id}`);
@@ -217,5 +245,11 @@ const MaterialTab = (() => {
     });
   }
 
-  return { render, bindEvents };
+  function reset() {
+    _project = null;
+    _activeId = null;
+    _sectionCollapsed = {};
+  }
+
+  return { render, bindEvents, reset };
 })();
