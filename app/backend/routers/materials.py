@@ -49,10 +49,27 @@ async def update_material(project_id: str, mat_id: str, body: MaterialUpdate) ->
 async def delete_material(project_id: str, mat_id: str) -> dict:
     svc = get_service()
     try:
+        project = await svc.get_project(project_id)
+    except KeyError:
+        _not_found(project_id)
+
+    mat = next((m for m in project.materials if m.id == mat_id), None)
+
+    try:
         await svc.delete_material(project_id, mat_id)
-        return {"status": "ok"}
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+    # 関連ファイルをディスクから削除
+    if mat:
+        for file_path in (mat.file_path, mat.thumbnail_path):
+            if file_path:
+                try:
+                    Path(file_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+    return {"status": "ok"}
 
 
 @router.post("/materials/{mat_id}/upload", response_model=Material)
@@ -64,6 +81,10 @@ async def upload_material_file(
         project = await svc.get_project(project_id)
     except KeyError:
         _not_found(project_id)
+
+    # 画像形式のみ受け付ける
+    if not (file.content_type or "").startswith("image/"):
+        raise HTTPException(status_code=400, detail="画像ファイル（jpg, png, bmp など）のみアップロードできます")
 
     # ファイルを data_dir/materials/ に保存
     materials_dir = Path(project.data_dir) / "materials"

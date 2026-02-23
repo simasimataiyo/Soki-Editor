@@ -95,6 +95,7 @@ const MaterialTab = (() => {
 
         <!-- 画像プレビュー -->
         <div class="material-preview">
+          <div class="drag-drop-overlay">ここにファイルをドラッグアンドドロップ</div>
           ${imgSrc
             ? `<img src="${imgSrc}" alt="preview" />`
             : `<span class="preview-placeholder">${SVG_IMAGE_LG}</span>`}
@@ -151,6 +152,10 @@ const MaterialTab = (() => {
         previewEl.classList.remove('drag-over');
         const file = e.dataTransfer.files[0];
         if (!file) return;
+        if (!file.type.startsWith('image/')) {
+          showToast('画像ファイル（jpg, png, bmp など）のみ対応しています', 'error');
+          return;
+        }
         const project = window.appState.getProject();
         const formData = new FormData();
         formData.append('file', file);
@@ -248,7 +253,7 @@ const MaterialTab = (() => {
   async function _uploadFile(mat) {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = 'image/*,.pdf';
+    input.accept = 'image/*';
     input.onchange = async (e) => {
       const file = e.target.files[0];
       if (!file) return;

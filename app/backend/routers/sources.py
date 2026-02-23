@@ -131,33 +131,73 @@ async def analyze_source_image(
 async def read_source_file_upload(
     project_id: str, source_id: str, file: UploadFile
 ) -> Source:
-    """ブラウザからアップロードされたファイルを読み込んでソースの全文に設定する。"""
+    """ブラウザからアップロードされたファイルをディスクに保存し、テキスト抽出する。
+    PDFの場合はサムネイルと等倍画像も生成する。"""
     svc = get_service()
     try:
-        await svc.get_project(project_id)
+        project = await svc.get_project(project_id)
     except KeyError:
         _not_found(project_id)
 
-    suffix = Path(file.filename or "file").suffix
+    filename = file.filename or "file"
+    suffix = Path(filename).suffix.lower()
     content = await file.read()
-    tmp_path = None
+
+    # ファイルを data_dir/source/{source_id}/ に永続保存
+    source_dir = Path(project.data_dir) / "source" / source_id
+    source_dir.mkdir(parents=True, exist_ok=True)
+    saved_path = source_dir / filename
+    saved_path.write_bytes(content)
+
+    # ファイル形式を判定
+    _image_suffixes = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
+    if suffix == ".pdf":
+        file_type = "pdf"
+    elif suffix in _image_suffixes:
+        file_type = "image"
+    else:
+        file_type = "text"
+
+    # PDFの場合: サムネイルと等倍画像をディスクに保存
+    if file_type == "pdf":
+        import fitz  # PyMuPDF
+
+        thumb_dir = Path(project.data_dir) / "thumbnails" / source_id
+        thumb_dir.mkdir(parents=True, exist_ok=True)
+        raw_dpi = project.settings.pdf_page_dpi
+
+        def _generate_pdf_images(path_str: str, thumb_dir_str: str, raw_dir_str: str, dpi: int) -> None:
+            doc = fitz.open(path_str)
+            for page_num in range(len(doc)):
+                page = doc.load_page(page_num)
+                # サムネイル (72dpi)
+                pix = page.get_pixmap(dpi=72)
+                pix.save(str(Path(thumb_dir_str) / f"page_{page_num}.jpg"))
+                # 等倍画像（設定DPI）
+                pix_raw = page.get_pixmap(dpi=dpi)
+                pix_raw.save(str(Path(raw_dir_str) / f"page_raw_{page_num}.jpg"))
+            doc.close()
+
+        try:
+            await asyncio.to_thread(
+                _generate_pdf_images,
+                str(saved_path),
+                str(thumb_dir),
+                str(source_dir),
+                raw_dpi,
+            )
+        except Exception:
+            pass  # PDF画像生成失敗は続行（テキスト抽出を優先）
+
+    # テキスト抽出
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(content)
-            tmp_path = tmp.name
-        text = await _file_service.read_file_as_text(tmp_path)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"ファイル読み込み失敗: {e}")
-    finally:
-        if tmp_path:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+        text = await _file_service.read_file_as_text(str(saved_path))
+    except Exception:
+        text = ""
 
     return await svc.update_source(
         project_id, source_id,
-        SourceUpdate(full_text=text, file_path=file.filename or "")
+        SourceUpdate(full_text=text, file_path=str(saved_path), file_type=file_type)
     )
 
 
@@ -194,7 +234,142 @@ async def analyze_source_image_upload(
     )
 
 
-# ─── PDFページ選択・解析 ───────────────────────────────────
+# ─── 保存済みPDFページ一覧・解析 ──────────────────────────────
+
+
+@router.get("/sources/{source_id}/pdf-page-list")
+async def get_pdf_page_list(project_id: str, source_id: str) -> dict:
+    """ディスクに保存済みのPDFサムネイル一覧を返す。"""
+    svc = get_service()
+    try:
+        project = await svc.get_project(project_id)
+    except KeyError:
+        _not_found(project_id)
+
+    src = next((s for s in project.sources if s.id == source_id), None)
+    if not src:
+        raise HTTPException(status_code=404, detail="ソースが見つかりません")
+    if src.file_type != "pdf":
+        raise HTTPException(status_code=400, detail="PDFソースではありません")
+
+    thumb_dir = Path(project.data_dir) / "thumbnails" / source_id
+    source_dir = Path(project.data_dir) / "source" / source_id
+
+    pages = []
+    page_num = 0
+    while True:
+        thumb_path = thumb_dir / f"page_{page_num}.jpg"
+        if not thumb_path.exists():
+            break
+        raw_path = source_dir / f"page_raw_{page_num}.jpg"
+        pages.append({
+            "page": page_num,
+            "label": f"p.{page_num + 1}",
+            "thumbnail_path": str(thumb_path),
+            "raw_path": str(raw_path) if raw_path.exists() else None,
+        })
+        page_num += 1
+
+    return {"total": len(pages), "pages": pages}
+
+
+@router.post("/sources/{source_id}/analyze-saved-pdf-pages", response_model=Source)
+async def analyze_saved_pdf_pages(
+    project_id: str, source_id: str, body: dict
+) -> Source:
+    """保存済みPDF等倍画像をVision APIで解析し、markdown形式でfull_textに追記する。"""
+    svc = get_service()
+    try:
+        project = await svc.get_project(project_id)
+    except KeyError:
+        _not_found(project_id)
+
+    src = next((s for s in project.sources if s.id == source_id), None)
+    if not src:
+        raise HTTPException(status_code=404, detail="ソースが見つかりません")
+
+    page_indices: list[int] = body.get("pages", [])
+    if not page_indices:
+        raise HTTPException(status_code=422, detail="ページ番号が必要です")
+
+    source_dir = Path(project.data_dir) / "source" / source_id
+
+    analyses = []
+    for page_num in page_indices:
+        raw_path = source_dir / f"page_raw_{page_num}.jpg"
+        if not raw_path.exists():
+            analyses.append(f"--- {page_num + 1}ページ目 ---\n[ファイルが見つかりません]")
+            continue
+        try:
+            img_bytes = raw_path.read_bytes()
+            text = await _file_service.analyze_image_bytes_with_vision(
+                img_bytes,
+                "image/jpeg",
+                project.settings,
+                f"このページ（{page_num + 1}ページ目）の内容をmarkdown記法を使って詳しく説明してください。"
+                "テキスト、図表、数式などを含む場合はできる限りmarkdown構文で表現してください。",
+            )
+            analyses.append(f"--- {page_num + 1}ページ目 ---\n{text}")
+        except Exception as e:
+            analyses.append(f"--- {page_num + 1}ページ目 ---\n[解析失敗: {e}]")
+
+    existing = src.full_text or ""
+    separator = "\n\n" if existing else ""
+    new_text = existing + separator + "\n\n".join(analyses)
+
+    return await svc.update_source(
+        project_id, source_id, SourceUpdate(full_text=new_text)
+    )
+
+
+# ─── 保存済みPDF単一ページ・ストリーミング解析 ────────────────
+
+
+@router.post("/sources/{source_id}/analyze-saved-pdf-page-stream")
+async def analyze_saved_pdf_page_stream(
+    project_id: str, source_id: str, body: dict
+) -> StreamingResponse:
+    """保存済みPDF単一ページをVision APIでストリーミング解析する。"""
+    svc = get_service()
+    try:
+        project = await svc.get_project(project_id)
+    except KeyError:
+        _not_found(project_id)
+
+    src = next((s for s in project.sources if s.id == source_id), None)
+    if not src:
+        raise HTTPException(status_code=404, detail="ソースが見つかりません")
+
+    page_num: int = body.get("page", 0)
+    source_dir = Path(project.data_dir) / "source" / source_id
+    raw_path = source_dir / f"page_raw_{page_num}.jpg"
+    if not raw_path.exists():
+        raise HTTPException(status_code=404, detail="ページ画像が見つかりません")
+
+    img_bytes = raw_path.read_bytes()
+    prompt_text = (
+        f"このページ（{page_num + 1}ページ目）の内容をmarkdown記法を使って詳しく説明してください。"
+        "テキスト、図表、数式などを含む場合はできる限りmarkdown構文で表現してください。"
+    )
+
+    async def event_stream():
+        try:
+            async for chunk in _file_service.analyze_image_bytes_with_vision_stream(
+                img_bytes, "image/jpeg", project.settings, prompt_text
+            ):
+                yield f"data: {json.dumps({'text': chunk})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ─── PDFページ選択・解析（ファイルアップロード版） ────────────
 
 
 @router.post("/sources/{source_id}/pdf-thumbnails")
@@ -292,6 +467,61 @@ async def analyze_pdf_pages(
 
     return await svc.update_source(
         project_id, source_id, SourceUpdate(full_text=new_text)
+    )
+
+
+# ─── PDFページ・ストリーミング解析（ファイルアップロード版） ──
+
+
+@router.post("/sources/{source_id}/analyze-pdf-page-stream")
+async def analyze_pdf_page_stream(
+    project_id: str,
+    source_id: str,
+    file: UploadFile,
+    page: int = Form(...),
+) -> StreamingResponse:
+    """アップロードされたPDFの単一ページをVision APIでストリーミング解析する。"""
+    import fitz  # PyMuPDF
+
+    svc = get_service()
+    try:
+        project = await svc.get_project(project_id)
+    except KeyError:
+        _not_found(project_id)
+
+    content = await file.read()
+
+    def _render_page(content_bytes: bytes, page_num: int):
+        doc = fitz.open(stream=content_bytes, filetype="pdf")
+        if page_num >= len(doc):
+            doc.close()
+            return None
+        p = doc.load_page(page_num)
+        pix = p.get_pixmap(dpi=150)
+        img_bytes = pix.tobytes("png")
+        doc.close()
+        return img_bytes
+
+    img_bytes = await asyncio.to_thread(_render_page, content, page)
+    if img_bytes is None:
+        raise HTTPException(status_code=400, detail="ページが見つかりません")
+
+    prompt_text = f"このPDFの{page + 1}ページ目の内容をmarkdown記法を使って詳しく説明してください。"
+
+    async def event_stream():
+        try:
+            async for chunk in _file_service.analyze_image_bytes_with_vision_stream(
+                img_bytes, "image/png", project.settings, prompt_text
+            ):
+                yield f"data: {json.dumps({'text': chunk})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

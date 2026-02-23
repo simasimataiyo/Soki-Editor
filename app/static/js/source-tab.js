@@ -111,14 +111,17 @@ const SourceTab = (() => {
           <div class="collapsible-body${_sectionCollapsed['content'] ? ' collapsed' : ''}">
             <div class="form-group" style="margin-bottom:12px">
               <label>全文</label>
-              <textarea class="form-control" id="src-full-text" rows="10">${escHtml(src.full_text)}</textarea>
+              <div class="source-drop-area">
+                <div class="drag-drop-overlay">ここにファイルをドラッグアンドドロップ</div>
+                <textarea class="form-control" id="src-full-text" rows="10">${escHtml(src.full_text)}</textarea>
+              </div>
             </div>
             <div class="form-group" style="margin-bottom:12px">
               <label>ファイルパス</label>
               <input type="text" class="form-control" id="src-file-path" value="${escHtml(src.file_path || '')}" readonly />
             </div>
             <div class="source-actions">
-              <button class="btn btn-secondary btn-sm" id="btn-analyze-image">画像解析</button>
+              <button class="btn btn-secondary btn-sm" id="btn-analyze-image">画像認識</button>
               <button class="btn btn-secondary btn-sm" id="btn-read-file">ファイル読み込み</button>
             </div>
           </div>
@@ -168,19 +171,19 @@ const SourceTab = (() => {
     document.getElementById('btn-summarize').addEventListener('click', () => _summarize(src));
 
     // 内容テキストエリアへのドラッグ&ドロップ
-    const fullTextEl = document.getElementById('src-full-text');
-    if (fullTextEl) {
-      fullTextEl.addEventListener('dragover', (e) => {
+    const dropAreaEl = pane.querySelector('.source-drop-area');
+    if (dropAreaEl) {
+      dropAreaEl.addEventListener('dragover', (e) => {
         e.preventDefault();
         e.dataTransfer.dropEffect = 'copy';
-        fullTextEl.classList.add('drag-over');
+        dropAreaEl.classList.add('drag-over');
       });
-      fullTextEl.addEventListener('dragleave', () => {
-        fullTextEl.classList.remove('drag-over');
+      dropAreaEl.addEventListener('dragleave', () => {
+        dropAreaEl.classList.remove('drag-over');
       });
-      fullTextEl.addEventListener('drop', async (e) => {
+      dropAreaEl.addEventListener('drop', async (e) => {
         e.preventDefault();
-        fullTextEl.classList.remove('drag-over');
+        dropAreaEl.classList.remove('drag-over');
         const file = e.dataTransfer.files[0];
         if (!file) return;
         const project = window.appState.getProject();
@@ -346,13 +349,21 @@ const SourceTab = (() => {
 
   async function _analyzeImage(src) {
     const project = window.appState.getProject();
+
+    // PDFソースの場合は保存済みサムネイルを使ってページ選択
+    if (src.file_type === 'pdf') {
+      await _analyzeSavedPdfPages(src);
+      return;
+    }
+
+    // 画像ファイルの場合はファイルピッカー経由
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.png,.jpg,.jpeg,.pdf';
     input.onchange = async (e) => {
       const file = e.target.files[0];
       if (!file) return;
-      // PDFの場合はページ選択フローへ
+      // PDFの場合はページ選択フローへ（ファイルアップロード版）
       if (file.name.toLowerCase().endsWith('.pdf')) {
         await _analyzePdfWithPageSelection(src, file);
         return;
@@ -377,11 +388,38 @@ const SourceTab = (() => {
     input.click();
   }
 
+  /** 保存済みサムネイルを使ってPDFページを選択し、Vision解析する */
+  async function _analyzeSavedPdfPages(src) {
+    const project = window.appState.getProject();
+
+    let pageList;
+    try {
+      const res = await fetch(`/api/projects/${project.id}/sources/${src.id}/pdf-page-list`);
+      if (!res.ok) { showToast('サムネイル取得失敗', 'error'); return; }
+      pageList = await res.json();
+    } catch (_) {
+      showToast('サムネイル取得に失敗しました', 'error');
+      return;
+    }
+
+    if (!pageList || pageList.total === 0) {
+      showToast('ページが見つかりません。先に「ファイル読み込み」でPDFを読み込んでください。', 'error');
+      return;
+    }
+
+    const thumbnails = pageList.pages.map(p => ({
+      page: p.page,
+      label: p.label,
+      src: `/api/files?path=${encodeURIComponent(p.thumbnail_path)}&project_id=${project.id}`,
+    }));
+
+    _showPdfAnalysisModal(src, thumbnails, null);
+  }
+
   async function _analyzePdfWithPageSelection(src, file) {
     const project = window.appState.getProject();
     showToast('PDFを読み込み中...', 'success');
 
-    // Step 1: サムネイル取得
     const formData1 = new FormData();
     formData1.append('file', file);
     let thumbnails;
@@ -399,80 +437,226 @@ const SourceTab = (() => {
     }
     if (!thumbnails || thumbnails.length === 0) { showToast('ページが見つかりません', 'error'); return; }
 
-    // Step 2: ページ選択モーダル表示
-    const selectedPages = await _showPdfPageModal(thumbnails);
-    if (selectedPages === null || selectedPages.length === 0) return;
-
-    // Step 3: 選択ページをVision解析
-    showToast('画像認識中...', 'success');
-    const formData2 = new FormData();
-    formData2.append('file', file);
-    formData2.append('pages', selectedPages.join(','));
-    try {
-      const res = await fetch(
-        `/api/projects/${project.id}/sources/${src.id}/analyze-pdf-pages`,
-        { method: 'POST', body: formData2 }
-      );
-      if (!res.ok) { const d = await res.json(); showToast(d.detail || '解析失敗', 'error'); return; }
-      const updated = await res.json();
-      const idx = project.sources.findIndex(s => s.id === src.id);
-      if (idx >= 0) project.sources[idx] = updated;
-      _renderDetail(src.id);
-      showToast('画像認識完了', 'success');
-    } catch (_) {
-      showToast('画像認識に失敗しました', 'error');
-    }
+    _showPdfAnalysisModal(src, thumbnails, file);
   }
 
-  function _showPdfPageModal(thumbnails) {
-    return new Promise((resolve) => {
-      const overlay = document.createElement('div');
-      overlay.className = 'modal-overlay';
+  /**
+   * PDF画像解析モーダル（ページ選択 → ストリーミング解析 → 結果確認）
+   * @param {object} src - ソースオブジェクト
+   * @param {Array} thumbnails - {page, label, src|data} の配列
+   * @param {File|null} pdfFile - アップロード版の場合はFileオブジェクト、保存済み版はnull
+   */
+  function _showPdfAnalysisModal(src, thumbnails, pdfFile) {
+    const project = window.appState.getProject();
 
-      const modal = document.createElement('div');
-      modal.className = 'modal';
-      modal.style.maxWidth = '700px';
-      modal.style.width = '90vw';
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
 
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.maxWidth = '700px';
+    modal.style.width = '90vw';
+    modal.style.maxHeight = '85vh';
+    modal.style.overflowY = 'auto';
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    let abortController = null;
+
+    function _closeModal() {
+      if (abortController) abortController.abort();
+      overlay.remove();
+    }
+
+    // ── ページ選択画面 ────────────────────────────────────────
+    function _showPageSelect() {
       const thumbsHtml = thumbnails.map(t => `
         <label class="pdf-page-thumb">
-          <input type="checkbox" value="${t.page}" />
-          <img src="${escHtml(t.data)}" alt="${escHtml(t.label)}" />
+          <input type="radio" name="pdf-page-radio" value="${t.page}" />
+          <img src="${escHtml(t.src || t.data || '')}" alt="${escHtml(t.label)}" />
           <span class="pdf-page-label">${escHtml(t.label)}</span>
         </label>
       `).join('');
 
       modal.innerHTML = `
-        <h3 style="margin-bottom:8px">ページを選択</h3>
-        <p style="color:var(--color-text-muted);font-size:13px;margin-bottom:12px">解析するページを選択してください（複数選択可）</p>
+        <div class="pdf-modal-header">
+          <h3>ページを選択</h3>
+          <button class="pdf-modal-close" title="閉じる">×</button>
+        </div>
+        <p style="color:var(--color-text-muted);font-size:13px;margin-bottom:12px">解析するページを1つ選択してください</p>
         <div class="pdf-page-grid">${thumbsHtml}</div>
         <div class="modal-actions" style="margin-top:16px">
-          <button class="btn btn-secondary" id="pdf-modal-cancel">キャンセル</button>
           <button class="btn btn-primary" id="pdf-modal-confirm">解析実行</button>
         </div>
       `;
 
-      // チェックボックスの選択状態をラベルに反映
-      modal.querySelectorAll('.pdf-page-thumb input').forEach(cb => {
-        cb.addEventListener('change', () => {
-          cb.closest('.pdf-page-thumb').classList.toggle('selected', cb.checked);
+      modal.querySelectorAll('.pdf-page-thumb input[type="radio"]').forEach(rb => {
+        rb.addEventListener('change', () => {
+          modal.querySelectorAll('.pdf-page-thumb').forEach(l => l.classList.remove('selected'));
+          rb.closest('.pdf-page-thumb').classList.add('selected');
         });
       });
 
-      overlay.appendChild(modal);
-      document.body.appendChild(overlay);
+      modal.querySelector('.pdf-modal-close').addEventListener('click', _closeModal);
 
-      modal.querySelector('#pdf-modal-cancel').addEventListener('click', () => {
-        overlay.remove();
-        resolve(null);
-      });
       modal.querySelector('#pdf-modal-confirm').addEventListener('click', () => {
-        const checked = [...modal.querySelectorAll('input[type="checkbox"]:checked')];
-        const pages = checked.map(cb => parseInt(cb.value));
-        overlay.remove();
-        resolve(pages);
+        const checked = modal.querySelector('input[name="pdf-page-radio"]:checked');
+        if (!checked) { showToast('ページを選択してください', 'error'); return; }
+        _startAnalysis(parseInt(checked.value));
       });
-    });
+    }
+
+    // ── 解析実行（ストリーミング）────────────────────────────
+    async function _startAnalysis(pageNum) {
+      if (abortController) abortController.abort();
+      abortController = new AbortController();
+
+      modal.innerHTML = `
+        <div class="pdf-modal-header">
+          <h3>解析中... (p.${pageNum + 1})</h3>
+          <button class="pdf-modal-close" title="閉じる">×</button>
+        </div>
+        <div class="pdf-analysis-progress">
+          <div class="pdf-analysis-spinner"></div>
+          <span>LLMが解析しています...</span>
+        </div>
+        <div class="pdf-analysis-result" id="pdf-analysis-text"></div>
+      `;
+
+      modal.querySelector('.pdf-modal-close').addEventListener('click', _closeModal);
+
+      const resultEl = modal.querySelector('#pdf-analysis-text');
+      let fullText = '';
+
+      try {
+        let streamUrl, streamOptions;
+
+        if (pdfFile) {
+          const formData = new FormData();
+          formData.append('file', pdfFile);
+          formData.append('page', String(pageNum));
+          streamUrl = `/api/projects/${project.id}/sources/${src.id}/analyze-pdf-page-stream`;
+          streamOptions = { method: 'POST', body: formData, signal: abortController.signal };
+        } else {
+          streamUrl = `/api/projects/${project.id}/sources/${src.id}/analyze-saved-pdf-page-stream`;
+          streamOptions = {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ page: pageNum }),
+            signal: abortController.signal,
+          };
+        }
+
+        const res = await fetch(streamUrl, streamOptions);
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.detail || '解析に失敗しました');
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const payload = line.slice(6).trim();
+            if (payload === '[DONE]') {
+              _showResult(pageNum, fullText);
+              return;
+            }
+            try {
+              const parsed = JSON.parse(payload);
+              if (parsed.error) throw new Error(parsed.error);
+              if (parsed.text) {
+                fullText += parsed.text;
+                resultEl.textContent = fullText;
+                resultEl.scrollTop = resultEl.scrollHeight;
+              }
+            } catch (e) {
+              if (!(e instanceof SyntaxError)) throw e;
+            }
+          }
+        }
+
+        // ストリームが [DONE] なしで終了した場合も表示へ
+        _showResult(pageNum, fullText);
+
+      } catch (e) {
+        if (e.name === 'AbortError') return;
+        const errEl = document.createElement('p');
+        errEl.style.cssText = 'color:var(--color-danger);margin-top:8px;font-size:13px';
+        errEl.textContent = `エラー: ${e.message}`;
+        modal.appendChild(errEl);
+        // エラー時もアクションボタンを表示
+        _showResult(pageNum, fullText, true);
+      }
+    }
+
+    // ── 解析結果確認画面 ─────────────────────────────────────
+    function _showResult(pageNum, analysisText, isError = false) {
+      // ヘッダーを更新
+      const h3 = modal.querySelector('h3');
+      if (h3) h3.textContent = isError ? `解析エラー (p.${pageNum + 1})` : `解析完了 (p.${pageNum + 1})`;
+
+      // スピナーを除去
+      const progress = modal.querySelector('.pdf-analysis-progress');
+      if (progress) progress.remove();
+
+      // アクションボタンを追加
+      const existing = modal.querySelector('.pdf-result-actions');
+      if (existing) existing.remove();
+
+      const actions = document.createElement('div');
+      actions.className = 'modal-actions pdf-result-actions';
+      actions.style.marginTop = '16px';
+      actions.innerHTML = `
+        <button class="btn btn-secondary" id="pdf-btn-back">ページ選択に戻る</button>
+        <button class="btn btn-secondary" id="pdf-btn-retry">再実行</button>
+        <button class="btn btn-primary" id="pdf-btn-add"${!analysisText || isError ? ' disabled' : ''}>内容に追加</button>
+      `;
+      modal.appendChild(actions);
+
+      modal.querySelector('#pdf-btn-back').addEventListener('click', () => _showPageSelect());
+      modal.querySelector('#pdf-btn-retry').addEventListener('click', () => _startAnalysis(pageNum));
+      modal.querySelector('#pdf-btn-skip').addEventListener('click', () => _showPageSelect());
+
+      if (analysisText && !isError) {
+        modal.querySelector('#pdf-btn-add').addEventListener('click', async () => {
+          const currentText = src.full_text || '';
+          const separator = currentText ? '\n\n' : '';
+          const newText = currentText + separator + `--- ${pageNum + 1}ページ目 ---\n${analysisText}`;
+
+          try {
+            const updated = await ApiClient.put(
+              `/api/projects/${project.id}/sources/${src.id}`,
+              { full_text: newText }
+            );
+            const idx = project.sources.findIndex(s => s.id === src.id);
+            if (idx >= 0) project.sources[idx] = updated;
+            src.full_text = updated.full_text;
+            // 詳細ペインのテキストエリアを直接更新
+            const ta = document.getElementById('src-full-text');
+            if (ta) ta.value = updated.full_text;
+            showToast('内容に追加しました', 'success');
+            _showPageSelect();
+          } catch (_) {
+            showToast('保存に失敗しました', 'error');
+          }
+        });
+      }
+    }
+
+    // 初期表示
+    _showPageSelect();
   }
 
   async function _summarize(src) {

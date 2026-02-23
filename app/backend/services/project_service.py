@@ -224,6 +224,8 @@ class ProjectService:
             src.name = data.name
         if data.file_path is not None:
             src.file_path = data.file_path
+        if data.file_type is not None:
+            src.file_type = data.file_type
         if data.full_text is not None:
             src.full_text = data.full_text
         if data.summary is not None:

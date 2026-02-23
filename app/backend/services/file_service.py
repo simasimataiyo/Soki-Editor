@@ -111,6 +111,43 @@ class FileService:
         )
         return response.choices[0].message.content or ""
 
+    async def analyze_image_bytes_with_vision_stream(
+        self,
+        image_bytes: bytes,
+        media_type: str,
+        settings,
+        prompt_text: str = "この画像の内容を詳しく説明してください。",
+    ):
+        """バイト列の画像をVision APIで解析してテキストをストリーミングで返す非同期ジェネレータ。"""
+        from openai import AsyncOpenAI
+
+        image_b64 = base64.b64encode(image_bytes).decode()
+
+        client_kwargs = {"api_key": settings.api_key or "dummy"}
+        if settings.endpoint_url:
+            client_kwargs["base_url"] = settings.endpoint_url
+
+        client = AsyncOpenAI(**client_kwargs)
+        stream = await client.chat.completions.create(
+            model=settings.model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{media_type};base64,{image_b64}"},
+                        },
+                        {"type": "text", "text": prompt_text},
+                    ],
+                }
+            ],
+            stream=True,
+        )
+        async for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
+
     async def generate_thumbnail(
         self,
         file_path: str,

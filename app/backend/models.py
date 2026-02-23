@@ -14,6 +14,7 @@ class LLMSettings(BaseModel):
     api_key: str = ""
     endpoint_url: Optional[str] = None
     model: str = "gpt-4o"
+    pdf_page_dpi: int = 96  # PDF等倍画像のDPI（設定画面から変更可能）
 
 
 class Bibliography(BaseModel):
@@ -39,6 +40,7 @@ class Source(BaseModel):
     id: str  # "ref-{uuid8}"
     name: str = "新しいソース"
     file_path: Optional[str] = None
+    file_type: Optional[str] = None  # "pdf" | "image" | "text" | None
     full_text: str = ""
     summary: str = ""
     bibliography: Bibliography = Field(default_factory=Bibliography)
@@ -187,6 +189,7 @@ class RuleCategoryCreate(BaseModel):
 class SourceUpdate(BaseModel):
     name: Optional[str] = None
     file_path: Optional[str] = None
+    file_type: Optional[str] = None
     full_text: Optional[str] = None
     summary: Optional[str] = None
     bibliography: Optional[Bibliography] = None
