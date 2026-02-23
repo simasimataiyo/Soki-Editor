@@ -6,22 +6,59 @@
 
 ソースと執筆ルールに基づいて、論文のアウトライン（セクション構成）を生成してください。
 
+**重要: 階層構造の作成について**
+- セクションは適切な階層構造（親子関係）を持つように作成してください
+- 階層構造のルール:
+  1. ルートセクション（最上位）は `parent_key: null` を設定
+  2. 子セクションは `parent_key` に親セクションの `key` を指定
+  3. 階層の例:
+     - 第1章（ルート, key="s1", parent_key=null）
+       - 1.1 節（第1章の子, key="s1-1", parent_key="s1"）
+         - 1.1.1 小節（1.1節の子, key="s1-1-1", parent_key="s1-1"）
+     - 第2章（ルート, key="s2", parent_key=null）
+       - 2.1 節（第2章の子, key="s2-1", parent_key="s2"）
+  4. **必ず**: 全てのセクションの `parent_key` が配列内で定義された `key` のいずれかと一致するか、`null` であることを確認してください
+
 各セクションについて:
 - 適切なタイトルを設定する
 - 約150文字の概要（summary）を記述する
-- 階層構造（parent_id）を適切に設定する
+- **親子関係（parent_key）を正しく設定して階層を作る**
 
-`create_section` ツールを使用してセクションを作成し、`update_section_summary` ツールを使用して概要を設定してください。
+`set_document_structure` または `create_document_structure` ツールを使用して、階層構造を一括で作成してください。
 
 {% if "replace" in command_args %}
 ### モード: 全体再生成
 既存のセクション構造をすべて破棄して新たに生成します。
-まず `delete_section` ツールで以下の既存セクションをすべて削除してから、新しい構造を作成してください。
+`set_document_structure` ツールを **1回** 呼び出すだけで、全削除と新規作成を一括で行えます。
 
-既存セクション（削除対象）:
-{% for section in sections %}
-- ID: {{ section.id }} / タイトル: {{ section.title }}
-{% endfor %}
+**key の命名規則:**
+- ルート: "s1", "s2", "s3", ... （連番）
+- 第2階層: "s1-1", "s1-2", "s2-1", ...
+- 第3階層: "s1-1-1", "s1-1-2", ...
+- 原則: 親のkey + "-" + 連番
+
+sections 配列の各要素:
+- `key`: 親参照用の一時キー（例: "s1", "s1-1", "s1-1-1"）
+- `title`: セクションタイトル
+- `summary`: 約150文字の概要
+- `parent_key`: 親セクションの key（ルートは null）。**必ず正しい親キーを指定してください**
+- `order`: 同じ親内での表示順（0始まり）
+
+**階層構造の完全な例:**
+```json
+{
+  "sections": [
+    {"key": "s1", "title": "第1章 緒言", "summary": "本研究の背景と目的を概説する。", "parent_key": null, "order": 0},
+    {"key": "s1-1", "title": "1.1 研究背景", "summary": "関連研究の現状と課題を整理する。", "parent_key": "s1", "order": 0},
+    {"key": "s1-1-1", "title": "1.1.1 課題の詳細", "summary": "具体的な技術的課題を述べる。", "parent_key": "s1-1", "order": 0},
+    {"key": "s1-1-2", "title": "1.1.2 既存手法の限界", "summary": "従来手法の問題点を分析する。", "parent_key": "s1-1", "order": 1},
+    {"key": "s1-2", "title": "1.2 研究目的", "summary": "本研究の目標と貢献を明示する。", "parent_key": "s1", "order": 1},
+    {"key": "s2", "title": "第2章 関連研究", "summary": "関連分野の研究動向をレビューする。", "parent_key": null, "order": 1},
+    {"key": "s2-1", "title": "2.1 技術Aの動向", "summary": "技術Aに関する最新研究を概観する。", "parent_key": "s2", "order": 0},
+    {"key": "s2-2", "title": "2.2 技術Bの動向", "summary": "技術Bに関する最新研究を概観する。", "parent_key": "s2", "order": 1}
+  ]
+}
+```
 
 {% elif "section" in command_args %}
 ### モード: 現在セクション配下のみ
@@ -30,15 +67,15 @@
 
 **重要な制約:**
 - 既存セクションの本文（content）は絶対に変更しないでください
-- タイトルや概要（summary）の更新は可能です
-- 子セクションの追加・並べ替えは可能です
-- `create_section` と `update_section_summary` ツールのみを使用してください
+- タイトルの変更は `update_section_title` ツールで行えます
+- 概要の更新は `update_section_summary` ツールで行えます
+- 子セクションの追加は `create_section`、並べ替えは `move_section` で行えます
 - `update_section` ツールは使用しないでください
 
 対象セクションの現在の構造:
 {% for section in sections %}
 {% if section.parent_id == target_section.id %}
-- {{ section.title }}: {{ section.summary or '(概要なし)' }}
+- ID: {{ section.id }} / {{ section.title }}: {{ section.summary or '(概要なし)' }}
   {% if section.content %}(本文あり: {{ section.content[:50] }}...){% endif %}
 {% endif %}
 {% endfor %}
@@ -48,8 +85,21 @@
 
 {% else %}
 ### モード: 追加・修正（既存保持）
+
 既存のセクション構造を維持しつつ、不足しているセクションを追加してください。
-既存セクションの削除や本文の変更は行わないでください。
+`create_document_structure` ツールを **1回** 呼び出すことで、複数セクションを一括追加できます。
+
+**重要な制約:**
+- 既存セクションの削除や変更は行わないでください
+- 既存セクションと階層構造が整合するように新しいセクションを追加してください
+- 新しいセクションの `parent_key` は、新しく追加するセクションの `key` または既存セクションの ID（既存セクションを親にする場合）を指定できます
+
+{% if sections %}
+**現在の既存セクション:**
+{% for section in sections %}
+- {{ section.title }} (ID: {{ section.id }}, parent: {{ section.parent_id or 'ルート' }})
+{% endfor %}
+{% endif %}
 
 {% endif %}
 
@@ -132,9 +182,17 @@
 ## 利用可能なツール
 
 - `update_section`: セクションの本文（content）を更新する
-- `create_section`: 新しいセクションを作成する（title, summary, content, parent_id を指定）
+- `create_section`: 新しいセクションを1件作成する（title, summary, content, parent_id を指定）
 - `update_section_summary`: セクションの概要（summary）を更新する
+- `update_section_title`: セクションのタイトルを変更する（section_id, title）
 - `delete_section`: セクションを削除する
+- `move_section`: セクションを別の親・位置に移動する（section_id, parent_id, order）
+- `set_document_structure`: 全セクションを削除して新しい骨子を一括作成する（/structure replace 用）
+- `create_document_structure`: 既存セクションを残したまま新しい骨子構造を一括追加する（/structure 追加モード用）
+
+**構造生成ツール使用時の注意:**
+- `sections` 配列内の `parent_key` は必ず配列内の他の要素の `key` と一致するか、`null` である必要があります
+- 親セクションが子セクションより先に定義されている必要はありません（フロントエンドで順序付けされます）
 
 {% if user_message %}
 ## ユーザーからの追加指示

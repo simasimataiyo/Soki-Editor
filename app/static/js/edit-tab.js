@@ -47,6 +47,15 @@ const EditTab = (() => {
     // ツリー構造を構築
     const roots = sorted.filter(s => !s.parent_id);
     roots.forEach(sec => _renderOutlineItem(list, sec, sorted, 1));
+
+    // 何もないところをクリックしたときに全セクション非選択にするイベント
+    list.addEventListener('click', (e) => {
+      // クリックしたのが outline-item でない場合、全セクション非選択
+      if (!e.target.closest('.outline-item')) {
+        window.appState.setSelectedSectionId(null);
+        _updateDocViewEditMode();
+      }
+    });
   }
 
   function _renderOutlineItem(container, sec, allSorted, depth) {
@@ -152,7 +161,19 @@ const EditTab = (() => {
 
     li.addEventListener('click', () => {
       const el = document.getElementById(`sec-block-${sec.id}`);
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (el) {
+        // トップバーの高さを考慮して位置調整
+        const topBar = document.querySelector('.top-bar');
+        const topBarHeight = topBar ? topBar.offsetHeight : 0;
+        // scrollIntoViewでまずビュー内に表示
+        el.scrollIntoView({ block: 'start' });
+        // 少し遅延後にトップバーの高さ分を調整
+        requestAnimationFrame(() => {
+          const rect = el.getBoundingClientRect();
+          const scrollTop = window.scrollY + rect.top - topBarHeight;
+          window.scrollTo({ behavior: 'smooth', top: Math.max(0, scrollTop) });
+        });
+      }
 
       // 選択状態を更新
       document.querySelectorAll('.outline-item').forEach(el => {
@@ -163,6 +184,18 @@ const EditTab = (() => {
       li.classList.add('active');
       window.appState.setSelectedSectionId(sec.id);
       _updateDocViewEditMode();
+
+      // chat-scopeを自動的に選択中セクションに更新
+      const scopeSel = document.getElementById('chat-scope');
+      if (scopeSel && scopeSel.querySelector(`option[value="${sec.id}"]`)) {
+        scopeSel.value = sec.id;
+      }
+    });
+
+    // ダブルクリックでタイトル編集
+    li.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      _editSectionMeta(sec);
     });
 
     container.appendChild(li);
@@ -326,6 +359,11 @@ const EditTab = (() => {
         if (window.appState.getSelectedSectionId() !== sec.id) {
           window.appState.setSelectedSectionId(sec.id);
           _updateDocViewEditMode();
+          // chat-scopeを自動的に選択中セクションに更新
+          const scopeSel = document.getElementById('chat-scope');
+          if (scopeSel && scopeSel.querySelector(`option[value="${sec.id}"]`)) {
+            scopeSel.value = sec.id;
+          }
         }
         e.stopPropagation();
         return;
@@ -335,6 +373,11 @@ const EditTab = (() => {
       if (!e.target.closest('.section-actions') && !e.target.closest('.section-floating-actions')) {
         window.appState.setSelectedSectionId(sec.id);
         _updateDocViewEditMode();
+        // chat-scopeを自動的に選択中セクションに更新
+        const scopeSel = document.getElementById('chat-scope');
+        if (scopeSel && scopeSel.querySelector(`option[value="${sec.id}"]`)) {
+          scopeSel.value = sec.id;
+        }
       }
     });
 
@@ -597,6 +640,14 @@ const EditTab = (() => {
     }
 
     roots.forEach(sec => _renderOptions(sec, 1));
+
+    // 選択中のセクションがあれば自動的に選択
+    const selectedId = window.appState.getSelectedSectionId();
+    if (selectedId && sel.querySelector(`option[value="${selectedId}"]`)) {
+      sel.value = selectedId;
+    } else {
+      sel.value = 'all';
+    }
   }
 
   // ─── ユーティリティ ────────────────────────────────────
@@ -772,6 +823,12 @@ const EditTab = (() => {
             _showInsertFigDialog(selectedId);
           });
         }
+      }
+    } else {
+      // 全セクション非選択時はchat-scopeを「全セクション(骨子)」に戻す
+      const scopeSel = document.getElementById('chat-scope');
+      if (scopeSel) {
+        scopeSel.value = 'all';
       }
     }
   }

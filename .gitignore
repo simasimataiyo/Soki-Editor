@@ -359,3 +359,5 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+samples/

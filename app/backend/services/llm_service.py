@@ -81,6 +81,93 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_section_title",
+            "description": "指定セクションのタイトルを変更する",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "section_id": {"type": "string"},
+                    "title": {"type": "string"},
+                },
+                "required": ["section_id", "title"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "move_section",
+            "description": "指定セクションを別の親・位置に移動する（階層変更・並び順変更）",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "section_id": {"type": "string"},
+                    "parent_id": {"type": "string", "nullable": True, "description": "新しい親セクションのID。ルートに移動する場合は null"},
+                    "order": {"type": "integer", "description": "同じ親内での表示順（0始まり）"},
+                },
+                "required": ["section_id", "order"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_document_structure",
+            "description": "既存のセクションをすべて削除し、新しい骨子構造を一括作成する（/structure replace モード向け）",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sections": {
+                        "type": "array",
+                        "description": "作成するセクションのリスト。key/parent_key で階層を表現する",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "key": {"type": "string", "description": "このセクションを参照するための一時キー"},
+                                "title": {"type": "string"},
+                                "summary": {"type": "string"},
+                                "parent_key": {"type": "string", "nullable": True, "description": "親セクションの key。ルートの場合は null"},
+                                "order": {"type": "integer"},
+                            },
+                            "required": ["key", "title"],
+                        },
+                    },
+                },
+                "required": ["sections"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_document_structure",
+            "description": "既存のセクションを残したまま、新しい骨子構造を追加で一括作成する（/structure 追加モード向け）",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sections": {
+                        "type": "array",
+                        "description": "追加するセクションのリスト。key/parent_key で階層を表現する",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "key": {"type": "string", "description": "このセクションを参照するための一時キー"},
+                                "title": {"type": "string"},
+                                "summary": {"type": "string"},
+                                "parent_key": {"type": "string", "nullable": True, "description": "親セクションの key。ルートの場合は null"},
+                                "order": {"type": "integer"},
+                            },
+                            "required": ["key", "title"],
+                        },
+                    },
+                },
+                "required": ["sections"],
+            },
+        },
+    },
 ]
 
 # Tool Calling 非対応モデルの識別キーワード
@@ -148,6 +235,16 @@ class LLMService:
 
         start = time.time()
         try:
+            # プロンプト出力（デバッグ用）
+            print("=" * 60)
+            print("=== LLM API呼び出しプロンプト ===")
+            print(f"Model: {settings.model}")
+            print(f"Messages ({len(messages)} 件):")
+            for i, msg in enumerate(messages):
+                print(f"  [{i}] {msg.get('role', 'unknown')}:")
+                print(f"    {msg.get('content', '')}")
+            print("=" * 60)
+
             call_kwargs: dict = {
                 "model": settings.model,
                 "messages": messages,

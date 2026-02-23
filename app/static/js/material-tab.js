@@ -42,6 +42,11 @@ const MaterialTab = (() => {
         _renderList();
         _renderDetail(mat.id);
       });
+      // ダブルクリックで名前編集
+      li.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        _editMaterialName(mat);
+      });
       list.appendChild(li);
     });
   }
@@ -247,6 +252,26 @@ const MaterialTab = (() => {
       project.materials = project.materials.filter(m => m.id !== mat.id);
       _activeId = null;
       render(project);
+    } catch (_) {}
+  }
+
+  async function _editMaterialName(mat) {
+    const newName = await Modal.prompt('マテリアル名編集', '名前を入力してください', mat.name);
+    if (newName === null || newName === mat.name) return;
+    const project = window.appState.getProject();
+    try {
+      const updated = await ApiClient.put(
+        `/api/projects/${project.id}/materials/${mat.id}`,
+        { name: newName }
+      );
+      mat.name = newName;
+      const idx = project.materials.findIndex(m => m.id === mat.id);
+      if (idx >= 0) project.materials[idx] = updated;
+      _renderList();
+      if (_activeId === mat.id) {
+        const h2 = document.querySelector('.detail-title-bar h2');
+        if (h2) h2.textContent = mat.name;
+      }
     } catch (_) {}
   }
 
