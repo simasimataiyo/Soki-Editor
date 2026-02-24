@@ -13,13 +13,32 @@ function escHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-function showToast(message, type = 'info') {
+/**
+ * トーストを表示する
+ * @param {string} message
+ * @param {string} type - 'info' | 'success' | 'error'
+ * @param {{persistent?: boolean, spinner?: boolean}} options
+ * @returns {HTMLElement} トースト要素
+ */
+function showToast(message, type = 'info', options = {}) {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
-  toast.textContent = message;
+  if (options.spinner) {
+    toast.innerHTML = `<span class="toast-spinner"></span><span>${escHtml(message)}</span>`;
+  } else {
+    toast.textContent = message;
+  }
   container.appendChild(toast);
-  setTimeout(() => toast.remove(), 3000);
+  if (!options.persistent) {
+    setTimeout(() => toast.remove(), 3000);
+  }
+  return toast;
+}
+
+/** persistentトーストを消去する */
+function dismissToast(toastEl) {
+  if (toastEl && toastEl.parentElement) toastEl.remove();
 }
 
 // ─── グローバル SVG アイコン定数 ───────────────────────────────
@@ -135,6 +154,10 @@ const AppShell = (() => {
     }
 
     _renderTopBarActions(tab);
+
+    // Editタブ以外では文字数表示を非表示
+    const charCountEl = document.getElementById('char-count-display');
+    if (charCountEl && tab !== 'edit') charCountEl.style.display = 'none';
   }
 
   function _resetAllTabs() {
@@ -262,7 +285,31 @@ const AppShell = (() => {
 
     ChatBarCommon.clear('chat-input');
     const btn = document.getElementById('btn-chat-send');
-    btn.disabled = true;
+
+    // 送信ボタンを「停止」ボタンに切り替え
+    function setStopMode() {
+      btn.textContent = '■';
+      btn.title = '停止';
+      btn.classList.add('btn-stop');
+      btn.onclick = () => {
+        if (_currentSseCtrl) {
+          _currentSseCtrl.abort();
+          _currentSseCtrl = null;
+        }
+        _restoreEditability();
+        resetSendMode();
+        responseEl.remove();
+      };
+    }
+
+    function resetSendMode() {
+      btn.textContent = '↑';
+      btn.title = '送信';
+      btn.classList.remove('btn-stop');
+      btn.onclick = null;
+    }
+
+    setStopMode();
 
     // /structure-section コマンドの場合、選択中のセクションを対象にする
     let contextScope = _currentScope;
@@ -294,6 +341,30 @@ const AppShell = (() => {
       body.explicit_refs = parsed.refs.map(r => r.id);
     }
 
+    // コマンド実行時: 編集対象セクションの contenteditable を非活性化
+    const _disabledContentEls = [];
+    if (parsed.command) {
+      const targetEls = contextScope === 'all'
+        ? document.querySelectorAll('[data-field="content"], [data-field="summary"]')
+        : document.querySelectorAll(`[data-field="content"][data-sec-id="${contextScope}"], [data-field="summary"][data-sec-id="${contextScope}"]`);
+
+      targetEls.forEach(el => {
+        if (el.getAttribute('contenteditable') === 'true') {
+          el.setAttribute('contenteditable', 'false');
+          el.dataset.disabledByLlm = 'true';
+          _disabledContentEls.push(el);
+        }
+      });
+    }
+
+    function _restoreEditability() {
+      _disabledContentEls.forEach(el => {
+        el.setAttribute('contenteditable', 'true');
+        delete el.dataset.disabledByLlm;
+      });
+      _disabledContentEls.length = 0;
+    }
+
     // チャット応答表示用コンテナ（チャットバー上部に追加）
     const chatBar = document.getElementById('chat-bar');
     const responseEl = document.createElement('div');
@@ -302,6 +373,7 @@ const AppShell = (() => {
 
     // LLM実行中のスピナー表示
     let isStreaming = false;
+    let isToolRunning = false;
     let isHovering = false;
     let hoverTimer = null;
 
@@ -309,20 +381,14 @@ const AppShell = (() => {
       responseEl.innerHTML = '<div class="pdf-analysis-spinner"></div>';
     }
 
-    function stopLoading() {
-      if (isStreaming) {
-        // ストリーミング中はスピナーを削除して文字を表示
-        responseEl.innerHTML = '';
-      } else {
-        // ツール実行完了など
-        responseEl.textContent = '完了!';
-      }
+    function showComplete() {
+      responseEl.textContent = '完了!';
     }
 
     function scheduleAutoClose() {
       if (hoverTimer) clearTimeout(hoverTimer);
       hoverTimer = setTimeout(() => {
-        if (!isHovering && !isStreaming) {
+        if (!isHovering && !isStreaming && !isToolRunning) {
           responseEl.remove();
         }
       }, 3000); // カーソルが外れて3秒後に閉じる
@@ -343,7 +409,7 @@ const AppShell = (() => {
 
     responseEl.addEventListener('mouseleave', () => {
       isHovering = false;
-      if (!isStreaming) {
+      if (!isStreaming && !isToolRunning) {
         scheduleAutoClose();
       }
     });
@@ -367,16 +433,23 @@ const AppShell = (() => {
         },
         onToolCall: async (tool, args) => {
           isStreaming = false;
-          stopLoading();
+          isToolRunning = true;
+          // ツール実行中はスピナー表示を維持（完了!は全処理終了後に表示）
+          if (responseEl.textContent.trim() === '' || !responseEl.querySelector('.pdf-analysis-spinner')) {
+            startLoading();
+          }
           await _applyToolCall(project, tool, args);
+          isToolRunning = false;
         },
         onDone: () => {
           isStreaming = false;
-          if (responseEl.textContent.trim() === '' || responseEl.textContent === '完了!') {
-            // テキストがない場合は「完了!」表示
-            stopLoading();
+          isToolRunning = false;
+          _restoreEditability();
+          if (responseEl.textContent.trim() === '' || responseEl.innerHTML.includes('pdf-analysis-spinner')) {
+            // テキスト出力なし（コマンド実行）の場合は「完了!」表示
+            showComplete();
           }
-          btn.disabled = false;
+          resetSendMode();
           // ホバーしていない場合は自動クローズをスケジュール
           if (!isHovering) {
             scheduleAutoClose();
@@ -384,8 +457,9 @@ const AppShell = (() => {
         },
         onError: (msg) => {
           isStreaming = false;
-          stopLoading();
-          btn.disabled = false;
+          isToolRunning = false;
+          _restoreEditability();
+          resetSendMode();
           showToast(`チャットエラー: ${msg}`, 'error');
           responseEl.remove();
         },

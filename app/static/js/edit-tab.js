@@ -14,6 +14,7 @@ const EditTab = (() => {
     _renderDocView();
     _renderScopeSelect();
     _initReferencesCheckbox(project);
+    _updateCharCount();
   }
 
   function _initReferencesCheckbox(project) {
@@ -400,6 +401,12 @@ const EditTab = (() => {
           document.execCommand('insertText', false, '    ');
         }
       });
+      // ペースト時: スタイル情報を除去し、改行・空白のみプレーンテキストとして挿入
+      el.addEventListener('paste', (e) => {
+        e.preventDefault();
+        const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+        document.execCommand('insertText', false, text);
+      });
     });
 
     container.appendChild(block);
@@ -416,6 +423,15 @@ const EditTab = (() => {
   function _debounceSave(sectionId, field, el) {
     const key = `${sectionId}-${field}`;
     clearTimeout(_saveTimer[key]);
+    // 入力中もリアルタイムで文字数更新（contentフィールドの場合）
+    if (field === 'content') {
+      const project = window.appState.getProject();
+      if (project) {
+        const sec = project.sections.find(s => s.id === sectionId);
+        if (sec) sec[field] = el.innerText;
+        _updateCharCount();
+      }
+    }
     _saveTimer[key] = setTimeout(async () => {
       const project = window.appState.getProject();
       if (!project) return;
@@ -445,11 +461,30 @@ const EditTab = (() => {
     }
     const excludeIds = new Set(getDescendantIds(sec.id));
 
+    // 階層順（深さ優先）でソートして親セクション選択肢を構築
+    function sortHierarchically(secs) {
+      const byParent = {};
+      secs.forEach(s => {
+        const key = s.parent_id || '__root__';
+        if (!byParent[key]) byParent[key] = [];
+        byParent[key].push(s);
+      });
+      Object.values(byParent).forEach(arr => arr.sort((a, b) => a.order - b.order));
+      const result = [];
+      function visit(parentId) {
+        const key = parentId || '__root__';
+        (byParent[key] || []).forEach(s => {
+          result.push(s);
+          visit(s.id);
+        });
+      }
+      visit(null);
+      return result;
+    }
+
     const parentOptions = [
       { value: '', label: 'ルート（親なし）' },
-      ...sections
-        .filter(s => !excludeIds.has(s.id))
-        .sort((a, b) => a.order - b.order)
+      ...sortHierarchically(sections.filter(s => !excludeIds.has(s.id)))
         .map(s => ({
           value: s.id,
           label: '　'.repeat(_sectionDepth(s, sections) - 1) + s.title,
@@ -775,6 +810,33 @@ const EditTab = (() => {
     showToast('セクションを移動しました', 'success');
   }
 
+  // ─── 文字数カウント ───────────────────────────────────
+
+  function _updateCharCount() {
+    const display = document.getElementById('char-count-display');
+    if (!display) return;
+    const project = window.appState.getProject();
+    if (!project || window.appState.getState().activeTab !== 'edit') {
+      display.style.display = 'none';
+      return;
+    }
+
+    const selectedId = window.appState.getSelectedSectionId();
+    let count, label;
+
+    if (selectedId) {
+      const sec = project.sections.find(s => s.id === selectedId);
+      count = sec ? (sec.content || '').replace(/\s/g, '').length : 0;
+      label = `選択中: ${count.toLocaleString()} 文字`;
+    } else {
+      count = project.sections.reduce((sum, s) => sum + (s.content || '').replace(/\s/g, '').length, 0);
+      label = `全文: ${count.toLocaleString()} 文字`;
+    }
+
+    display.textContent = label;
+    display.style.display = '';
+  }
+
   // ─── 編集モード更新 ───────────────────────────────────
 
   function _updateDocViewEditMode() {
@@ -838,32 +900,57 @@ const EditTab = (() => {
       // 全セクション非選択時はスコープを「全セクション(骨子)」に戻す
       AppShell.setCurrentScope('all');
     }
+
+    _updateCharCount();
   }
 
   // ─── セクション追加モーダル（親要素選択付き）─────────────
 
-  async function _showAddSectionModal(parentId = null) {
+  // parentId: セクションID → そのセクションを親としてデフォルト設定
+  //           null → 親なし（ルート）をデフォルト設定
+  //           undefined → 呼び出し元で判断（選択中セクションがあればそれを親に）
+  async function _showAddSectionModal(parentId = undefined) {
     const project = window.appState.getProject();
     const sections = project.sections;
 
-    // 親セクション選択肢の構築
+    // 階層順（深さ優先）でソートして親セクション選択肢を構築
+    function sortHierarchically(secs) {
+      const byParent = {};
+      secs.forEach(s => {
+        const key = s.parent_id || '__root__';
+        if (!byParent[key]) byParent[key] = [];
+        byParent[key].push(s);
+      });
+      Object.values(byParent).forEach(arr => arr.sort((a, b) => a.order - b.order));
+      const result = [];
+      function visit(parentId) {
+        const key = parentId || '__root__';
+        (byParent[key] || []).forEach(s => {
+          result.push(s);
+          visit(s.id);
+        });
+      }
+      visit(null);
+      return result;
+    }
+
+    const sortedSections = sortHierarchically(sections);
     const parentOptions = [
       { value: '', label: 'ルート（親なし）' },
-      ...sections.sort((a, b) => a.order - b.order).map(s => ({
+      ...sortedSections.map(s => ({
         value: s.id,
-        label: '  '.repeat(_sectionDepth(s, sections) - 1) + s.title,
+        label: '　'.repeat(_sectionDepth(s, sections) - 1) + s.title,
       })),
     ];
 
     // デフォルトの親セクションを設定
-    // parentId が明示的に指定されている場合はその値を使用
-    // 指定されていない場合は選択中のセクションをデフォルトに
-    let defaultParent = parentId;
-    if (defaultParent === null || defaultParent === undefined) {
-      const currentSelected = window.appState.getSelectedSectionId();
-      if (currentSelected) {
-        defaultParent = currentSelected;
-      }
+    let defaultParent;
+    if (parentId !== undefined) {
+      // 明示的に指定された場合（add-child ボタン、btn-add-chapter など）
+      defaultParent = parentId;
+    } else {
+      // 未指定の場合: 選択中セクションをデフォルト親に
+      defaultParent = window.appState.getSelectedSectionId() || null;
     }
 
     // フォームモーダルを表示
@@ -931,7 +1018,10 @@ const EditTab = (() => {
   // ─── イベントバインド ──────────────────────────────────
 
   function bindEvents() {
-    document.getElementById('btn-add-chapter').addEventListener('click', () => _showAddSectionModal(''));
+    // 「セクション追加」ボタン: 引数なし（undefined）で呼び出し → 選択中セクションがあればそれを親に
+    document.getElementById('btn-add-chapter').addEventListener('click', () => {
+      _showAddSectionModal();
+    });
   }
 
   function reset() {
