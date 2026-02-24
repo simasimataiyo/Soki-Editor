@@ -13,13 +13,32 @@ function escHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-function showToast(message, type = 'info') {
+/**
+ * トーストを表示する
+ * @param {string} message
+ * @param {string} type - 'info' | 'success' | 'error'
+ * @param {{persistent?: boolean, spinner?: boolean}} options
+ * @returns {HTMLElement} トースト要素
+ */
+function showToast(message, type = 'info', options = {}) {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
-  toast.textContent = message;
+  if (options.spinner) {
+    toast.innerHTML = `<span class="toast-spinner"></span><span>${escHtml(message)}</span>`;
+  } else {
+    toast.textContent = message;
+  }
   container.appendChild(toast);
-  setTimeout(() => toast.remove(), 3000);
+  if (!options.persistent) {
+    setTimeout(() => toast.remove(), 3000);
+  }
+  return toast;
+}
+
+/** persistentトーストを消去する */
+function dismissToast(toastEl) {
+  if (toastEl && toastEl.parentElement) toastEl.remove();
 }
 
 // ─── グローバル SVG アイコン定数 ───────────────────────────────
