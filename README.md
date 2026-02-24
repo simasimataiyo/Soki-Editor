@@ -18,9 +18,8 @@
 | レイヤー | 使用技術 |
 |----------|----------|
 | バックエンド | FastAPI + Uvicorn |
-| デスクトップUI | pywebview |
+| デスクトップUI | pywebview |   
 | LLM連携 | OpenAI互換API（OpenAI / Azure OpenAI / Ollama等） |
-| RAG | LangChain + Chroma |
 | ファイル解析 | MarkItDown / PyMuPDF / Pillow |
 | データ保存 | ローカルJSONファイル |
 

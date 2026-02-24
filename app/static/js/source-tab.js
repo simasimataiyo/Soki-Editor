@@ -12,7 +12,13 @@ const SourceTab = (() => {
 
   // 折りたたみ状態
   let _sectionCollapsed = {};
-  let _loadingOverlay = null;
+
+  // 保存タイマー（モジュールレベル、一元管理）
+  let _pendingSaveTimer = null;
+  let _pendingSaveId = null;
+
+  // 処理中状態（非同期操作の追跡）Map<srcId, Set<'summary'|'bibliography'|'fullText'>>
+  const _processingState = new Map();
 
   /** 表示用タイトル: 文献情報のタイトル → name のフォールバック */
   function _displayTitle(src) {
@@ -29,10 +35,14 @@ const SourceTab = (() => {
           id: 'delete',
           label: '削除',
           className: 'btn-danger',
-          onClick: async (_formData, overlay, resolve, closeModal) => {
-            await _deleteSource(src);
-            resolve(null);
-            closeModal(overlay);
+          onClick: async (_formData, _overlay, resolve, closeModal) => {
+            const deleted = await _deleteSource(src);
+            if (deleted) {
+              // 削除成功: _closeAllが確認OKで既に呼ばれているが念のため
+              resolve(null);
+              closeModal();
+            }
+            // 削除キャンセル時は何もしない（フォームモーダルに戻っている）
           },
         },
       ],
@@ -59,27 +69,61 @@ const SourceTab = (() => {
     } catch (_) {}
   }
 
-  /** ローディングオーバーレイを表示 */
-  function _showLoading(message = '処理中...') {
-    if (_loadingOverlay) return;
-    _loadingOverlay = document.createElement('div');
-    _loadingOverlay.className = 'loading-overlay';
-    _loadingOverlay.innerHTML = `
-      <div class="loading-spinner"></div>
-      <div class="loading-message">${escHtml(message)}</div>
-    `;
-    document.body.appendChild(_loadingOverlay);
+  /** デバウンス保存をスケジュール（全保存タイマーを一元管理） */
+  function _scheduleSave(srcId) {
+    if (_pendingSaveTimer) clearTimeout(_pendingSaveTimer);
+    _pendingSaveId = srcId;
+    _pendingSaveTimer = setTimeout(() => {
+      _pendingSaveTimer = null;
+      _pendingSaveId = null;
+      _saveSource(srcId);
+    }, 2000);
   }
 
-  /** ローディングオーバーレイを非表示 */
-  function _hideLoading() {
-    if (_loadingOverlay) {
-      _loadingOverlay.remove();
-      _loadingOverlay = null;
+  /** 保留中の保存を即時フラッシュ（DOM切替前に呼ぶこと） */
+  function _flushPendingSave() {
+    if (_pendingSaveTimer) {
+      clearTimeout(_pendingSaveTimer);
+      _pendingSaveTimer = null;
+      const id = _pendingSaveId;
+      _pendingSaveId = null;
+      if (id) _saveSource(id);
     }
   }
 
+  /** 保留中の保存をキャンセル（AI操作前など） */
+  function _cancelPendingSave() {
+    if (_pendingSaveTimer) {
+      clearTimeout(_pendingSaveTimer);
+      _pendingSaveTimer = null;
+      _pendingSaveId = null;
+    }
+  }
+
+  /** 処理開始を記録し、アクティブな場合は再レンダリング */
+  function _startProcessing(srcId, field) {
+    if (!_processingState.has(srcId)) _processingState.set(srcId, new Set());
+    _processingState.get(srcId).add(field);
+    if (srcId === _activeId) _renderDetail(srcId);
+  }
+
+  /** 処理完了を記録し、アクティブな場合は再レンダリング */
+  function _stopProcessing(srcId, field) {
+    const fields = _processingState.get(srcId);
+    if (fields) {
+      fields.delete(field);
+      if (fields.size === 0) _processingState.delete(srcId);
+    }
+    if (srcId === _activeId) _renderDetail(srcId);
+  }
+
+  /** 指定フィールドが処理中か確認 */
+  function _isProcessing(srcId, field) {
+    return _processingState.get(srcId)?.has(field) ?? false;
+  }
+
   function render(project) {
+    _flushPendingSave();
     _project = project;
     _renderList();
     if (_activeId) _renderDetail(_activeId);
@@ -99,6 +143,7 @@ const SourceTab = (() => {
         <span class="item-name">${escHtml(_displayTitle(src))}</span>
       `;
       li.addEventListener('click', () => {
+        _flushPendingSave();  // DOM切替前にフラッシュ（_activeIdがまだ旧ソースを指している）
         _activeId = src.id;
         window.appState.setState({ activeSourceId: src.id });
         _renderList();
@@ -119,7 +164,16 @@ const SourceTab = (() => {
     const pane = document.getElementById('source-detail');
     const b = src.bibliography;
 
+    // 処理中フラグ
+    const summaryProc    = _isProcessing(src.id, 'summary');
+    const bibProc        = _isProcessing(src.id, 'bibliography');
+    const fullTextProc   = _isProcessing(src.id, 'fullText');
+    const SPINNER = '<span class="section-spinner"></span>';
+
     pane.innerHTML = `
+      <div class="pane-drag-overlay">
+        <span class="pane-drag-overlay-text">ファイルをドラッグアンドドロップ...</span>
+      </div>
       <div class="source-detail-scroll">
         <!-- タイトルバー -->
         <div class="detail-title-bar">
@@ -130,13 +184,13 @@ const SourceTab = (() => {
         <div class="collapsible-section">
           <div class="collapsible-header" data-section="bibliography">
             <span class="chevron">${_sectionCollapsed['bibliography'] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
-            <h3>文献情報</h3>
+            <h3>文献情報${bibProc ? SPINNER : ''}</h3>
           </div>
           <div class="collapsible-body${_sectionCollapsed['bibliography'] ? ' collapsed' : ''}">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
               <div class="form-group" style="flex:1;max-width:200px">
                 <label>種類</label>
-                <select class="form-control" id="src-bib-type">
+                <select class="form-control" id="src-bib-type" ${bibProc ? 'disabled' : ''}>
                   ${Object.entries(BIB_TYPE_LABELS).map(([v, l]) =>
                     `<option value="${v}" ${b.type===v?'selected':''}>${l}</option>`
                   ).join('')}
@@ -145,7 +199,7 @@ const SourceTab = (() => {
               <div class="toggle-group">
                 <label>参考文献リストに掲載</label>
                 <label class="toggle-switch">
-                  <input type="checkbox" id="src-include" ${b.include_in_references?'checked':''} />
+                  <input type="checkbox" id="src-include" ${b.include_in_references?'checked':''} ${bibProc ? 'disabled' : ''} />
                   <span class="slider"></span>
                 </label>
               </div>
@@ -158,13 +212,13 @@ const SourceTab = (() => {
         <div class="collapsible-section">
           <div class="collapsible-header" data-section="summary">
             <span class="chevron">${_sectionCollapsed['summary'] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
-            <h3>要約</h3>
+            <h3>要約${summaryProc ? SPINNER : ''}</h3>
           </div>
           <div class="collapsible-body${_sectionCollapsed['summary'] ? ' collapsed' : ''}">
-            <textarea class="form-control" id="src-summary" rows="5">${escHtml(src.summary)}</textarea>
+            <textarea class="form-control" id="src-summary" rows="5" ${summaryProc ? 'disabled' : ''}>${escHtml(src.summary)}</textarea>
             <div class="source-actions" style="margin-top:8px">
-              <button class="btn btn-secondary btn-sm" id="btn-summarize">ソースから要約生成</button>
-              <button class="btn btn-secondary btn-sm" id="btn-extract-bib">文献情報取得</button>
+              <button class="btn btn-secondary btn-sm" id="btn-summarize" ${summaryProc ? 'disabled' : ''}>ソースから要約生成</button>
+              <button class="btn btn-secondary btn-sm" id="btn-extract-bib" ${bibProc ? 'disabled' : ''}>文献情報取得</button>
             </div>
           </div>
         </div>
@@ -173,14 +227,14 @@ const SourceTab = (() => {
         <div class="collapsible-section">
           <div class="collapsible-header" data-section="content">
             <span class="chevron">${_sectionCollapsed['content'] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
-            <h3>内容</h3>
+            <h3>内容${fullTextProc ? SPINNER : ''}</h3>
           </div>
           <div class="collapsible-body${_sectionCollapsed['content'] ? ' collapsed' : ''}">
             <div class="form-group" style="margin-bottom:12px">
               <label>全文</label>
               <div class="source-drop-area">
                 <div class="drag-drop-overlay">ここにファイルをドラッグアンドドロップ</div>
-                <textarea class="form-control" id="src-full-text" rows="10">${escHtml(src.full_text)}</textarea>
+                <textarea class="form-control" id="src-full-text" rows="10" ${fullTextProc ? 'disabled' : ''}>${escHtml(src.full_text)}</textarea>
               </div>
             </div>
             <div class="form-group" style="margin-bottom:12px">
@@ -188,8 +242,8 @@ const SourceTab = (() => {
               <input type="text" class="form-control" id="src-file-path" value="${escHtml(src.file_path || '')}" readonly />
             </div>
             <div class="source-actions">
-              <button class="btn btn-secondary btn-sm" id="btn-analyze-image">画像認識</button>
-              <button class="btn btn-secondary btn-sm" id="btn-read-file">ファイル読み込み</button>
+              <button class="btn btn-secondary btn-sm" id="btn-analyze-image" ${fullTextProc ? 'disabled' : ''}>画像認識</button>
+              <button class="btn btn-secondary btn-sm" id="btn-read-file" ${fullTextProc ? 'disabled' : ''}>ファイル読み込み</button>
             </div>
           </div>
         </div>
@@ -238,59 +292,73 @@ const SourceTab = (() => {
     document.getElementById('btn-summarize').addEventListener('click', () => _summarize(src));
     document.getElementById('btn-extract-bib').addEventListener('click', () => _extractBibliography(src));
 
-    // 内容テキストエリアへのドラッグ&ドロップ
-    const dropAreaEl = pane.querySelector('.source-drop-area');
-    if (dropAreaEl) {
-      dropAreaEl.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'copy';
-        dropAreaEl.classList.add('drag-over');
-      });
-      dropAreaEl.addEventListener('dragleave', () => {
-        dropAreaEl.classList.remove('drag-over');
-      });
-      dropAreaEl.addEventListener('drop', async (e) => {
-        e.preventDefault();
-        dropAreaEl.classList.remove('drag-over');
-        const file = e.dataTransfer.files[0];
-        if (!file) return;
-        const project = window.appState.getProject();
-        const formData = new FormData();
-        formData.append('file', file);
-        _showLoading('PDFを読み込み中...');
-        try {
-          const res = await fetch(
-            `/api/projects/${project.id}/sources/${src.id}/read-file-upload`,
-            { method: 'POST', body: formData }
-          );
-          if (!res.ok) { showToast('読み込み失敗', 'error'); return; }
-          const updated = await res.json();
-          const idx = project.sources.findIndex(s => s.id === src.id);
-          if (idx >= 0) project.sources[idx] = updated;
-          // PDFを再読み込みした場合は画像認識モーダルを閉じる（サムネイルが更新されるため）
-          const modalOverlay = document.querySelector('.modal-overlay');
-          if (modalOverlay && modalOverlay.querySelector('.pdf-page-grid')) {
-            modalOverlay.remove();
-          }
-          _renderDetail(src.id);
-          showToast('ファイルを読み込みました', 'success');
-        } catch (_) {
-          showToast('ファイル読み込みに失敗しました', 'error');
-        } finally {
-          _hideLoading();
+    // ─── ペイン全体ドラッグ&ドロップ ───────────────────────────
+    let _dragEnterCount = 0;
+
+    async function _handleFileDrop(file) {
+      const project = window.appState.getProject();
+      const formData = new FormData();
+      formData.append('file', file);
+      _cancelPendingSave();
+      _startProcessing(src.id, 'fullText');  // 全文フィールド無効化（ブロッキングオーバーレイなし）
+      const loadingToast = showToast('ファイルを読み込み中...', 'info', { persistent: true, spinner: true });
+      try {
+        const res = await fetch(
+          `/api/projects/${project.id}/sources/${src.id}/read-file-upload`,
+          { method: 'POST', body: formData }
+        );
+        if (!res.ok) {
+          showToast('読み込み失敗', 'error');
+          dismissToast(loadingToast);
+          _stopProcessing(src.id, 'fullText');
+          return;
         }
-      });
+        const updated = await res.json();
+        const idx = project.sources.findIndex(s => s.id === src.id);
+        if (idx >= 0) project.sources[idx] = updated;
+        // PDFを再読み込みした場合は画像認識モーダルを閉じる（サムネイルが更新されるため）
+        const modalOverlay = document.querySelector('.modal-overlay');
+        if (modalOverlay && modalOverlay.querySelector('.pdf-page-grid')) {
+          modalOverlay.remove();
+        }
+        dismissToast(loadingToast);
+        _stopProcessing(src.id, 'fullText');  // 再レンダリング（最新データ表示）
+        showToast('ファイルを読み込みました', 'success');
+      } catch (_) {
+        dismissToast(loadingToast);
+        _stopProcessing(src.id, 'fullText');
+        showToast('ファイル読み込みに失敗しました', 'error');
+      }
     }
 
-    // 自動保存（デバウンス）
-    let saveTimer;
-    const autoSave = () => {
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(() => _saveSource(src.id), 2000);
-    };
+    pane.addEventListener('dragenter', (e) => {
+      if (!e.dataTransfer.types.includes('Files')) return;
+      e.preventDefault();
+      if (++_dragEnterCount === 1) pane.classList.add('pane-drag-active');
+    });
+    pane.addEventListener('dragleave', () => {
+      if (--_dragEnterCount <= 0) {
+        _dragEnterCount = 0;
+        pane.classList.remove('pane-drag-active');
+      }
+    });
+    pane.addEventListener('dragover', (e) => {
+      if (!e.dataTransfer.types.includes('Files')) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    });
+    pane.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      _dragEnterCount = 0;
+      pane.classList.remove('pane-drag-active');
+      const file = e.dataTransfer.files[0];
+      if (file) await _handleFileDrop(file);
+    });
+
+    // 自動保存（モジュールレベルタイマーで一元管理）
     pane.querySelectorAll('input:not([readonly]), textarea, select').forEach(el => {
-      el.addEventListener('input', autoSave);
-      el.addEventListener('change', autoSave);
+      el.addEventListener('input', () => _scheduleSave(src.id));
+      el.addEventListener('change', () => _scheduleSave(src.id));
     });
   }
 
@@ -339,12 +407,10 @@ const SourceTab = (() => {
       `;
     }).join('');
 
-    // 新しいフィールドにも自動保存をバインド
+    // 新しいフィールドにも自動保存をバインド（モジュールレベルタイマー使用）
     container.querySelectorAll('.bib-field').forEach(el => {
-      let timer;
       el.addEventListener('input', () => {
-        clearTimeout(timer);
-        timer = setTimeout(() => _saveSource(src.id), 2000);
+        _scheduleSave(src.id);
         // タイトル変更時は最新のソースオブジェクトを使用
         if (el.dataset.field === 'title') {
           const project = window.appState.getProject();
@@ -361,6 +427,9 @@ const SourceTab = (() => {
   }
 
   async function _saveSource(srcId) {
+    // ガード: 現在表示中のソースでなければスキップ（切替後の古いタイマーから保護）
+    if (srcId !== _activeId) return;
+
     const project = window.appState.getProject();
     const src = project.sources.find(s => s.id === srcId);
     if (!src) return;
@@ -395,14 +464,17 @@ const SourceTab = (() => {
   }
 
   async function _deleteSource(src) {
-    if (!(await Modal.confirm(`「${_displayTitle(src)}」を削除しますか？`))) return;
+    if (!(await Modal.confirm(`「${_displayTitle(src)}」を削除しますか？`))) return false;
     const project = window.appState.getProject();
     try {
       await ApiClient.delete(`/api/projects/${project.id}/sources/${src.id}`);
       project.sources = project.sources.filter(s => s.id !== src.id);
       _activeId = null;
       render(project);
-    } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   async function _readFile(src) {
@@ -415,12 +487,20 @@ const SourceTab = (() => {
       if (!file) return;
       const formData = new FormData();
       formData.append('file', file);
-      _showLoading('PDFを読み込み中...');
+      _cancelPendingSave();
+      _startProcessing(src.id, 'fullText');
+      const loadingToast = showToast('ファイルを読み込み中...', 'info', { persistent: true, spinner: true });
       try {
         const res = await fetch(`/api/projects/${project.id}/sources/${src.id}/read-file-upload`, {
           method: 'POST', body: formData,
         });
-        if (!res.ok) { const d = await res.json(); showToast(d.detail || 'エラー', 'error'); return; }
+        if (!res.ok) {
+          const d = await res.json();
+          showToast(d.detail || 'エラー', 'error');
+          dismissToast(loadingToast);
+          _stopProcessing(src.id, 'fullText');
+          return;
+        }
         const updated = await res.json();
         const idx = project.sources.findIndex(s => s.id === src.id);
         if (idx >= 0) project.sources[idx] = updated;
@@ -429,12 +509,13 @@ const SourceTab = (() => {
         if (modalOverlay && modalOverlay.querySelector('.pdf-page-grid')) {
           modalOverlay.remove();
         }
-        _renderDetail(src.id);
+        dismissToast(loadingToast);
+        _stopProcessing(src.id, 'fullText');
         showToast('ファイルを読み込みました', 'success');
       } catch (_) {
+        dismissToast(loadingToast);
+        _stopProcessing(src.id, 'fullText');
         showToast('ファイル読み込みに失敗しました', 'error');
-      } finally {
-        _hideLoading();
       }
     };
     input.click();
@@ -752,32 +833,46 @@ const SourceTab = (() => {
   }
 
   async function _summarize(src) {
+    _cancelPendingSave();
+    _startProcessing(src.id, 'summary');  // フィールド無効化 + 再レンダリング
     const project = window.appState.getProject();
-    showToast('要約生成中...', 'success');
+    const loadingToast = showToast('要約生成中...', 'info', { persistent: true, spinner: true });
     try {
       const updated = await ApiClient.post(
         `/api/projects/${project.id}/sources/${src.id}/summarize`
       );
+      dismissToast(loadingToast);
       const idx = project.sources.findIndex(s => s.id === src.id);
       if (idx >= 0) project.sources[idx] = updated;
-      _renderDetail(src.id);
+      _stopProcessing(src.id, 'summary');  // フィールド有効化 + 再レンダリング（最新データ表示）
       showToast('要約を生成しました', 'success');
-    } catch (_) {}
+    } catch (_) {
+      dismissToast(loadingToast);
+      _stopProcessing(src.id, 'summary');
+      showToast('要約の生成に失敗しました', 'error');
+    }
   }
 
   async function _extractBibliography(src) {
     const project = window.appState.getProject();
     if (!(await Modal.confirm('LLMを使用して文献情報を抽出します。実行しますか？'))) return;
-    showToast('文献情報抽出中...', 'success');
+    _cancelPendingSave();
+    _startProcessing(src.id, 'bibliography');  // bib フィールド無効化 + 再レンダリング
+    const loadingToast = showToast('文献情報抽出中...', 'info', { persistent: true, spinner: true });
     try {
       const updated = await ApiClient.post(
         `/api/projects/${project.id}/sources/${src.id}/extract-bibliography`
       );
+      dismissToast(loadingToast);
       const idx = project.sources.findIndex(s => s.id === src.id);
       if (idx >= 0) project.sources[idx] = updated;
-      _renderDetail(src.id);
+      _stopProcessing(src.id, 'bibliography');  // フィールド有効化 + 再レンダリング
       showToast('文献情報を抽出しました', 'success');
-    } catch (_) {}
+    } catch (_) {
+      dismissToast(loadingToast);
+      _stopProcessing(src.id, 'bibliography');
+      showToast('文献情報の抽出に失敗しました', 'error');
+    }
   }
 
   function bindEvents() {
@@ -831,6 +926,8 @@ const SourceTab = (() => {
     _project = null;
     _activeId = null;
     _sectionCollapsed = {};
+    _cancelPendingSave();
+    _processingState.clear();
   }
 
   return { render, bindEvents, exportCsv, importCsv, reset };
