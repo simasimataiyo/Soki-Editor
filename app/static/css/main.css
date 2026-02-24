@@ -137,6 +137,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .top-bar { height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border-bottom: 1px solid var(--color-border); background: var(--color-surface); flex-shrink: 0; }
 .top-bar-left { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; }
 .top-bar-right { display: flex; align-items: center; gap: 16px; }
+.char-count-display { font-size: 12px; color: var(--color-text-muted); white-space: nowrap; margin-left: 8px; }
 
 /* トップバーのテキストリンクボタン (tertiary系) */
 .btn-topbar-link {
@@ -609,6 +610,8 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .btn-send { width: 32px; height: 32px; border-radius: 50%; background: var(--color-text); color: var(--color-white); font-size: 16px; display: flex; align-items: center; justify-content: center; border: none; cursor: pointer; transition: background .15s; margin-left: auto; flex-shrink: 0; }
 .btn-send:hover:not(:disabled) { background: var(--color-text-hover); }
 .btn-send:disabled { opacity: .3; cursor: not-allowed; }
+.btn-send.btn-stop { background: var(--color-danger, #e53e3e); font-size: 12px; }
+.btn-send.btn-stop:hover { background: #c53030; }
 
 /* ─── ソース詳細フォーム ─────────────────────────────────── */
 .source-detail-scroll { display: flex; flex-direction: column; }
