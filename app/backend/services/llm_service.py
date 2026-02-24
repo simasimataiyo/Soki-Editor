@@ -465,6 +465,10 @@ class LLMService:
             content = response.choices[0].message.content or "{}"
             bib_data = json.loads(content)
 
+            # LLMが "type" や "include_in_references" を返した場合に TypeError になるため除去
+            bib_data.pop("type", None)
+            bib_data.pop("include_in_references", None)
+
             # Build Bibliography object, keeping existing type
             return Bibliography(type=bib_type, **bib_data)
         finally:

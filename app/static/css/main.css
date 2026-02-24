@@ -137,6 +137,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .top-bar { height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border-bottom: 1px solid var(--color-border); background: var(--color-surface); flex-shrink: 0; }
 .top-bar-left { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; }
 .top-bar-right { display: flex; align-items: center; gap: 16px; }
+.char-count-display { font-size: 12px; color: var(--color-text-muted); white-space: nowrap; margin-left: 8px; }
 
 /* トップバーのテキストリンクボタン (tertiary系) */
 .btn-topbar-link {
@@ -609,6 +610,8 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .btn-send { width: 32px; height: 32px; border-radius: 50%; background: var(--color-text); color: var(--color-white); font-size: 16px; display: flex; align-items: center; justify-content: center; border: none; cursor: pointer; transition: background .15s; margin-left: auto; flex-shrink: 0; }
 .btn-send:hover:not(:disabled) { background: var(--color-text-hover); }
 .btn-send:disabled { opacity: .3; cursor: not-allowed; }
+.btn-send.btn-stop { background: var(--color-danger, #e53e3e); font-size: 12px; }
+.btn-send.btn-stop:hover { background: #c53030; }
 
 /* ─── ソース詳細フォーム ─────────────────────────────────── */
 .source-detail-scroll { display: flex; flex-direction: column; }
@@ -879,6 +882,24 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 }
 .source-drop-area.drag-over .drag-drop-overlay { display: flex; }
 
+/* ─── ソース詳細ペイン: ペイン全体ドラッグオーバーレイ ──── */
+#source-detail { position: relative; }
+.pane-drag-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(3px);
+  z-index: 20;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius);
+}
+#source-detail.pane-drag-active .pane-drag-overlay { display: flex; }
+.pane-drag-overlay-text { font-size: 16px; font-weight: 600; color: var(--color-text-muted); text-align: center; }
+
 /* ─── 設定タブ ───────────────────────────────────────────── */
 .settings-container { max-width: 600px; margin: 40px auto; padding: 0 20px; }
 .settings-container h2 { margin-bottom: 24px; font-size: 20px; }
@@ -932,6 +953,8 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .modal-lg { min-width: 560px; }
 .modal-xl { min-width: 800px; max-width: 900px; max-height: 80vh; }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.modal-back-btn { align-self: flex-start; color: var(--color-text-muted); font-size: 12px; padding: 3px 6px; background: none; border: none; cursor: pointer; }
+.modal-back-btn:hover { color: var(--color-text); }
 
 /* ─── ファイルブラウザモーダル ────────────────────────────── */
 .file-browser-bar { display: flex; align-items: center; gap: 8px; }
@@ -950,10 +973,13 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 
 /* ─── トースト ───────────────────────────────────────────── */
 .toast-container { position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 2000; }
-.toast { padding: 10px 16px; border-radius: var(--radius); background: var(--color-text); color: var(--color-white); font-size: 13px; box-shadow: var(--shadow); animation: slide-in .2s ease; }
+.toast { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: var(--radius); background: var(--color-text); color: var(--color-white); font-size: 13px; box-shadow: var(--shadow); animation: slide-in .2s ease; }
 .toast.error { background: var(--color-text); }
 .toast.success { background: var(--color-text); }
 @keyframes slide-in { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+.toast-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.35); border-top-color: var(--color-white); border-radius: 50%; animation: loading-spin 0.7s linear infinite; flex-shrink: 0; }
+/* セクションヘッダー処理中スピナー */
+.section-spinner { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--color-border); border-top-color: var(--color-text); border-radius: 50%; animation: loading-spin 0.7s linear infinite; vertical-align: middle; margin-left: 6px; }
 
 /* ─── チャット中のローディング ───────────────────────────── */
 .streaming-indicator { display: inline-flex; gap: 4px; align-items: center; padding: 4px 0; }
