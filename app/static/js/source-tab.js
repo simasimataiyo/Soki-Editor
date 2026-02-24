@@ -205,6 +205,9 @@ const SourceTab = (() => {
               </div>
             </div>
             <div id="bib-fields"></div>
+            <div class="source-actions" style="margin-top:8px">
+              <button class="btn btn-secondary btn-sm" id="btn-extract-bib" ${bibProc ? 'disabled' : ''}>文献情報取得</button>
+            </div>
           </div>
         </div>
 
@@ -218,7 +221,6 @@ const SourceTab = (() => {
             <textarea class="form-control" id="src-summary" rows="5" ${summaryProc ? 'disabled' : ''}>${escHtml(src.summary)}</textarea>
             <div class="source-actions" style="margin-top:8px">
               <button class="btn btn-secondary btn-sm" id="btn-summarize" ${summaryProc ? 'disabled' : ''}>ソースから要約生成</button>
-              <button class="btn btn-secondary btn-sm" id="btn-extract-bib" ${bibProc ? 'disabled' : ''}>文献情報取得</button>
             </div>
           </div>
         </div>

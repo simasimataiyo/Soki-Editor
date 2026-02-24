@@ -79,14 +79,7 @@ const ChatBarCommon = (() => {
       if (!confirmed) return;
     }
 
-    // 送信ボタンを無効化
-    sendBtn.disabled = true;
-
-    try {
-      await onSend(parsed);
-    } finally {
-      sendBtn.disabled = false;
-    }
+    await onSend(parsed);
   }
 
   /**
