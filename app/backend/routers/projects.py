@@ -6,7 +6,6 @@ from fastapi.responses import JSONResponse
 
 from app.backend.models import (
     DataDirUpdate,
-    LLMSettings,
     Project,
     ProjectCreate,
     ProjectMeta,
@@ -125,28 +124,6 @@ async def save_project(project_id: str) -> dict:
     try:
         await svc.flush(project_id)
         return {"status": "ok"}
-    except KeyError:
-        raise HTTPException(status_code=404, detail="プロジェクトが見つかりません")
-
-
-@router.get("/projects/{project_id}/settings", response_model=LLMSettings)
-async def get_settings(project_id: str) -> LLMSettings:
-    svc = get_service()
-    try:
-        project = await svc.get_project(project_id)
-        return project.settings
-    except KeyError:
-        raise HTTPException(status_code=404, detail="プロジェクトが見つかりません")
-
-
-@router.put("/projects/{project_id}/settings", response_model=LLMSettings)
-async def update_settings(project_id: str, body: LLMSettings) -> LLMSettings:
-    svc = get_service()
-    try:
-        await svc.update_settings(project_id, body)
-        await svc.flush(project_id)
-        project = await svc.get_project(project_id)
-        return project.settings
     except KeyError:
         raise HTTPException(status_code=404, detail="プロジェクトが見つかりません")
 

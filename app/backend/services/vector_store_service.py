@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from chromadb.config import Settings
 
 from app.backend.models import Project
+from app.backend.routers.settings import get_service as get_settings_service
 
 
 class VectorStoreService:
@@ -84,7 +85,7 @@ class VectorStoreService:
             / "chroma_db"
         )
         collection_name = f"project_{project.id}_sources"
-        embeddings = self._get_embeddings(project.settings)
+        embeddings = self._get_embeddings(get_settings_service().get())
 
         client_settings = Settings(anonymized_telemetry=False)
 

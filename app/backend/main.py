@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.backend.routers import llm, materials, projects, rules, sections, sources
+from app.backend.routers import llm, materials, projects, rules, sections, settings, sources
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 
 
 # ─── ルーター登録 ─────────────────────────────────────────────
+app.include_router(settings.router)
 app.include_router(projects.router)
 app.include_router(rules.router)
 app.include_router(sources.router)

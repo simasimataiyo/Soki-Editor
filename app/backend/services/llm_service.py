@@ -223,6 +223,7 @@ class LLMService:
     async def chat_stream(
         self,
         project: Project,
+        settings: LLMSettings,
         user_message: str,
         context_scope: str,
         command: str | None = None,
@@ -235,7 +236,6 @@ class LLMService:
         fetch_sources ツールコールを検出した場合、バックエンドでソース全文を解決し
         再度 LLM API を呼び出す多段フローを実行する（フロントエンドには透過的）。
         """
-        settings = project.settings
         client = self._make_client(settings)
 
         if command:
@@ -357,13 +357,13 @@ class LLMService:
     async def review_stream(
         self,
         project: Project,
+        settings: LLMSettings,
         system_prompt: str,
         context_scope: str,
         review_focus: str | None = None,
         explicit_refs: list[str] | None = None,
     ) -> AsyncGenerator[str, None]:
         """セクションごとに review_comment SSE イベントを yield する。"""
-        settings = project.settings
         client = self._make_client(settings)
         sorted_sections = sorted(project.sections, key=lambda s: s.order)
 

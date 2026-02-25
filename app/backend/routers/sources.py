@@ -15,6 +15,7 @@ from fastapi.responses import StreamingResponse
 
 from app.backend.models import Bibliography, Source, SourceUpdate
 from app.backend.routers.projects import get_service
+from app.backend.routers.settings import get_service as get_settings_service
 from app.backend.services.file_service import FileService
 from app.backend.services.llm_service import LLMService
 
@@ -100,17 +101,12 @@ async def analyze_source_image(
     project_id: str, source_id: str, body: dict
 ) -> Source:
     svc = get_service()
-    try:
-        project = await svc.get_project(project_id)
-    except KeyError:
-        _not_found(project_id)
-
     file_path = body.get("file_path", "")
     if not file_path:
         raise HTTPException(status_code=422, detail="file_path が必要です")
 
     try:
-        text = await _llm_service.analyze_image_with_vision(file_path, project.settings)
+        text = await _llm_service.analyze_image_with_vision(file_path, get_settings_service().get())
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"画像解析失敗: {e}")
 
@@ -159,7 +155,7 @@ async def read_source_file_upload(
 
         thumb_dir = Path(project.data_dir) / "thumbnails" / source_id
         thumb_dir.mkdir(parents=True, exist_ok=True)
-        raw_dpi = project.settings.pdf_page_dpi
+        raw_dpi = get_settings_service().get().pdf_page_dpi
 
         def _generate_pdf_images(path_str: str, thumb_dir_str: str, raw_dir_str: str, dpi: int) -> None:
             doc = fitz.open(path_str)
@@ -182,7 +178,7 @@ async def read_source_file_upload(
                 raw_dpi,
             )
         except Exception:
-            pass  # PDF画像生成失敗は続行（テキスト抽出を優先）
+            pass  # PDFページ画像の保存に失敗しても続行（テキスト抽出を優先）
 
     # テキスト抽出
     try:
@@ -202,11 +198,6 @@ async def analyze_source_image_upload(
 ) -> Source:
     """ブラウザからアップロードされた画像/PDFをVision APIで解析する。"""
     svc = get_service()
-    try:
-        project = await svc.get_project(project_id)
-    except KeyError:
-        _not_found(project_id)
-
     suffix = Path(file.filename or "image").suffix
     content = await file.read()
     tmp_path = None
@@ -214,7 +205,7 @@ async def analyze_source_image_upload(
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(content)
             tmp_path = tmp.name
-        text = await _llm_service.analyze_image_with_vision(tmp_path, project.settings)
+        text = await _llm_service.analyze_image_with_vision(tmp_path, get_settings_service().get())
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"画像解析失敗: {e}")
     finally:
@@ -300,7 +291,7 @@ async def analyze_saved_pdf_pages(
             text = await _llm_service.analyze_image_bytes_with_vision(
                 img_bytes,
                 "image/jpeg",
-                project.settings,
+                get_settings_service().get(),
                 f"このページ（{page_num + 1}ページ目）の内容をmarkdown記法を使って詳しく説明してください。"
                 "テキスト、図表、数式などを含む場合はできる限りmarkdown構文で表現してください。",
             )
@@ -350,7 +341,7 @@ async def analyze_saved_pdf_page_stream(
     async def event_stream():
         try:
             async for chunk in _llm_service.analyze_image_bytes_with_vision_stream(
-                img_bytes, "image/jpeg", project.settings, prompt_text
+                img_bytes, "image/jpeg", get_settings_service().get(), prompt_text
             ):
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
         except Exception as e:
@@ -448,7 +439,7 @@ async def analyze_pdf_pages(
             text = await _llm_service.analyze_image_bytes_with_vision(
                 img_bytes,
                 "image/png",
-                project.settings,
+                get_settings_service().get(),
                 f"このPDFの{page_num + 1}ページ目の内容を詳しく説明してください。",
             )
             analyses.append(f"--- {page_num + 1}ページ目 ---\n{text}")
@@ -470,19 +461,13 @@ async def analyze_pdf_pages(
 
 @router.post("/sources/{source_id}/analyze-pdf-page-stream")
 async def analyze_pdf_page_stream(
-    project_id: str,
+    project_id: str,  # noqa: ARG001
     source_id: str,
     file: UploadFile,
     page: int = Form(...),
 ) -> StreamingResponse:
     """アップロードされたPDFの単一ページをVision APIでストリーミング解析する。"""
     import fitz  # PyMuPDF
-
-    svc = get_service()
-    try:
-        project = await svc.get_project(project_id)
-    except KeyError:
-        _not_found(project_id)
 
     content = await file.read()
 
@@ -506,7 +491,7 @@ async def analyze_pdf_page_stream(
     async def event_stream():
         try:
             async for chunk in _llm_service.analyze_image_bytes_with_vision_stream(
-                img_bytes, "image/png", project.settings, prompt_text
+                img_bytes, "image/png", get_settings_service().get(), prompt_text
             ):
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
         except Exception as e:
@@ -540,7 +525,7 @@ async def summarize_source(project_id: str, source_id: str) -> Source:
         raise HTTPException(status_code=400, detail="全文が登録されていません")
 
     try:
-        summary = await _llm_service.generate_summary(src.full_text, project.settings)
+        summary = await _llm_service.generate_summary(src.full_text, get_settings_service().get())
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"要約生成失敗: {e}")
 
@@ -571,7 +556,7 @@ async def extract_bibliography(project_id: str, source_id: str) -> Source:
         bibliography = await _llm_service.extract_bibliography(
             src.full_text,
             src.bibliography.type,
-            project.settings,
+            get_settings_service().get(),
         )
         return await svc.update_source(
             project_id, source_id, SourceUpdate(bibliography=bibliography)

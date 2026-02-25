@@ -102,7 +102,7 @@ class Project(BaseModel):
     updated_at: datetime
     json_file_path: str  # プロジェクト JSON の保存先絶対パス
     data_dir: str  # データディレクトリの絶対パス
-    settings: LLMSettings = Field(default_factory=LLMSettings)
+    settings: Optional[LLMSettings] = None  # 後方互換のみ。グローバル設定に移行済み
     rule_categories: list[RuleCategory] = []
     rules: list[Rule] = []
     sources: list[Source] = []

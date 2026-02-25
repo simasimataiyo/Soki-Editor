@@ -10,6 +10,7 @@ from fastapi.responses import Response, StreamingResponse
 
 from app.backend.models import ChatMessage, ChatRequest, ReviewRequest, SectionPreview
 from app.backend.routers.projects import get_service
+from app.backend.routers.settings import get_service as get_settings_service
 from app.backend.services.export_service import ExportService
 from app.backend.services.llm_service import LLMService
 
@@ -33,10 +34,13 @@ async def chat_stream(project_id: str, body: ChatRequest) -> StreamingResponse:
     except KeyError:
         _not_found(project_id)
 
+    global_settings = get_settings_service().get()
+
     async def _stream_with_history() -> AsyncGenerator[str, None]:
         accumulated = []
         async for chunk in _llm_service.chat_stream(
             project,
+            global_settings,
             body.user_message,
             body.context_scope,
             command=body.command,
@@ -167,6 +171,7 @@ async def review_stream(project_id: str, body: ReviewRequest) -> StreamingRespon
     return StreamingResponse(
         _llm_service.review_stream(
             project,
+            get_settings_service().get(),
             body.system_prompt,
             body.context_scope,
             review_focus=body.command,

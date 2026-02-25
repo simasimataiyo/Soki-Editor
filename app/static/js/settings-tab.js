@@ -1,22 +1,21 @@
 /**
- * SettingsTab — LLM 設定 UI（タスク 15）
+ * SettingsTab — グローバル LLM 設定 UI
  */
 
 const SettingsTab = (() => {
-  function render(project) {
-    if (!project) return;
-    const s = project.settings;
-    document.getElementById('settings-api-key').value = s.api_key || '';
-    document.getElementById('settings-endpoint').value = s.endpoint_url || '';
-    document.getElementById('settings-model').value = s.model || 'gpt-4o';
-    document.getElementById('settings-pdf-dpi').value = s.pdf_page_dpi ?? 96;
+  async function render(_project) {
+    try {
+      const s = await ApiClient.get('/api/settings');
+      document.getElementById('settings-api-key').value = s.api_key || '';
+      document.getElementById('settings-endpoint').value = s.endpoint_url || '';
+      document.getElementById('settings-model').value = s.model || 'gpt-4o';
+      document.getElementById('settings-pdf-dpi').value = s.pdf_page_dpi ?? 96;
+    } catch (_) {}
   }
 
   function bindEvents() {
     document.getElementById('settings-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const project = window.appState.getProject();
-      if (!project) return;
 
       const settings = {
         api_key: document.getElementById('settings-api-key').value.trim(),
@@ -26,13 +25,11 @@ const SettingsTab = (() => {
       };
 
       try {
-        const updated = await ApiClient.put(
-          `/api/projects/${project.id}/settings`,
-          settings
-        );
-        project.settings = updated;
+        await ApiClient.put('/api/settings', settings);
         showToast('設定を保存しました', 'success');
-      } catch (_) {}
+      } catch (_) {
+        showToast('設定の保存に失敗しました', 'error');
+      }
     });
   }
 

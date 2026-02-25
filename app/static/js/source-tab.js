@@ -25,6 +25,11 @@ const SourceTab = (() => {
     return src.bibliography?.title || src.name;
   }
 
+  /**
+   * ソース名編集モーダルを開き、名前を更新する
+   * モーダル内の削除ボタンから _deleteSource も呼び出せる
+   * @param {object} src - 編集対象のソースオブジェクト
+   */
   async function _editSourceName(src) {
     const result = await Modal.form('ソース編集', [
       { name: 'name', label: '名前', type: 'text', value: src.name }
@@ -122,15 +127,32 @@ const SourceTab = (() => {
     return _processingState.get(srcId)?.has(field) ?? false;
   }
 
+  /**
+   * ソースタブ全体を再描画する（タブ切替・プロジェクト更新時に呼ぶ）
+   * 保留中の自動保存をフラッシュしてからリストと詳細を再描画する
+   * @param {object} project - 現在のプロジェクトオブジェクト
+   */
   function render(project) {
     _flushPendingSave();
     _project = project;
-    _renderList();
-    if (_activeId) _renderDetail(_activeId);
-    else document.getElementById('source-detail').innerHTML =
+    
+    
+    if(!_activeId && _project.sources.length ){
+      _activeId = _project.sources[0]["id"];
+    }
+
+    if (_activeId){
+      _renderDetail(_activeId);
+    }else document.getElementById('source-detail').innerHTML =
       '<p class="placeholder-text">ソースを選択してください</p>';
+      
+    _renderList();
   }
 
+  /**
+   * ソース一覧（左ペイン）を再描画する
+   * アクティブなソースはハイライト表示し、ダブルクリックで名前編集モーダルを開く
+   */
   function _renderList() {
     const list = document.getElementById('source-list');
     list.innerHTML = '';
@@ -158,6 +180,12 @@ const SourceTab = (() => {
     });
   }
 
+  /**
+   * ソース詳細ペイン（右ペイン）を再描画する
+   * 文献情報・要約・内容・設定の各折りたたみセクションと
+   * ドラッグ＆ドロップ、自動保存イベントを設定する
+   * @param {string} sourceId - 表示するソースのID
+   */
   function _renderDetail(sourceId) {
     const src = _project.sources.find(s => s.id === sourceId);
     if (!src) return;
@@ -295,8 +323,24 @@ const SourceTab = (() => {
     document.getElementById('btn-extract-bib').addEventListener('click', () => _extractBibliography(src));
 
     // ─── ペイン全体ドラッグ&ドロップ ───────────────────────────
-    let _dragEnterCount = 0;
+    const overlay = pane.querySelector('.pane-drag-overlay');
+    
+    /**
+     * ドラッグオーバーレイの位置・サイズを詳細ペインに合わせて同期する
+     */
+    function _syncOverlay() {
+      const r = pane.getBoundingClientRect();
+      overlay.style.top    = r.top    + 'px';
+      overlay.style.left   = r.left   + 'px';
+      overlay.style.width  = r.width  + 'px';
+      overlay.style.height = r.height + 'px';
+    }
 
+    /**
+     * ドロップされたファイルをサーバーへアップロードしてソースの全文を更新する
+     * PDFを再読み込みした場合は画像認識モーダルを閉じる
+     * @param {File} file - ドロップされたファイル
+     */
     async function _handleFileDrop(file) {
       const project = window.appState.getProject();
       const formData = new FormData();
@@ -333,25 +377,26 @@ const SourceTab = (() => {
       }
     }
 
+    // pane の dragenter でファイルドラッグを検知してオーバーレイを表示
     pane.addEventListener('dragenter', (e) => {
       if (!e.dataTransfer.types.includes('Files')) return;
       e.preventDefault();
-      if (++_dragEnterCount === 1) pane.classList.add('pane-drag-active');
+      _syncOverlay()
+      pane.classList.add('pane-drag-active');
     });
-    pane.addEventListener('dragleave', () => {
-      if (--_dragEnterCount <= 0) {
-        _dragEnterCount = 0;
-        pane.classList.remove('pane-drag-active');
-      }
+
+    // オーバーレイだけで dragleave/dragover/drop を受け取る
+    overlay.addEventListener('dragleave', (e) => {
+      // オーバーレイ外に出た場合のみ非表示（子要素への移動は無視）
+      if (overlay.contains(e.relatedTarget)) return;
+      pane.classList.remove('pane-drag-active');
     });
-    pane.addEventListener('dragover', (e) => {
-      if (!e.dataTransfer.types.includes('Files')) return;
+    overlay.addEventListener('dragover', (e) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
     });
-    pane.addEventListener('drop', async (e) => {
+    overlay.addEventListener('drop', async (e) => {
       e.preventDefault();
-      _dragEnterCount = 0;
       pane.classList.remove('pane-drag-active');
       const file = e.dataTransfer.files[0];
       if (file) await _handleFileDrop(file);
@@ -364,6 +409,11 @@ const SourceTab = (() => {
     });
   }
 
+  /**
+   * 文献種類に応じた入力フィールド群を #bib-fields に描画する
+   * タイトルフィールド変更時はリストのタイトル表示をリアルタイム更新する
+   * @param {string} type - 文献種類 ('paper' | 'book' | 'book_chapter' | 'web' | 'resource')
+   */
   function _renderBibFields(type) {
     const container = document.getElementById('bib-fields');
     if (!container) return;
@@ -428,6 +478,11 @@ const SourceTab = (() => {
     });
   }
 
+  /**
+   * 詳細ペインの現在値をサーバーへ保存する
+   * 別のソースに切り替わっていた場合はスキップし、文献タイトルをソース名に同期する
+   * @param {string} srcId - 保存するソースのID
+   */
   async function _saveSource(srcId) {
     // ガード: 現在表示中のソースでなければスキップ（切替後の古いタイマーから保護）
     if (srcId !== _activeId) return;
@@ -465,6 +520,11 @@ const SourceTab = (() => {
     } catch (_) {}
   }
 
+  /**
+   * 確認ダイアログを表示してソースを削除する
+   * @param {object} src - 削除するソースオブジェクト
+   * @returns {boolean} 削除が完了した場合は true、キャンセルまたは失敗した場合は false
+   */
   async function _deleteSource(src) {
     if (!(await Modal.confirm(`「${_displayTitle(src)}」を削除しますか？`))) return false;
     const project = window.appState.getProject();
@@ -479,6 +539,11 @@ const SourceTab = (() => {
     }
   }
 
+  /**
+   * ファイルピッカーを開いてファイルをアップロードし、ソースの全文を更新する
+   * 対応形式: .txt / .md / .pdf / .csv / .docx / .xlsx / .pptx
+   * @param {object} src - 対象のソースオブジェクト
+   */
   async function _readFile(src) {
     const project = window.appState.getProject();
     const input = document.createElement('input');
@@ -523,6 +588,12 @@ const SourceTab = (() => {
     input.click();
   }
 
+  /**
+   * 画像認識を実行する入口関数
+   * PDFソースの場合は保存済みサムネイルを使ったページ選択フローへ、
+   * それ以外はファイルピッカーで画像またはPDFを選択させる
+   * @param {object} src - 対象のソースオブジェクト
+   */
   async function _analyzeImage(src) {
     const project = window.appState.getProject();
 
@@ -564,7 +635,11 @@ const SourceTab = (() => {
     input.click();
   }
 
-  /** 保存済みサムネイルを使ってPDFページを選択し、Vision解析する */
+  /**
+   * 保存済みサムネイルを使ってPDFページを選択し、Vision解析する
+   * サムネイルをAPIから取得して _showPdfAnalysisModal に渡す
+   * @param {object} src - 対象のソースオブジェクト（file_type === 'pdf'）
+   */
   async function _analyzeSavedPdfPages(src) {
     const project = window.appState.getProject();
 
@@ -592,6 +667,11 @@ const SourceTab = (() => {
     _showPdfAnalysisModal(src, thumbnails, null);
   }
 
+  /**
+   * アップロードされたPDFファイルからサムネイルを生成してページ選択・Vision解析を行う
+   * @param {object} src - 対象のソースオブジェクト
+   * @param {File} file - ユーザーが選択したPDFファイル
+   */
   async function _analyzePdfWithPageSelection(src, file) {
     const project = window.appState.getProject();
     showToast('PDFを読み込み中...', 'success');
@@ -640,12 +720,18 @@ const SourceTab = (() => {
 
     let abortController = null;
 
+    /**
+     * モーダルを閉じ、進行中のストリーミングをキャンセルする
+     */
     function _closeModal() {
       if (abortController) abortController.abort();
       overlay.remove();
     }
 
     // ── ページ選択画面 ────────────────────────────────────────
+    /**
+     * PDFのサムネイル一覧を表示し、解析するページをラジオボタンで選択させる
+     */
     function _showPageSelect() {
       const thumbsHtml = thumbnails.map(t => `
         <label class="pdf-page-thumb">
@@ -684,6 +770,11 @@ const SourceTab = (() => {
     }
 
     // ── 解析実行（ストリーミング）────────────────────────────
+    /**
+     * 指定ページのVision解析をSSEストリーミングで実行し、結果をリアルタイム表示する
+     * pdfFile が null の場合は保存済み画像を使うエンドポイントに送信する
+     * @param {number} pageNum - 解析するページの0始まりインデックス
+     */
     async function _startAnalysis(pageNum) {
       if (abortController) abortController.abort();
       abortController = new AbortController();
@@ -778,6 +869,13 @@ const SourceTab = (() => {
     }
 
     // ── 解析結果確認画面 ─────────────────────────────────────
+    /**
+     * 解析完了後の結果確認画面を表示する
+     * 「ページ選択に戻る」「再実行」「内容に追加」ボタンを提供する
+     * @param {number} pageNum - 解析したページの0始まりインデックス
+     * @param {string} analysisText - LLMが生成したテキスト
+     * @param {boolean} [isError=false] - エラー終了の場合は true
+     */
     function _showResult(pageNum, analysisText, isError = false) {
       // ヘッダーを更新
       const h3 = modal.querySelector('h3');
@@ -834,6 +932,10 @@ const SourceTab = (() => {
     _showPageSelect();
   }
 
+  /**
+   * LLMを使ってソースの要約を生成し、要約フィールドを更新する
+   * @param {object} src - 対象のソースオブジェクト
+   */
   async function _summarize(src) {
     _cancelPendingSave();
     _startProcessing(src.id, 'summary');  // フィールド無効化 + 再レンダリング
@@ -855,6 +957,12 @@ const SourceTab = (() => {
     }
   }
 
+  
+  /**
+   * LLMを使って全文から文献情報を抽出し、文献情報フィールドを更新する
+   * 実行前に確認ダイアログを表示する
+   * @param {object} src - 対象のソースオブジェクト
+   */
   async function _extractBibliography(src) {
     const project = window.appState.getProject();
     if (!(await Modal.confirm('LLMを使用して文献情報を抽出します。実行しますか？'))) return;
@@ -877,6 +985,10 @@ const SourceTab = (() => {
     }
   }
 
+  /**
+   * ソースタブのグローバルイベントをバインドする（初期化時に1回だけ呼ぶ）
+   * 「ソース追加」ボタンのクリックで新規ソースを作成してリストに追加する
+   */
   function bindEvents() {
     document.getElementById('btn-add-source').addEventListener('click', async () => {
       const project = window.appState.getProject();
@@ -888,6 +1000,10 @@ const SourceTab = (() => {
     });
   }
 
+  /**
+   * 全ソースの文献情報をCSVでエクスポートする
+   * pywebview のネイティブ保存ダイアログを使ってファイルを書き出す
+   */
   async function exportCsv() {
     const project = window.appState.getProject();
     if (!project) return;
@@ -909,6 +1025,10 @@ const SourceTab = (() => {
     }
   }
 
+  /**
+   * pywebview のネイティブファイルダイアログでCSVを選択し、ソースを一括インポートする
+   * インポート後はプロジェクトを再取得してアプリ状態を更新する
+   */
   async function importCsv() {
     const project = window.appState.getProject();
     if (!project) return;
@@ -924,6 +1044,10 @@ const SourceTab = (() => {
     }
   }
 
+  /**
+   * ソースタブの状態を初期化する（プロジェクト切替時に呼ぶ）
+   * アクティブID・折りたたみ状態・保存タイマー・処理中状態をすべてリセットする
+   */
   function reset() {
     _project = null;
     _activeId = null;

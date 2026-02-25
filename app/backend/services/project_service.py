@@ -10,7 +10,6 @@ from typing import Optional
 
 from app.backend.models import (
     ChatMessage,
-    LLMSettings,
     Material,
     MaterialUpdate,
     Project,
@@ -127,11 +126,6 @@ class ProjectService:
                     except Exception:
                         pass
         return sorted(metas, key=lambda m: m.updated_at, reverse=True)
-
-    async def update_settings(self, project_id: str, settings: LLMSettings) -> None:
-        project = await self.get_project(project_id)
-        project.settings = settings
-        self._mark_dirty(project_id)
 
     async def update_data_dir(self, project_id: str, new_data_dir: str) -> None:
         project = await self.get_project(project_id)
