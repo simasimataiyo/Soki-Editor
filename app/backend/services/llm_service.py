@@ -228,6 +228,7 @@ class LLMService:
         command: str | None = None,
         command_args: list[str] | None = None,
         explicit_refs: list[str] | None = None,
+        selected_text: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """SSE ペイロード文字列を yield する。形式: data: {json}\\n\\n
 
@@ -241,11 +242,13 @@ class LLMService:
             messages = self._build_command_messages(
                 project, user_message, context_scope,
                 command, command_args or [], explicit_refs or [],
+                selected_text=selected_text,
             )
         else:
             messages = self._build_chat_messages(
                 project, user_message, context_scope,
                 explicit_refs=explicit_refs,
+                selected_text=selected_text,
             )
 
         start = time.time()
@@ -650,6 +653,7 @@ class LLMService:
         command: str,
         command_args: list[str],
         explicit_refs: list[str],
+        selected_text: str | None = None,
     ) -> list[dict]:
         """コマンド専用のシステムプロンプトを構築する。"""
         template = self._load_template("command_system.jinja2")
@@ -710,6 +714,7 @@ class LLMService:
             history_sources=history_sources,
             history_materials=history_materials,
             user_message=user_message,
+            selected_text=selected_text,
         )
 
         # 同一スコープの履歴（チャット履歴をコンテキストに追加）
@@ -761,6 +766,7 @@ class LLMService:
         user_message: str,
         context_scope: str,
         explicit_refs: list[str] | None = None,
+        selected_text: str | None = None,
     ) -> list[dict]:
         """Jinja2テンプレートを使用してシステムプロンプトを構築する。"""
         template = self._load_template("chat_system.jinja2")
@@ -811,6 +817,7 @@ class LLMService:
             explicit_materials=explicit_materials,
             history_sources=history_sources,
             history_materials=history_materials,
+            selected_text=selected_text,
         )
 
         # チャット履歴の構築（role="command" は "user" にマッピング）

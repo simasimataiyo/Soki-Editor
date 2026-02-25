@@ -137,6 +137,7 @@ class ChatRequest(BaseModel):
     command: Optional[str] = None          # "structure", "draft", "rewrite", etc.
     command_args: list[str] = []           # ["replace"], ["500"], etc.
     explicit_refs: list[str] = []          # ["ref-abc123", "fig-def456"]
+    selected_text: Optional[str] = None   # ユーザーが選択中のテキスト（文脈として使用）
 
 
 class ReviewRequest(BaseModel):
