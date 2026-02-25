@@ -45,6 +45,10 @@ const CommandParser = (() => {
         description: '文体を変換して書き直し（文体はユーザー指示で指定）',
         requiresLLM: true,
       },
+      cite: {
+        description: '現在のセクション本文に引用タグ [^ref-xxx] を自動挿入',
+        requiresLLM: true,
+      },
       clear: {
         description: '新しいスコープを作成して会話をリセット',
         requiresLLM: false,

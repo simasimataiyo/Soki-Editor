@@ -599,12 +599,35 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   border-radius: 8px;
   font-size: 14px;
   line-height: 1.5;
-  white-space: pre-wrap;
-  word-wrap: break-word;
   display: block;
   overflow-y: auto;
-  user-select: text; /* 文字列選択を有効化 */
+  position: relative; /* 閉じるボタンの配置用 */
+}
+.llm-response-text {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  user-select: text;
   cursor: text;
+  padding-right: 20px; /* 閉じるボタン分の余白 */
+}
+.llm-response-close-btn {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  border-radius: 3px;
+  transition: color .1s, background .1s;
+  flex-shrink: 0;
+}
+.llm-response-close-btn:hover {
+  color: var(--color-danger);
+  background: rgba(0, 0, 0, .05);
 }
 /* ─── 送信ボタン ─────────────────────────────────────────── */
 .btn-send { width: 32px; height: 32px; border-radius: 50%; background: var(--color-text); color: var(--color-white); font-size: 16px; display: flex; align-items: center; justify-content: center; border: none; cursor: pointer; transition: background .15s; margin-left: auto; flex-shrink: 0; }
@@ -1465,116 +1488,71 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   color: var(--color-text-muted);
 }
 
-/* ─── チャット履歴モーダル: 2ペインレイアウト ────────────── */
-.chat-history-panes {
-  display: flex;
-  gap: 12px;
-  min-height: 400px;
-  max-height: 520px;
-}
-
-/* 左ペイン: スコープ一覧 */
-.chat-history-scopes {
-  width: 240px;
+/* ─── チャット履歴インラインパネル ───────────────────────── */
+.chat-history-panel {
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  max-height: 280px;
   display: flex;
   flex-direction: column;
-}
-
-.chat-history-scopes-list {
-  flex: 1;
-  overflow-y: auto;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-surface);
-}
-
-.chat-history-scope-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--color-border-light);
-  cursor: pointer;
-  transition: background .15s;
-  font-size: 13px;
-}
-
-.chat-history-scope-item:last-child {
-  border-bottom: none;
-}
-
-.chat-history-scope-item:hover {
-  background: var(--color-bg);
-}
-
-.chat-history-scope-item.selected {
-  background: var(--color-primary-pale);
-  border-left: 3px solid var(--color-text);
-  padding-left: 9px;
-}
-
-.chat-history-scope-item.current {
-  font-weight: 600;
-}
-
-.chat-history-scope-name {
-  flex: 1;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.chat-history-scope-current-badge {
-  font-size: 10px;
-  background: var(--color-text);
-  color: var(--color-white);
-  border-radius: 8px;
-  padding: 1px 6px;
+.chat-history-panel-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 2px;
+  padding: 6px 8px 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 
-.chat-history-scope-actions {
+.chat-history-tab {
   display: flex;
+  align-items: center;
   gap: 4px;
-  opacity: 0;
-  transition: opacity .15s;
+  padding: 4px 10px;
+  border-radius: 6px 6px 0 0;
+  border: 1px solid var(--color-border);
+  border-bottom: none;
+  background: var(--color-bg);
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  transition: background .1s;
 }
 
-.chat-history-scope-item:hover .chat-history-scope-actions {
-  opacity: 1;
+.chat-history-tab.active {
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: 600;
 }
 
-.chat-history-scope-btn {
+.chat-history-tab:hover {
+  background: var(--color-primary-pale);
+}
+
+.chat-history-tab-delete {
   background: none;
   border: none;
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 3px;
   color: var(--color-text-muted);
-  font-size: 14px;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 2px;
   line-height: 1;
+  border-radius: 2px;
 }
 
-.chat-history-scope-btn:hover {
-  background: var(--color-bg);
+.chat-history-tab-delete:hover {
   color: var(--color-danger);
 }
 
-/* 右ペイン: チャット一覧 */
-.chat-history-messages {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 320px;
-}
-
-.chat-history-messages-list {
+.chat-history-panel-messages {
   flex: 1;
   overflow-y: auto;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  background: var(--color-surface);
-  padding: 12px;
+  padding: 8px 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1583,8 +1561,9 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .chat-history-placeholder {
   color: var(--color-text-muted);
   text-align: center;
-  padding: 40px;
-  font-size: 13px;
+  padding: 16px;
+  font-size: 12px;
+  margin: 0;
 }
 
 .chat-history-msg {
