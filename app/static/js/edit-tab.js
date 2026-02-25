@@ -8,6 +8,10 @@ const EditTab = (() => {
   let _dragState = null;  // ドラッグ操作状態
   let _savedRange = null; // モーダル表示前のカーソル位置保存用
 
+  /**
+   * EditTabを初期化してUIを描画する
+   * @param {object} project - プロジェクトオブジェクト
+   */
   function render(project) {
     _project = project;
     _renderOutline();
@@ -17,6 +21,10 @@ const EditTab = (() => {
     _updateCharCount();
   }
 
+  /**
+   * 「参考文献セクションを表示」チェックボックスを初期化し、変更時にAPIと画面を更新する
+   * @param {object} project - プロジェクトオブジェクト
+   */
   function _initReferencesCheckbox(project) {
     const checkbox = document.getElementById('references-section-enabled');
     if (!checkbox) return;
@@ -40,6 +48,10 @@ const EditTab = (() => {
 
   let _collapsed = {};  // アウトライン折りたたみ状態
 
+  /**
+   * アウトラインパネル全体を再描画する
+   * ルートセクションを取得し、ツリー構造で再帰的にアイテムをレンダリングする
+   */
   function _renderOutline() {
     const list = document.getElementById('outline-list');
     list.innerHTML = '';
@@ -59,6 +71,13 @@ const EditTab = (() => {
     });
   }
 
+  /**
+   * アウトラインの1アイテムをレンダリングし、DnD・クリック・ダブルクリックイベントを設定する
+   * @param {HTMLElement} container - 追加先の親要素
+   * @param {object} sec - セクションオブジェクト
+   * @param {Array} allSorted - order順にソート済みの全セクション配列
+   * @param {number} depth - 現在の階層深さ（1始まり）
+   */
   function _renderOutlineItem(container, sec, allSorted, depth) {
     const children = allSorted.filter(s => s.parent_id === sec.id);
     const hasChildren = children.length > 0;
@@ -205,6 +224,10 @@ const EditTab = (() => {
 
   let _secCollapsed = {};  // ドキュメントビュー折りたたみ状態
 
+  /**
+   * ドキュメントビュー全体を再描画する
+   * ルートセクションをツリー構造でレンダリングし、参考文献ブロックも表示する
+   */
   function _renderDocView() {
     const container = document.getElementById('doc-sections');
     container.innerHTML = '';
@@ -223,6 +246,12 @@ const EditTab = (() => {
     _updateDocViewEditMode();
   }
 
+  /**
+   * 参考文献ブロックをドキュメントビューの末尾に描画する
+   * 本文中の [^ref-xxx] タグを出現順に収集し、番号付きリストとして表示する
+   * @param {HTMLElement} container - 追加先の親要素
+   * @param {Array} sortedSections - order順にソート済みの全セクション配列
+   */
   function _renderReferencesBlock(container, sortedSections) {
     // 本文中の [^ref-xxx] を出現順に収集
     const refPattern = /\[\^(ref-[^\]]+)\]/g;
@@ -293,6 +322,14 @@ const EditTab = (() => {
     container.appendChild(block);
   }
 
+  /**
+   * ドキュメントビューの1セクションブロックをレンダリングする
+   * 折りたたみ・選択・編集・削除・移動・子セクション追加のイベントを設定する
+   * @param {HTMLElement} container - 追加先の親要素
+   * @param {object} sec - セクションオブジェクト
+   * @param {Array} allSorted - order順にソート済みの全セクション配列
+   * @param {number} depth - 現在の階層深さ（1始まり）
+   */
   function _renderDocSection(container, sec, allSorted, depth) {
     const children = allSorted.filter(s => s.parent_id === sec.id);
     const hasChildren = children.length > 0;
@@ -420,6 +457,13 @@ const EditTab = (() => {
     }
   }
 
+  /**
+   * セクションのフィールド変更を2秒デバウンスしてAPIに保存する
+   * contentフィールドの場合は入力中もリアルタイムで文字数表示を更新する
+   * @param {string} sectionId - セクションID
+   * @param {string} field - 保存するフィールド名（'summary' または 'content'）
+   * @param {HTMLElement} el - 入力要素（innerTextを取得）
+   */
   function _debounceSave(sectionId, field, el) {
     const key = `${sectionId}-${field}`;
     clearTimeout(_saveTimer[key]);
@@ -450,6 +494,11 @@ const EditTab = (() => {
 
   // ─── セクション操作 ─────────────────────────────────────
 
+  /**
+   * セクションのメタ情報（タイトル・親セクション）を編集するモーダルを表示し、変更をAPIに保存する
+   * モーダル内に削除ボタンも提供する
+   * @param {object} sec - 編集対象のセクションオブジェクト
+   */
   async function _editSectionMeta(sec) {
     const project = window.appState.getProject();
     const sections = project.sections;
@@ -539,6 +588,11 @@ const EditTab = (() => {
     _renderScopeSelect();
   }
 
+  /**
+   * 確認ダイアログを表示してセクションを削除する
+   * Undo/Redoスタックに操作を積み、削除後は画面を再描画する
+   * @param {object} sec - 削除対象のセクションオブジェクト
+   */
   async function _deleteSection(sec) {
     if (!(await Modal.confirm(`「${sec.title}」を削除しますか？`))) return;
     const project = window.appState.getProject();
@@ -567,6 +621,12 @@ const EditTab = (() => {
     await ApiClient.delete(`/api/projects/${project.id}/sections/${sec.id}`);
   }
 
+  /**
+   * セクションを同じ親の中で上下に移動する
+   * 隣接するセクションとorderを入れ替えてAPIに保存する
+   * @param {object} sec - 移動対象のセクションオブジェクト
+   * @param {number} direction - 移動方向（-1: 上へ、1: 下へ）
+   */
   async function _moveSection(sec, direction) {
     const project = window.appState.getProject();
     const siblings = project.sections
@@ -590,6 +650,9 @@ const EditTab = (() => {
 
   // ─── セクション追加ボタン ──────────────────────────────
 
+  /**
+   * タイトル入力プロンプトを表示し、ルート直下に新しい章セクションを追加する
+   */
   async function _addChapter() {
     const project = window.appState.getProject();
     const title = await Modal.prompt('章を追加', '章タイトルを入力してください');
@@ -605,6 +668,10 @@ const EditTab = (() => {
     _renderScopeSelect();
   }
 
+  /**
+   * 選択中セクションを考慮して親を自動決定し、新しい節セクションを追加する
+   * 選択中セクションがルートなら同じ親、それ以外は選択中を親として追加する
+   */
   async function _addSection() {
     const project = window.appState.getProject();
     const activeId = window.appState.getState().activeSectionId;
@@ -625,6 +692,10 @@ const EditTab = (() => {
 
   // ─── 文献・図表挿入ダイアログ ──────────────────────────
 
+  /**
+   * 現在のカーソル位置を _savedRange に保存する
+   * カーソルが選択中セクションのcontentエリア内にない場合は null にリセットする
+   */
   function _saveCursorPosition() {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
@@ -642,6 +713,10 @@ const EditTab = (() => {
     _savedRange = null;
   }
 
+  /**
+   * ソース選択モーダルを表示し、選択した文献の引用タグをカーソル位置に挿入する
+   * @param {string} sectionId - 挿入先のセクションID
+   */
   async function _showInsertRefDialog(sectionId) {
     _saveCursorPosition();
     const project = window.appState.getProject();
@@ -654,6 +729,10 @@ const EditTab = (() => {
     _insertAtCursor(sectionId, `[^${src.id}]`);
   }
 
+  /**
+   * マテリアル選択モーダルを表示し、選択した図表のMarkdown画像タグをカーソル位置に挿入する
+   * @param {string} sectionId - 挿入先のセクションID
+   */
   async function _showInsertFigDialog(sectionId) {
     _saveCursorPosition();
     const project = window.appState.getProject();
@@ -668,6 +747,12 @@ const EditTab = (() => {
     _insertAtCursor(sectionId, `![${caption}](${filePath} "${mat.id}")`);
   }
 
+  /**
+   * 保存済みカーソル位置にテキストを挿入する
+   * カーソル位置が無効な場合はcontentエリアの末尾に追加する
+   * @param {string} sectionId - 挿入先のセクションID
+   * @param {string} text - 挿入するテキスト
+   */
   function _insertAtCursor(sectionId, text) {
     const contentEl = document.querySelector(`[data-field="content"][data-sec-id="${sectionId}"]`);
     if (!contentEl) return;
@@ -697,6 +782,12 @@ const EditTab = (() => {
 
   // ─── ユーティリティ ────────────────────────────────────
 
+  /**
+   * セクションの階層深さを返す（ルートセクションは1）
+   * @param {object} sec - 対象セクションオブジェクト
+   * @param {Array} allSections - 全セクション配列
+   * @returns {number} 階層深さ（1始まり）
+   */
   function _sectionDepth(sec, allSections) {
     const byId = Object.fromEntries(allSections.map(s => [s.id, s]));
     let d = 1, pid = sec.parent_id;
@@ -704,6 +795,12 @@ const EditTab = (() => {
     return d;
   }
 
+  /**
+   * セクションの階層深さに応じたビュレット記号を返す
+   * @param {object} sec - 対象セクションオブジェクト
+   * @param {Array} allSections - 全セクション配列
+   * @returns {string} ビュレット記号（深さ1〜2: '•'、3以降: '▸'）
+   */
   function _getBulletMark(sec, allSections) {
     const depth = _sectionDepth(sec, allSections);
     return depth === 1 ? '•' : depth === 2 ? '•' : '▸';
@@ -711,6 +808,11 @@ const EditTab = (() => {
 
   // ─── ドラッグアンドドロップ ─────────────────────────────
 
+  /**
+   * 指定セクションのアウトラインアイテムにドラッグオーバー視覚効果を適用する
+   * @param {string} targetId - ドロップ先セクションID
+   * @param {'before'|'after'|'child'} position - ドロップ位置
+   */
   function _updateDragVisuals(targetId, position) {
     _clearDragVisuals();
     const targetEl = document.querySelector(`.outline-item[data-id="${targetId}"]`);
@@ -719,12 +821,22 @@ const EditTab = (() => {
     }
   }
 
+  /**
+   * 全アウトラインアイテムのドラッグオーバー視覚効果をクリアする
+   */
   function _clearDragVisuals() {
     document.querySelectorAll('.outline-item').forEach(el => {
       el.classList.remove('drag-over-before', 'drag-over-after', 'drag-over-child');
     });
   }
 
+  /**
+   * ドロップ操作を処理してセクションを移動する
+   * ループ検出・新しい親の計算・order再計算・APIコール・ローカル状態更新を行う
+   * @param {string} draggedId - ドラッグしたセクションID
+   * @param {string} targetId - ドロップ先セクションID
+   * @param {'before'|'after'|'child'} position - ドロップ位置
+   */
   async function _handleSectionDrop(draggedId, targetId, position) {
     const project = window.appState.getProject();
     const draggedSec = project.sections.find(s => s.id === draggedId);
@@ -812,6 +924,10 @@ const EditTab = (() => {
 
   // ─── 文字数カウント ───────────────────────────────────
 
+  /**
+   * トップバーの文字数カウント表示を更新する
+   * Editタブのみ表示し、セクション選択中は選択セクションの文字数、非選択時は全文字数を表示する
+   */
   function _updateCharCount() {
     const display = document.getElementById('char-count-display');
     if (!display) return;
@@ -839,6 +955,10 @@ const EditTab = (() => {
 
   // ─── 編集モード更新 ───────────────────────────────────
 
+  /**
+   * 選択中セクションに応じてドキュメントビューの編集モードを更新する
+   * contenteditable・summary表示・フローティングアクションボタン・アウトライン選択状態を同期する
+   */
   function _updateDocViewEditMode() {
     const selectedId = window.appState.getSelectedSectionId();
 
@@ -906,9 +1026,13 @@ const EditTab = (() => {
 
   // ─── セクション追加モーダル（親要素選択付き）─────────────
 
-  // parentId: セクションID → そのセクションを親としてデフォルト設定
-  //           null → 親なし（ルート）をデフォルト設定
-  //           undefined → 呼び出し元で判断（選択中セクションがあればそれを親に）
+  /**
+   * セクション追加モーダルを表示し、タイトル・概要・親セクションを入力してAPIに保存する
+   * @param {string|null|undefined} parentId - デフォルト親セクションID
+   *   セクションID → そのセクションを親としてデフォルト設定
+   *   null → 親なし（ルート）をデフォルト設定
+   *   undefined → 選択中セクションがあればそれを親に自動設定
+   */
   async function _showAddSectionModal(parentId = undefined) {
     const project = window.appState.getProject();
     const sections = project.sections;
@@ -1017,6 +1141,10 @@ const EditTab = (() => {
 
   // ─── イベントバインド ──────────────────────────────────
 
+  /**
+   * EditTabのDOMイベントをバインドする
+   * 「セクション追加」ボタンにクリックイベントを設定する
+   */
   function bindEvents() {
     // 「セクション追加」ボタン: 引数なし（undefined）で呼び出し → 選択中セクションがあればそれを親に
     document.getElementById('btn-add-chapter').addEventListener('click', () => {
@@ -1024,6 +1152,10 @@ const EditTab = (() => {
     });
   }
 
+  /**
+   * EditTabの状態をリセットする
+   * プロジェクト・タイマー・ドラッグ状態・折りたたみ状態を初期化する
+   */
   function reset() {
     _project = null;
     _saveTimer = {};

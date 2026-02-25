@@ -109,7 +109,10 @@ const SourceTab = (() => {
   function _startProcessing(srcId, field) {
     if (!_processingState.has(srcId)) _processingState.set(srcId, new Set());
     _processingState.get(srcId).add(field);
-    if (srcId === _activeId) _renderDetail(srcId);
+    if (srcId === _activeId) {
+      _renderList();
+      _renderDetail(srcId);
+    }
   }
 
   /** 処理完了を記録し、アクティブな場合は再レンダリング */
@@ -119,7 +122,10 @@ const SourceTab = (() => {
       fields.delete(field);
       if (fields.size === 0) _processingState.delete(srcId);
     }
-    if (srcId === _activeId) _renderDetail(srcId);
+    if (srcId === _activeId) {
+      _renderList();
+      _renderDetail(srcId);
+    }
   }
 
   /** 指定フィールドが処理中か確認 */
@@ -232,10 +238,14 @@ const SourceTab = (() => {
                 </label>
               </div>
             </div>
-            <div id="bib-fields"></div>
+
             <div class="source-actions" style="margin-top:8px">
               <button class="btn btn-secondary btn-sm" id="btn-extract-bib" ${bibProc ? 'disabled' : ''}>文献情報取得</button>
             </div>
+            <div id="bib-fields"></div>
+            
+            
+
           </div>
         </div>
 
@@ -246,10 +256,11 @@ const SourceTab = (() => {
             <h3>要約${summaryProc ? SPINNER : ''}</h3>
           </div>
           <div class="collapsible-body${_sectionCollapsed['summary'] ? ' collapsed' : ''}">
-            <textarea class="form-control" id="src-summary" rows="5" ${summaryProc ? 'disabled' : ''}>${escHtml(src.summary)}</textarea>
-            <div class="source-actions" style="margin-top:8px">
+            <div class="source-actions">
               <button class="btn btn-secondary btn-sm" id="btn-summarize" ${summaryProc ? 'disabled' : ''}>ソースから要約生成</button>
             </div>
+            <textarea class="form-control" id="src-summary" rows="5" ${summaryProc ? 'disabled' : ''}>${escHtml(src.summary)}</textarea>
+            
           </div>
         </div>
 
@@ -260,20 +271,19 @@ const SourceTab = (() => {
             <h3>内容${fullTextProc ? SPINNER : ''}</h3>
           </div>
           <div class="collapsible-body${_sectionCollapsed['content'] ? ' collapsed' : ''}">
-            <div class="form-group" style="margin-bottom:12px">
-              <label>全文</label>
-              <div class="source-drop-area">
-                <div class="drag-drop-overlay">ここにファイルをドラッグアンドドロップ</div>
-                <textarea class="form-control" id="src-full-text" rows="10" ${fullTextProc ? 'disabled' : ''}>${escHtml(src.full_text)}</textarea>
-              </div>
-            </div>
-            <div class="form-group" style="margin-bottom:12px">
-              <label>ファイルパス</label>
-              <input type="text" class="form-control" id="src-file-path" value="${escHtml(src.file_path || '')}" readonly />
-            </div>
             <div class="source-actions">
               <button class="btn btn-secondary btn-sm" id="btn-analyze-image" ${fullTextProc ? 'disabled' : ''}>画像認識</button>
               <button class="btn btn-secondary btn-sm" id="btn-read-file" ${fullTextProc ? 'disabled' : ''}>ファイル読み込み</button>
+            </div>
+
+            <div class="form-group" style="margin-bottom:12px">
+              <label>全文</label>
+              <textarea class="form-control" id="src-full-text" rows="10" ${fullTextProc ? 'disabled' : ''}>${escHtml(src.full_text)}</textarea>
+            </div>
+            
+            <div class="form-group" style="margin-bottom:12px">
+              <label>ファイルパス</label>
+              <input type="text" class="form-control" id="src-file-path" value="${escHtml(src.file_path || '')}" readonly />
             </div>
           </div>
         </div>
@@ -615,7 +625,7 @@ const SourceTab = (() => {
         await _analyzePdfWithPageSelection(src, file);
         return;
       }
-      showToast('画像解析中...', 'success');
+      const loadingToast = showToast('画像解析中...', 'success',{ persistent: true, spinner: true });
       const formData = new FormData();
       formData.append('file', file);
       try {
@@ -627,8 +637,10 @@ const SourceTab = (() => {
         const idx = project.sources.findIndex(s => s.id === src.id);
         if (idx >= 0) project.sources[idx] = updated;
         _renderDetail(src.id);
+        dismissToast(loadingToast);
         showToast('画像解析完了', 'success');
       } catch (_) {
+        dismissToast(loadingToast);
         showToast('画像解析に失敗しました', 'error');
       }
     };

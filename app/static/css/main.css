@@ -640,7 +640,7 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .source-detail-scroll { display: flex; flex-direction: column; }
 .field-row { display: flex; gap: 12px; }
 .field-row .form-group { flex: 1; }
-.source-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.source-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; margin: 0.5rem 0; }
 
 /* ─── ルールタブ ─────────────────────────────────────────── */
 
@@ -923,7 +923,8 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
   padding: 2rem;
   border-radius: var(--radius);
 }
-#source-detail.pane-drag-active .pane-drag-overlay { display: flex; }
+#source-detail.pane-drag-active .pane-drag-overlay,
+#material-detail.pane-drag-active .pane-drag-overlay { display: flex; }
 .pane-drag-overlay-text { font-size: 16px; font-weight: 600; color: var(--color-text-muted); text-align: center; }
 
 /* ─── 設定タブ ───────────────────────────────────────────── */

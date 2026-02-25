@@ -60,6 +60,10 @@ const MaterialTab = (() => {
       : '';
 
     pane.innerHTML = `
+      <div class="pane-drag-overlay">
+        <span class="pane-drag-overlay-text">ファイルをドラッグアンドドロップ...</span>
+      </div>
+      
       <div class="source-detail-scroll">
         <!-- タイトルバー -->
         <div class="detail-title-bar">
@@ -100,7 +104,6 @@ const MaterialTab = (() => {
 
         <!-- 画像プレビュー -->
         <div class="material-preview">
-          <div class="drag-drop-overlay">ここにファイルをドラッグアンドドロップ</div>
           ${imgSrc
             ? `<img src="${imgSrc}" alt="preview" />`
             : `<span class="preview-placeholder">${SVG_IMAGE_LG}</span>`}
@@ -141,45 +144,62 @@ const MaterialTab = (() => {
     document.getElementById('btn-delete-material').addEventListener('click', () => _deleteMaterial(mat));
     document.getElementById('btn-upload-material').addEventListener('click', () => _uploadFile(mat));
 
-    // サムネイル表示エリアへのドラッグ&ドロップ
-    const previewEl = pane.querySelector('.material-preview');
-    if (previewEl) {
-      previewEl.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'copy';
-        previewEl.classList.add('drag-over');
-      });
-      previewEl.addEventListener('dragleave', () => {
-        previewEl.classList.remove('drag-over');
-      });
-      previewEl.addEventListener('drop', async (e) => {
-        e.preventDefault();
-        previewEl.classList.remove('drag-over');
-        const file = e.dataTransfer.files[0];
-        if (!file) return;
-        if (!file.type.startsWith('image/')) {
-          showToast('画像ファイル（jpg, png, bmp など）のみ対応しています', 'error');
-          return;
-        }
-        const project = window.appState.getProject();
-        const formData = new FormData();
-        formData.append('file', file);
-        try {
-          const res = await fetch(`/api/projects/${project.id}/materials/${mat.id}/upload`, {
-            method: 'POST', body: formData,
-          });
-          if (!res.ok) { showToast('アップロード失敗', 'error'); return; }
-          const updated = await res.json();
-          const idx = project.materials.findIndex(m => m.id === mat.id);
-          if (idx >= 0) project.materials[idx] = updated;
-          _renderList();
-          _renderDetail(mat.id);
-          showToast('アップロード完了', 'success');
-        } catch (_) {
-          showToast('アップロードに失敗しました', 'error');
-        }
-      });
+    // ─── ペイン全体ドラッグ&ドロップ ───────────────────────────
+    const overlay = pane.querySelector('.pane-drag-overlay');
+
+    function _syncOverlay() {
+      const r = pane.getBoundingClientRect();
+      overlay.style.top    = r.top    + 'px';
+      overlay.style.left   = r.left   + 'px';
+      overlay.style.width  = r.width  + 'px';
+      overlay.style.height = r.height + 'px';
     }
+
+    async function _handleFileDrop(file) {
+      if (!file.type.startsWith('image/')) {
+        showToast('画像ファイル（jpg, png, bmp など）のみ対応しています', 'error');
+        return;
+      }
+      const project = window.appState.getProject();
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const res = await fetch(`/api/projects/${project.id}/materials/${mat.id}/upload`, {
+          method: 'POST', body: formData,
+        });
+        if (!res.ok) { showToast('アップロード失敗', 'error'); return; }
+        const updated = await res.json();
+        const idx = project.materials.findIndex(m => m.id === mat.id);
+        if (idx >= 0) project.materials[idx] = updated;
+        _renderList();
+        _renderDetail(mat.id);
+        showToast('アップロード完了', 'success');
+      } catch (_) {
+        showToast('アップロードに失敗しました', 'error');
+      }
+    }
+
+    pane.addEventListener('dragenter', (e) => {
+      if (!e.dataTransfer.types.includes('Files')) return;
+      e.preventDefault();
+      _syncOverlay();
+      pane.classList.add('pane-drag-active');
+    });
+
+    overlay.addEventListener('dragleave', (e) => {
+      if (overlay.contains(e.relatedTarget)) return;
+      pane.classList.remove('pane-drag-active');
+    });
+    overlay.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    });
+    overlay.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      pane.classList.remove('pane-drag-active');
+      const file = e.dataTransfer.files[0];
+      if (file) await _handleFileDrop(file);
+    });
 
     // 自動保存
     let saveTimer;
