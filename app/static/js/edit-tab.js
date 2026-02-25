@@ -16,7 +16,6 @@ const EditTab = (() => {
     _project = project;
     _renderOutline();
     _renderDocView();
-    _renderScopeSelect();
     _initReferencesCheckbox(project);
     _updateCharCount();
   }
@@ -494,7 +493,7 @@ const EditTab = (() => {
         // セクションをメモリ更新（画面再描画なし）
         const sec = project.sections.find(s => s.id === sectionId);
         if (sec) sec[field] = value;
-      } catch (_) {}
+      } catch (_) { }
     }, 2000);
   }
 
@@ -591,7 +590,6 @@ const EditTab = (() => {
     }
     _renderOutline();
     _renderDocView();
-    _renderScopeSelect();
   }
 
   /**
@@ -607,7 +605,6 @@ const EditTab = (() => {
     project.sections = project.sections.filter(s => s.id !== sec.id);
     _renderOutline();
     _renderDocView();
-    _renderScopeSelect();
     document.getElementById(`sec-block-${sec.id}`)?.remove();
 
     UndoRedoManager.push({
@@ -651,7 +648,6 @@ const EditTab = (() => {
     );
     _renderOutline();
     _renderDocView();
-    _renderScopeSelect();
   }
 
   // ─── セクション追加ボタン ──────────────────────────────
@@ -671,7 +667,6 @@ const EditTab = (() => {
     project.sections.push(sec);
     _renderOutline();
     _renderDocView();
-    _renderScopeSelect();
   }
 
   /**
@@ -783,8 +778,6 @@ const EditTab = (() => {
     contentEl.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
-  // _renderScopeSelect は chat-scope ドロップダウン廃止により削除済み
-  function _renderScopeSelect() {}
 
   // ─── ユーティリティ ────────────────────────────────────
 

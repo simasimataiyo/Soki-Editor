@@ -31,12 +31,12 @@
 - 約150文字の概要（summary）を記述する
 - **親子関係（parent_key）を正しく設定して階層を作る**
 
-`set_document_structure` または `create_document_structure` ツールを使用して、階層構造を一括で作成してください。
+提供されたツールを使用して、階層構造を一括で作成してください。
 
 {% if command_mode == "replace" %}
 ### モード: 全体再生成
 既存のセクション構造をすべて破棄して新たに生成します。
-`set_document_structure` ツールを **1回** 呼び出すだけで、全削除と新規作成を一括で行えます。
+提供されたツールを **1回** 呼び出すだけで、全削除と新規作成を一括で行えます。
 
 **key の命名規則:**
 - ルート: "s1", "s2", "s3", ... （連番）
@@ -100,8 +100,8 @@ sections 配列の各要素:
 - `update_section` ツールは使用しないでください
 
 **既存セクションを親にする場合の特別ルール:**
-- このモードでは `create_document_structure` ツールは使用せず、個別のツールを使用してください
-- 新しいセクションの作成は `create_section` ツールで行い、既存セクションIDを `parent_id` に直接指定できます
+- ツールを使用して、対象セクション配下に一括で子セクション群を追加してください
+- `parent_section_id` 引数に `{{ target_section.id }}` を指定してください
 
 対象セクションの現在の構造:
 {% for section in sections %}
@@ -118,7 +118,7 @@ sections 配列の各要素:
 ### モード: 追加・修正（既存保持）
 
 既存のセクション構造を維持しつつ、不足しているセクションを追加してください。
-`create_document_structure` ツールを **1回** 呼び出すことで、複数セクションを一括追加できます。
+提供されたツールを **1回** 呼び出すことで、複数セクションを一括追加できます。
 
 **重要な制約:**
 - 既存セクションの削除や変更は行わないでください
@@ -253,8 +253,9 @@ sections 配列の各要素:
 - `update_section_title`: セクションのタイトルを変更する（section_id, title）
 - `delete_section`: セクションを削除する
 - `move_section`: セクションを別の親・位置に移動する（section_id, parent_id, order）
-- `set_document_structure`: 全セクションを削除して新しい骨子を一括作成する（/structure-replace 用）
-- `create_document_structure`: 既存セクションを残したまま新しい骨子構造を一括追加する（/structure-add 用）
+- `set_document_structure`: 全セクションを削除して新しい骨子を一括作成する
+- `create_document_structure`: 既存セクションを残したまま新しい骨子構造を一括追加する
+- `create_sections_under_parent`: 指定セクション配下に子セクションを一括追加する
 - `fetch_sources`: 参考文献の全文を取得する（最大4つのソースIDを指定）
 
 **構造生成ツール使用時の注意:**
@@ -368,7 +369,7 @@ sections 配列の各要素:
 
 {% if command == "structure" %}
 **ツール呼び出し前の必須確認チェックリスト:**
-以下を順番に確認してから `set_document_structure` / `create_document_structure` を呼び出してください：
+以下を順番に確認してから構造生成ツールを呼び出してください：
 
 1. [ ] 全セクションに `key` が設定されているか
 2. [ ] 全セクションの `parent_key` が「この配列内の他の key」または「null」または「既存セクションID」のいずれかか

@@ -117,7 +117,7 @@ async def get_chat_history(
         project = await svc.get_project(project_id)
     except KeyError:
         _not_found(project_id)
-    history = project.chat_history.get(scope, [])
+    history = project.chat_history
     return [m.model_dump() for m in history]
 
 
@@ -143,8 +143,7 @@ async def get_all_scopes_history(project_id: str) -> dict:
     except KeyError:
         _not_found(project_id)
     return {
-        scope: [m.model_dump() for m in messages]
-        for scope, messages in project.chat_history.items()
+        "all": [m.model_dump() for m in project.chat_history]
     }
 
 
@@ -168,11 +167,11 @@ async def add_chat_message(project_id: str, body: dict) -> dict:
 
 @router.post("/chat-history/new-scope")
 async def create_new_scope(project_id: str) -> dict:
-    """新しいスコープを作成して返す（/clearコマンド用）"""
+    """新しいスコープを作成して返す（/clearコマンド用。互換性維持のため履歴をクリアしてallを返す）"""
     svc = get_service()
     try:
-        new_scope = await svc.create_new_scope(project_id)
-        return {"status": "ok", "new_scope": new_scope}
+        await svc.clear_chat_history(project_id, "all")
+        return {"status": "ok", "new_scope": "all"}
     except KeyError:
         _not_found(project_id)
 

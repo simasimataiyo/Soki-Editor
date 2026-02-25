@@ -34,8 +34,7 @@ class ProjectService:
     """プロジェクトデータのインメモリキャッシュと JSON 永続化を担う。"""
 
     DEBOUNCE_SECONDS = 10
-    MAX_SCOPES = 8              # 最大スコープ数
-    MAX_MESSAGES_PER_SCOPE = 32  # スコープあたりの最大メッセージ数
+    MAX_MESSAGES = 50  # 全体の最大メッセージ数
 
     def __init__(self, registry_path: Optional[str] = None) -> None:
         self._registry_path = Path(registry_path) if registry_path else _DEFAULT_REGISTRY
@@ -71,6 +70,17 @@ class ProjectService:
         if not path.exists():
             raise FileNotFoundError(f"プロジェクトファイルが見つかりません: {json_file_path}")
         data = json.loads(path.read_text(encoding="utf-8"))
+        
+        # --- Migration: Dict -> List ---
+        if "chat_history" in data and isinstance(data["chat_history"], dict):
+            all_messages = []
+            for scope, msgs in data["chat_history"].items():
+                all_messages.extend(msgs)
+            # timestamp が文字列の場合があるので注意（ソート可能か）
+            all_messages.sort(key=lambda m: m.get("timestamp", ""))
+            data["chat_history"] = all_messages
+        # -------------------------------
+        
         project_id = data.get("id")
         # すでにメモリ上にある場合はそのまま返す（ダーティな変更を保持）
         if project_id and project_id in self._projects:
@@ -332,69 +342,25 @@ class ProjectService:
 
     async def get_chat_history(self, project_id: str, scope: str) -> list:
         project = await self.get_project(project_id)
-        return project.chat_history.get(scope, [])
+        # scope 引数は後方互換で受け取るが全体を返す
+        return project.chat_history
 
     async def append_chat_message(
         self, project_id: str, scope: str, message
     ) -> None:
         project = await self.get_project(project_id)
-        if scope not in project.chat_history:
-            project.chat_history[scope] = []
-        project.chat_history[scope].append(message)
+        project.chat_history.append(message)
 
-        # スコープ数制限：古いスコープを削除
-        if len(project.chat_history) > self.MAX_SCOPES:
-            sorted_scopes = sorted(
-                project.chat_history.keys(),
-                key=lambda k: min((m.timestamp for m in project.chat_history[k]), default=datetime.min)
-            )
-            oldest_scope = sorted_scopes[0]
-            del project.chat_history[oldest_scope]
-
-        # 最大16件のユーザーメッセージを保持（コマンドメッセージはカウントしない）
-        history = project.chat_history[scope]
-        user_indices = [i for i, m in enumerate(history) if m.role == "user"]
-        if len(user_indices) > self.MAX_MESSAGES_PER_SCOPE:
-            trim_before = user_indices[-self.MAX_MESSAGES_PER_SCOPE]
-            project.chat_history[scope] = history[trim_before:]
+        # 最大メッセージ数を保持（コマンドはカウントしないなどの複雑な制御を一旦単純化し、そのまま上限を設けるか、userだけ数える）
+        user_indices = [i for i, m in enumerate(project.chat_history) if m.role == "user"]
+        if len(user_indices) > self.MAX_MESSAGES:
+            trim_before = user_indices[-self.MAX_MESSAGES]
+            project.chat_history = project.chat_history[trim_before:]
         self._mark_dirty(project_id)
-
-    async def create_new_scope(self, project_id: str) -> str:
-        """新しいスコープを作成して返す。現在のスコープ数が上限の場合は最古のスコープを削除。"""
-        project = await self.get_project(project_id)
-
-        # 新しいスコープ名を生成（scope-1, scope-2, ...）
-        existing_numbers = []
-        for key in project.chat_history.keys():
-            if key.startswith("scope-"):
-                try:
-                    num = int(key.split("-")[1])
-                    existing_numbers.append(num)
-                except (ValueError, IndexError):
-                    pass
-
-        # 既存の番号があれば最大+1、なければ1
-        new_number = max(existing_numbers) + 1 if existing_numbers else 1
-        new_scope = f"scope-{new_number}"
-
-        # スコープ数制限
-        if len(project.chat_history) >= self.MAX_SCOPES:
-            # 最古のスコープを削除
-            sorted_scopes = sorted(
-                project.chat_history.keys(),
-                key=lambda k: min((m.timestamp for m in project.chat_history[k]), default=datetime.min)
-            )
-            oldest_scope = sorted_scopes[0]
-            del project.chat_history[oldest_scope]
-
-        # 新しいスコープを追加
-        project.chat_history[new_scope] = []
-        self._mark_dirty(project_id)
-        return new_scope
 
     async def clear_chat_history(self, project_id: str, scope: str) -> None:
         project = await self.get_project(project_id)
-        project.chat_history.pop(scope, None)
+        project.chat_history = []
         self._mark_dirty(project_id)
 
     async def append_command_message(
@@ -403,8 +369,6 @@ class ProjectService:
     ) -> None:
         """コマンド実行を履歴に追加する。"""
         project = await self.get_project(project_id)
-        if scope not in project.chat_history:
-            project.chat_history[scope] = []
 
         # コマンド名 + 追加指示テキストを content に含める
         base_content = f"/{command_name}"
@@ -418,7 +382,7 @@ class ProjectService:
             command_name=command_name,
             command_args=command_args,
         )
-        project.chat_history[scope].append(message)
+        project.chat_history.append(message)
         self._mark_dirty(project_id)
 
     # ------------------------------------------------------------------

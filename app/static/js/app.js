@@ -45,18 +45,18 @@ function dismissToast(toastEl) {
 
 // コラプス用シェブロン（12×12）
 const SVG_CHEVRON_RIGHT = `<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6,3 11,8 6,13"/></svg>`;
-const SVG_CHEVRON_DOWN  = `<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,6 8,11 13,6"/></svg>`;
+const SVG_CHEVRON_DOWN = `<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,6 8,11 13,6"/></svg>`;
 
 // セクショントグル（14×14）
 const SVG_TOGGLE_RIGHT = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6,3 11,8 6,13"/></svg>`;
-const SVG_TOGGLE_DOWN  = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,6 8,11 13,6"/></svg>`;
+const SVG_TOGGLE_DOWN = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,6 8,11 13,6"/></svg>`;
 
 // セクション操作アイコン（14×14）
 const SVG_ADD_CHILD = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg>`;
-const SVG_ARROW_UP  = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,10 8,5 13,10"/></svg>`;
+const SVG_ARROW_UP = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,10 8,5 13,10"/></svg>`;
 const SVG_ARROW_DOWN = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,6 8,11 13,6"/></svg>`;
-const SVG_EDIT      = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 2l3 3-8 8H3v-3l8-8z"/></svg>`;
-const SVG_DELETE    = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,4 14,4"/><path d="M5,4V3h6v1"/><path d="M3,4l1,9h8l1-9"/></svg>`;
+const SVG_EDIT = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 2l3 3-8 8H3v-3l8-8z"/></svg>`;
+const SVG_DELETE = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,4 14,4"/><path d="M5,4V3h6v1"/><path d="M3,4l1,9h8l1-9"/></svg>`;
 
 // 編集ペンアイコン（16×16, 24×24 viewBox）
 const SVG_EDIT_PEN = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
@@ -69,7 +69,7 @@ const SVG_SEND = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" st
 const SVG_STOP = `<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><rect x="4" y="4" width="8" height="8" rx="1"/></svg>`;
 
 // 画像プレースホルダアイコン
-const SVG_IMAGE_SM =`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`;
+const SVG_IMAGE_SM = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`;
 const SVG_IMAGE_LG = `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`;
 
 // ─── AppShell ─────────────────────────────────────────────
@@ -215,24 +215,26 @@ const AppShell = (() => {
         { id: 'btn-rule-export-top', label: 'エクスポート', handler: () => RuleTab.exportCsv() },
       ],
       review: [
-        { id: 'btn-export-top', label: 'エクスポート', handler: async () => {
-          if (!project) return;
-          try {
-            const res = await fetch(`/api/projects/${project.id}/export`);
-            if (!res.ok) { showToast('エクスポートに失敗しました', 'error'); return; }
-            const mdText = await res.text();
-            const dialog = await ApiClient.saveFileDialog(`${project.name}.md`);
-            if (!dialog || !dialog.path) return;
-            const writeResult = await ApiClient.writeFile(dialog.path, mdText);
-            if (writeResult.ok) {
-              showToast('エクスポート完了', 'success');
-            } else {
-              showToast('ファイル保存に失敗しました', 'error');
+        {
+          id: 'btn-export-top', label: 'エクスポート', handler: async () => {
+            if (!project) return;
+            try {
+              const res = await fetch(`/api/projects/${project.id}/export`);
+              if (!res.ok) { showToast('エクスポートに失敗しました', 'error'); return; }
+              const mdText = await res.text();
+              const dialog = await ApiClient.saveFileDialog(`${project.name}.md`);
+              if (!dialog || !dialog.path) return;
+              const writeResult = await ApiClient.writeFile(dialog.path, mdText);
+              if (writeResult.ok) {
+                showToast('エクスポート完了', 'success');
+              } else {
+                showToast('ファイル保存に失敗しました', 'error');
+              }
+            } catch (e) {
+              showToast('エクスポートに失敗しました', 'error');
             }
-          } catch (e) {
-            showToast('エクスポートに失敗しました', 'error');
           }
-        }},
+        },
       ],
       settings: [],
     };
@@ -272,13 +274,11 @@ const AppShell = (() => {
       const btn = document.getElementById('btn-chat-send');
       btn.disabled = true;
       try {
-        const result = await ApiClient.post(
-          `/api/projects/${project.id}/chat-history/new-scope`
-        );
-        _currentScope = result.new_scope;
-        showToast(`新しいスコープ「${result.new_scope}」を作成しました`, 'success');
+        await ApiClient.post(`/api/projects/${project.id}/chat-history/new-scope`);
+        showToast('チャット履歴をクリアしました', 'success');
+        _refreshHistoryPanel();
       } catch (error) {
-        showToast('スコープの作成に失敗しました', 'error');
+        showToast('履歴のクリアに失敗しました', 'error');
       } finally {
         btn.disabled = false;
       }
@@ -337,7 +337,6 @@ const AppShell = (() => {
     const userDisplayContent = parsed.command
       ? `/${parsed.command.name}${parsed.freeText ? ' ' + parsed.freeText : ''}`
       : body.user_message;
-    _historyPanelActiveScope = contextScope;
     _appendMessageToHistoryPanel({
       role: parsed.command ? 'command' : 'user',
       content: userDisplayContent,
@@ -537,7 +536,7 @@ const AppShell = (() => {
         EditTab.render(project);
 
         UndoRedoManager.push({
-          do: async () => {},
+          do: async () => { },
           undo: async () => {
             await ApiClient.delete(`/api/projects/${project.id}/sections/${sec.id}`);
             project.sections = project.sections.filter(s => s.id !== sec.id);
@@ -710,7 +709,6 @@ const AppShell = (() => {
   // ─── チャット履歴インラインパネル ─────────────────────
 
   let _historyPanelOpen = false;
-  let _historyPanelActiveScope = null;
 
   /**
    * 履歴パネルにメッセージ要素を直接追加して DOM 要素を返す
@@ -778,11 +776,11 @@ const AppShell = (() => {
     try {
       const truncated = summaryText.length > 200 ? summaryText.slice(0, 200) + '…' : summaryText;
       await ApiClient.post(`/api/projects/${project.id}/chat-history/add-message`, {
-        scope: _currentScope,
+        scope: 'all',
         role: 'assistant',
         content: truncated,
       });
-    } catch (_) {}
+    } catch (_) { }
   }
 
   async function _toggleHistoryPanel() {
@@ -803,73 +801,16 @@ const AppShell = (() => {
     const project = window.appState.getProject();
     if (!project || !_historyPanelOpen) return;
 
-    const allScopes = await ApiClient.get(
-      `/api/projects/${project.id}/chat-history/all-scopes`
-    );
+    try {
+      const msgs = await ApiClient.get(`/api/projects/${project.id}/chat-history`);
+      const tabsEl = document.getElementById('chat-history-panel-tabs');
+      if (tabsEl) Object.assign(tabsEl.style, { display: 'none' });
 
-    _renderHistoryTabs(allScopes);
-
-    const showScope = _historyPanelActiveScope || _currentScope;
-    if (allScopes[showScope]) {
-      _renderHistoryMessages(allScopes[showScope]);
-      _historyPanelActiveScope = showScope;
-    } else {
+      _renderHistoryMessages(msgs);
+    } catch (e) {
       document.getElementById('chat-history-panel-messages').innerHTML =
-        '<p class="chat-history-placeholder">スコープを選択してください</p>';
+        '<p class="chat-history-placeholder">履歴の取得に失敗しました</p>';
     }
-  }
-
-  function _renderHistoryTabs(allScopes) {
-    const tabsEl = document.getElementById('chat-history-panel-tabs');
-    tabsEl.innerHTML = '';
-
-    const sortedKeys = Object.keys(allScopes).sort((a, b) => {
-      if (a === 'all') return -1;
-      if (b === 'all') return 1;
-      return (parseInt(a.split('-')[1]) || 0) - (parseInt(b.split('-')[1]) || 0);
-    });
-
-    if (!sortedKeys.length) {
-      tabsEl.innerHTML = '<span style="font-size:12px;color:var(--color-text-muted);padding:8px">履歴がありません</span>';
-      return;
-    }
-
-    sortedKeys.forEach(scopeKey => {
-      const label = scopeKey === 'all' ? '全体' : `スコープ${scopeKey.split('-')[1]}`;
-      const isActive = scopeKey === _historyPanelActiveScope;
-      const isCurrent = scopeKey === _currentScope;
-
-      const tab = document.createElement('div');
-      tab.className = `chat-history-tab${isActive ? ' active' : ''}`;
-      tab.title = isCurrent ? '現在のスコープ' : '';
-      tab.innerHTML = `<span>${escHtml(label)}${isCurrent ? ' ●' : ''}</span><button class="chat-history-tab-delete" title="削除">✕</button>`;
-
-      // タブクリック: スコープ切り替えとメッセージ表示
-      tab.addEventListener('click', (e) => {
-        if (e.target.classList.contains('chat-history-tab-delete')) return;
-        _currentScope = scopeKey;
-        _historyPanelActiveScope = scopeKey;
-        _renderHistoryMessages(allScopes[scopeKey]);
-        document.querySelectorAll('.chat-history-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-      });
-
-      // 削除ボタン
-      tab.querySelector('.chat-history-tab-delete').addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const proj = window.appState.getProject();
-        if (!proj) return;
-        const confirmed = await Modal.confirm(`「${label}」の履歴を削除しますか？`);
-        if (confirmed) {
-          await ApiClient.delete(`/api/projects/${proj.id}/chat-history/${scopeKey}`);
-          if (_historyPanelActiveScope === scopeKey) _historyPanelActiveScope = null;
-          showToast(`「${label}」を削除しました`, 'success');
-          await _refreshHistoryPanel();
-        }
-      });
-
-      tabsEl.appendChild(tab);
-    });
   }
 
   function _renderHistoryMessages(msgs) {

@@ -296,8 +296,27 @@ class LLMService:
             }
             use_tools = self._supports_tool_calling(settings.model)
             if use_tools:
+                # デフォルトではすべてのツールを渡す
                 call_kwargs["tools"] = TOOLS
                 call_kwargs["tool_choice"] = "auto"
+                
+                # 特定の /structure 系コマンドの場合は、ツールを1つに強制する
+                if command and command.startswith("structure"):
+                    command_mode = self._normalize_command(command, command_args or [])
+                    mode = command_mode["mode"]
+                    if mode == "replace":
+                        target_tool_name = "set_document_structure"
+                    elif mode == "section":
+                        target_tool_name = "create_sections_under_parent"
+                    else: # add or others
+                        target_tool_name = "create_document_structure"
+                    
+                    # ターゲットツールだけを渡す
+                    call_kwargs["tools"] = [t for t in TOOLS if t["function"]["name"] == target_tool_name]
+                    call_kwargs["tool_choice"] = {
+                        "type": "function",
+                        "function": {"name": target_tool_name}
+                    }
 
             # 多段ループ: fetch_sources が呼ばれたら全文を注入して再呼び出し
             max_rounds = 3
@@ -371,6 +390,12 @@ class LLMService:
                             "content": "実行完了",
                         }
                     )
+                
+                # フロントエンドツール呼び出し後も、AIからのメッセージを引き出すために継続する
+                if frontend_tools and not source_fetches:
+                    call_kwargs["messages"] = messages
+                    logger.info("フロントエンドツール実行完了、AIへの返答を要求するための追加呼び出し (%d / %d)", round_num + 1, max_rounds)
+                    continue
                 call_kwargs["messages"] = messages
                 logger.info(
                     "fetch_sources ラウンド %d 完了、再呼び出し", round_num + 1
@@ -719,8 +744,8 @@ class LLMService:
             mat_by_id[rid] for rid in explicit_refs if rid in mat_by_id
         ]
 
-        # 同一スコープの履歴を取得
-        history = project.chat_history.get(context_scope, [])
+        # 全体の履歴を取得
+        history = project.chat_history
 
         # 履歴中で明示参照されたソース/マテリアルの現在の状態を収集
         history_ref_ids: set[str] = set()
@@ -828,7 +853,7 @@ class LLMService:
         explicit_materials = [mat_by_id[rid] for rid in refs if rid in mat_by_id]
 
         # チャット履歴の取得
-        history = project.chat_history.get(context_scope, [])
+        history = project.chat_history
 
         # 履歴中で明示参照されたソース/マテリアルの現在の状態を収集
         history_ref_ids: set[str] = set()

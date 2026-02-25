@@ -108,7 +108,7 @@ class Project(BaseModel):
     sources: list[Source] = []
     materials: list[Material] = []
     sections: list[Section] = []
-    chat_history: dict[str, list[ChatMessage]] = {}
+    chat_history: list[ChatMessage] = []
     review_system_prompt: str = ""
     review_comments: list[ReviewComment] = []
     references_section_enabled: bool = False
