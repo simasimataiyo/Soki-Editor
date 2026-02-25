@@ -219,6 +219,26 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .item-list li.active .item-icon { opacity: .9; }
 .item-list .item-name { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ─── アイテム削除ボタン（共通） ─────────────────────────── */
+.item-delete-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 2px;
+  opacity: 0;
+  transition: opacity .15s, color .15s;
+}
+.item-list li:hover .item-delete-btn,
+.outline-item:hover .item-delete-btn,
+.material-card:hover .item-delete-btn { opacity: 1; }
+.item-delete-btn:hover { color: var(--color-text); }
+.item-list li.active .item-delete-btn { color: var(--color-white-opacity-70); }
+.item-list li.active .item-delete-btn:hover { color: var(--color-white); opacity: 1; }
+.material-card.active .item-delete-btn { color: var(--color-white-opacity-70); }
+.material-card.active .item-delete-btn:hover { color: var(--color-white); opacity: 1; }
+
 /* ─── ドラッグ&ドロップ ─────────────────────────────────── */
 #src-full-text.drag-over {
   border-color: var(--color-text);
@@ -1059,6 +1079,9 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .outline-item.selected .drag-handle {
   color: var(--color-white-opacity-80);
 }
+.outline-item.selected .item-delete-btn { color: var(--color-white-opacity-70); }
+.outline-item.selected .item-delete-btn:hover { color: var(--color-white); opacity: 1; }
+.outline-item.selected:hover .item-delete-btn { opacity: 1; }
 
 .section-block.selected {
   border-left: 3px solid var(--color-text);

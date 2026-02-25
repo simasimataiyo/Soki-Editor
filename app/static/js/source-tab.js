@@ -169,6 +169,7 @@ const SourceTab = (() => {
       li.innerHTML = `
         ${SVG_DOCUMENT}
         <span class="item-name">${escHtml(_displayTitle(src))}</span>
+        <button class="btn-icon item-delete-btn" title="削除">${SVG_DELETE}</button>
       `;
       li.addEventListener('click', () => {
         _flushPendingSave();  // DOM切替前にフラッシュ（_activeIdがまだ旧ソースを指している）
@@ -181,6 +182,10 @@ const SourceTab = (() => {
       li.addEventListener('dblclick', (e) => {
         e.stopPropagation();
         _editSourceName(src);
+      });
+      li.querySelector('.item-delete-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        _deleteSource(src);
       });
       list.appendChild(li);
     });

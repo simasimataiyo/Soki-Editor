@@ -35,6 +35,7 @@ const MaterialTab = (() => {
             ? `<img src="${imgSrc}" alt="thumbnail" />`
             : `<span class="thumb-placeholder">${SVG_IMAGE_SM}</span>`}
         </div>
+        <button class="btn-icon item-delete-btn" title="削除">${SVG_DELETE}</button>
       `;
       li.addEventListener('click', () => {
         _activeId = mat.id;
@@ -46,6 +47,10 @@ const MaterialTab = (() => {
       li.addEventListener('dblclick', (e) => {
         e.stopPropagation();
         _editMaterialName(mat);
+      });
+      li.querySelector('.item-delete-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        _deleteMaterial(mat);
       });
       list.appendChild(li);
     });

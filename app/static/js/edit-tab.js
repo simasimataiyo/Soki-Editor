@@ -96,6 +96,7 @@ const EditTab = (() => {
     li.innerHTML = `
       ${toggle}
       <span class="item-title">${escHtml(sec.title)}</span>
+      <button class="btn-icon item-delete-btn" title="削除">${SVG_DELETE}</button>
     `;
 
     // ドラッグイベント
@@ -208,6 +209,11 @@ const EditTab = (() => {
     li.addEventListener('dblclick', (e) => {
       e.stopPropagation();
       _editSectionMeta(sec);
+    });
+
+    li.querySelector('.item-delete-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      _deleteSection(sec);
     });
 
     container.appendChild(li);
