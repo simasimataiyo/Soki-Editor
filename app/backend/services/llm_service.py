@@ -168,6 +168,39 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "create_sections_under_parent",
+            "description": "指定したセクションの配下に複数のサブセクションを一括追加する（/structure-section 向け。既存の子セクションは保持したまま追加する）",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "parent_section_id": {
+                        "type": "string",
+                        "description": "子セクションを追加する親セクションのID。親を直接指定する場合に使用。ルート直下に追加する場合は null",
+                        "nullable": True,
+                    },
+                    "sections": {
+                        "type": "array",
+                        "description": "追加するセクションのリスト",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "key": {"type": "string", "description": "このセクションを参照するための一時キー（他セクションの parent_key に使用）"},
+                                "title": {"type": "string"},
+                                "summary": {"type": "string"},
+                                "parent_key": {"type": "string", "nullable": True, "description": "親となるセクションの key（このリスト内の key）。parent_section_id の直下に追加する場合は null"},
+                                "order": {"type": "integer"},
+                            },
+                            "required": ["key", "title"],
+                        },
+                    },
+                },
+                "required": ["sections"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "fetch_sources",
             "description": "参考文献の全文を取得する。参考文献の概要一覧を確認し、タスクの実行に必要なソースのIDを最大4つまで指定してください。",
             "parameters": {

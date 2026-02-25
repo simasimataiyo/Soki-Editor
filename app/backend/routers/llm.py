@@ -37,6 +37,32 @@ async def chat_stream(project_id: str, body: ChatRequest) -> StreamingResponse:
     global_settings = get_settings_service().get()
 
     async def _stream_with_history() -> AsyncGenerator[str, None]:
+        # ユーザーメッセージ・コマンドをストリーム開始前に保存
+        try:
+            if body.command:
+                # コマンド: user_message を command ロールで保存
+                await svc.append_command_message(
+                    project_id,
+                    body.context_scope,
+                    body.command,
+                    body.command_args or [],
+                    user_message=body.user_message,
+                )
+            else:
+                # 通常チャット: ユーザーメッセージを先に保存
+                await svc.append_chat_message(
+                    project_id,
+                    body.context_scope,
+                    ChatMessage(
+                        role="user",
+                        content=body.user_message,
+                        timestamp=datetime.now(),
+                        explicit_refs=body.explicit_refs or [],
+                    ),
+                )
+        except Exception:
+            pass
+
         accumulated = []
         async for chunk in _llm_service.chat_stream(
             project,
@@ -48,46 +74,26 @@ async def chat_stream(project_id: str, body: ChatRequest) -> StreamingResponse:
             explicit_refs=body.explicit_refs if body.explicit_refs else None,
             selected_text=body.selected_text if body.selected_text else None,
         ):
-            yield chunk
-            # done イベント時にまとめて履歴保存（LLM呼び出し前に保存すると重複するため）
             if chunk.startswith("data:"):
                 try:
                     data = json.loads(chunk[5:].strip())
                     if data.get("type") == "chunk" and not body.command:
                         accumulated.append(data.get("text", ""))
                     elif data.get("type") == "done":
-                        if body.command:
-                            # コマンド履歴を保存
-                            await svc.append_command_message(
-                                project_id,
-                                body.context_scope,
-                                body.command,
-                                body.command_args or [],
-                            )
-                        else:
-                            # ユーザーメッセージと応答を保存
+                        if not body.command and accumulated:
+                            # アシスタント応答を done yield 前に保存
                             await svc.append_chat_message(
                                 project_id,
                                 body.context_scope,
                                 ChatMessage(
-                                    role="user",
-                                    content=body.user_message,
+                                    role="assistant",
+                                    content="".join(accumulated),
                                     timestamp=datetime.now(),
-                                    explicit_refs=body.explicit_refs or [],
                                 ),
                             )
-                            if accumulated:
-                                await svc.append_chat_message(
-                                    project_id,
-                                    body.context_scope,
-                                    ChatMessage(
-                                        role="assistant",
-                                        content="".join(accumulated),
-                                        timestamp=datetime.now(),
-                                    ),
-                                )
                 except Exception:
                     pass
+            yield chunk
 
     return StreamingResponse(
         _stream_with_history(),
@@ -140,6 +146,24 @@ async def get_all_scopes_history(project_id: str) -> dict:
         scope: [m.model_dump() for m in messages]
         for scope, messages in project.chat_history.items()
     }
+
+
+@router.post("/chat-history/add-message")
+async def add_chat_message(project_id: str, body: dict) -> dict:
+    """チャット履歴にメッセージを追加する（コマンド実行後の要約追加用）"""
+    svc = get_service()
+    try:
+        scope = body.get("scope", "all")
+        role = body.get("role", "assistant")
+        content = body.get("content", "")
+        await svc.append_chat_message(
+            project_id,
+            scope,
+            ChatMessage(role=role, content=content, timestamp=datetime.now()),
+        )
+        return {"status": "ok"}
+    except KeyError:
+        _not_found(project_id)
 
 
 @router.post("/chat-history/new-scope")

@@ -64,8 +64,12 @@ const SVG_EDIT_PEN = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none
 // 文書アイコン
 const SVG_DOCUMENT = `<svg class="item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
 
+// チャット送信・停止アイコン（16×16）
+const SVG_SEND = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="13" x2="8" y2="3"/><polyline points="4,7 8,3 12,7"/></svg>`;
+const SVG_STOP = `<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><rect x="4" y="4" width="8" height="8" rx="1"/></svg>`;
+
 // 画像プレースホルダアイコン
-const SVG_IMAGE_SM = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`;
+const SVG_IMAGE_SM =`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`;
 const SVG_IMAGE_LG = `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`;
 
 // ─── AppShell ─────────────────────────────────────────────
@@ -92,6 +96,7 @@ const AppShell = (() => {
     // プロジェクト選択に戻る（トップバー内の btn-back）
     document.getElementById('btn-back').addEventListener('click', () => {
       _resetAllTabs();
+      UndoRedoManager.clear();
       _showScreen('project-selector');
       window.appState.setState({ project: null });
       ProjectSelector.init();
@@ -109,7 +114,8 @@ const AppShell = (() => {
     }
 
     // チャット履歴パネルのトグル
-    document.getElementById('btn-chat-history').addEventListener('click', _toggleHistoryPanel);
+    document.getElementById('chat-resize-handle').addEventListener('dblclick', _toggleHistoryPanel);
+    // document.getElementById('btn-chat-history').addEventListener('dblclick', _toggleHistoryPanel);
 
     // 各タブのイベント
     EditTab.bindEvents();
@@ -169,6 +175,8 @@ const AppShell = (() => {
   function enterEditor(project) {
     _resetAllTabs();
     _currentScope = 'all';
+    // プロジェクト切り替え時にアンドゥ/リドゥスタックをリセット（別プロジェクトの履歴が混入するバグ修正）
+    UndoRedoManager.clear();
     window.appState.setProject(project);
     document.getElementById('project-name-display').textContent = project.name || '';
     _showScreen('editor-screen');
@@ -289,30 +297,11 @@ const AppShell = (() => {
     ChatBarCommon.clear('chat-input');
     const btn = document.getElementById('btn-chat-send');
 
-    // 送信ボタンを「停止」ボタンに切り替え
-    function setStopMode() {
-      btn.textContent = '■';
-      btn.title = '停止';
-      btn.classList.add('btn-stop');
-      btn.onclick = () => {
-        if (_currentSseCtrl) {
-          _currentSseCtrl.abort();
-          _currentSseCtrl = null;
-        }
-        _restoreEditability();
-        resetSendMode();
-        responseEl.remove();
-      };
+    // 送信時にチャット履歴パネルを自動オープン
+    if (!_historyPanelOpen) {
+      _historyPanelOpen = true;
+      document.getElementById('chat-history-panel').style.display = '';
     }
-
-    function resetSendMode() {
-      btn.textContent = '↑';
-      btn.title = '送信';
-      btn.classList.remove('btn-stop');
-      btn.onclick = null;
-    }
-
-    setStopMode();
 
     // /structure-section コマンドの場合、選択中のセクションを対象にする
     let contextScope = _currentScope;
@@ -329,25 +318,65 @@ const AppShell = (() => {
     };
 
     if (parsed.command) {
-      // コマンドモード: ユーザーメッセージにフリーテキスト（追加指示）を渡す
-      // 引数は廃止されたので、command_args は常に空配列
       body.user_message = parsed.freeText || `/${parsed.command.name}`.trim();
       body.command = parsed.command.name;
-      body.command_args = []; // 引数は廃止
+      body.command_args = [];
     } else {
-      // 通常チャットモード
       body.user_message = parsed.freeText || '';
     }
 
-    // @参照がある場合はIDリストを追加
     if (parsed.refs.length > 0) {
       body.explicit_refs = parsed.refs.map(r => r.id);
     }
 
-    // 選択テキストがある場合はコンテキストとして追加
     if (_selectedText) {
       body.selected_text = _selectedText;
     }
+
+    // ユーザーメッセージ（またはコマンド）を履歴パネルに即時表示
+    const userDisplayContent = parsed.command
+      ? `/${parsed.command.name}${parsed.freeText ? ' ' + parsed.freeText : ''}`
+      : body.user_message;
+    _historyPanelActiveScope = contextScope;
+    _appendMessageToHistoryPanel({
+      role: parsed.command ? 'command' : 'user',
+      content: userDisplayContent,
+      timestamp: new Date().toISOString(),
+    });
+
+    // ローディングスピナーを表示
+    _showHistoryPanelLoading();
+
+    // 送信ボタンを「停止」ボタンに切り替え
+    let _streamingAssistantEl = null; // ストリーミング中のアシスタントメッセージ要素
+
+    function setStopMode() {
+      btn.innerHTML = SVG_STOP;
+      btn.title = '停止';
+      btn.classList.add('btn-stop');
+      btn.onclick = () => {
+        if (_currentSseCtrl) {
+          _currentSseCtrl.abort();
+          _currentSseCtrl = null;
+        }
+        _restoreEditability();
+        _hideHistoryPanelLoading();
+        // ストリーミング中断時: 空のアシスタントメッセージを削除
+        if (_streamingAssistantEl && !_streamingAssistantEl.querySelector('.chat-history-msg-content')?.textContent) {
+          _streamingAssistantEl.remove();
+        }
+        resetSendMode();
+      };
+    }
+
+    function resetSendMode() {
+      btn.innerHTML = SVG_SEND;
+      btn.title = '送信';
+      btn.classList.remove('btn-stop');
+      btn.onclick = null;
+    }
+
+    setStopMode();
 
     // コマンド実行時: 編集対象セクションの contenteditable を非活性化
     const _disabledContentEls = [];
@@ -373,47 +402,11 @@ const AppShell = (() => {
       _disabledContentEls.length = 0;
     }
 
-    // チャット応答表示用コンテナ（チャットバー上部に追加）
-    const chatBar = document.getElementById('chat-bar');
-    const responseEl = document.createElement('div');
-    responseEl.className = 'llm-response-area';
-
-    // テキスト表示用サブ要素と閉じるボタン
-    const responseTextEl = document.createElement('div');
-    responseTextEl.className = 'llm-response-text';
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'llm-response-close-btn';
-    closeBtn.title = '閉じる';
-    closeBtn.textContent = '×';
-    closeBtn.addEventListener('click', () => responseEl.remove());
-    responseEl.appendChild(responseTextEl);
-    responseEl.appendChild(closeBtn);
-
-    const _chatTextareaWrapper = chatBar.querySelector('.chat-textarea-wrapper');
-    chatBar.insertBefore(responseEl, _chatTextareaWrapper);
-
-    // LLM実行中のスピナー表示
-    let isStreaming = false;
-    let isToolRunning = false;
-    let isHovering = false;
-    let hoverTimer = null;
-    let _hasReceivedText = false;
     const isCommand = !!parsed.command;
-    const _changeLog = []; // ツールコール変更履歴（提案7用）
+    const _changeLog = [];
 
-    function startLoading() {
-      responseTextEl.innerHTML = '<div class="pdf-analysis-spinner"></div>';
-    }
-
-    function showComplete() {
-      responseTextEl.textContent = '完了!';
-    }
-
-    function showCommandSummary(changeLog) {
-      if (!changeLog || changeLog.length === 0) {
-        responseTextEl.textContent = '完了!';
-        return;
-      }
+    function _buildCommandSummaryText(changeLog) {
+      if (!changeLog || changeLog.length === 0) return '完了';
       const created = changeLog.filter(c => c.type === 'created');
       const updated = changeLog.filter(c => c.type === 'updated');
       const renamed = changeLog.filter(c => c.type === 'title_changed');
@@ -423,94 +416,53 @@ const AppShell = (() => {
       if (updated.length) parts.push(`${updated.length}件更新: ${[...new Set(updated.map(c => c.title))].slice(0, 3).map(t => `「${t}」`).join('、')}`);
       if (renamed.length) parts.push(`${renamed.length}件リネーム: ${renamed.slice(0, 2).map(c => `「${c.oldTitle}」→「${c.newTitle}」`).join('、')}`);
       if (deleted.length) parts.push(`${deleted.length}件削除`);
-      responseTextEl.textContent = parts.join(' / ') || '完了!';
+      return parts.join(' / ') || '完了';
     }
-
-    function scheduleAutoClose() {
-      if (hoverTimer) clearTimeout(hoverTimer);
-      hoverTimer = setTimeout(() => {
-        if (!isHovering && !isStreaming && !isToolRunning) {
-          responseEl.remove();
-        }
-      }, 3000); // カーソルが外れて3秒後に閉じる
-    }
-
-    function clearAutoClose() {
-      if (hoverTimer) {
-        clearTimeout(hoverTimer);
-        hoverTimer = null;
-      }
-    }
-
-    // マウスイベントで自動クローズを制御
-    responseEl.addEventListener('mouseenter', () => {
-      isHovering = true;
-      clearAutoClose();
-    });
-
-    responseEl.addEventListener('mouseleave', () => {
-      isHovering = false;
-      // コマンド実行時のみ自動クローズ（通常チャットは × ボタンで手動クローズ）
-      if (isCommand && !isStreaming && !isToolRunning) {
-        scheduleAutoClose();
-      }
-    });
-
-    // アニメーション開始
-    startLoading();
 
     _currentSseCtrl = ApiClient.openSSE(
       `/api/projects/${project.id}/chat`,
       body,
       {
         onChunk: (text) => {
-          if (!_hasReceivedText) {
-            // 初回のみスピナーを消去
-            responseTextEl.innerHTML = '';
-            isStreaming = true;
-            _hasReceivedText = true;
+          if (!_streamingAssistantEl) {
+            // 初回チャンク: アシスタントメッセージ要素を作成
+            _streamingAssistantEl = _appendMessageToHistoryPanel({
+              role: 'assistant',
+              content: '',
+              timestamp: new Date().toISOString(),
+            });
           }
-          responseTextEl.textContent += text;
-          // ストリーム中は常に最下部へスクロール
-          responseEl.scrollTop = responseEl.scrollHeight;
+          const contentEl = _streamingAssistantEl.querySelector('.chat-history-msg-content');
+          contentEl.textContent += text;
+          const container = document.getElementById('chat-history-panel-messages');
+          container.scrollTop = container.scrollHeight;
         },
         onToolCall: async (tool, args) => {
-          isStreaming = false;
-          isToolRunning = true;
-          // ツール実行中はスピナー表示を維持（完了!は全処理終了後に表示）
-          if (!_hasReceivedText || !responseTextEl.querySelector('.pdf-analysis-spinner')) {
-            startLoading();
-          }
           await _applyToolCall(project, tool, args, _changeLog);
-          isToolRunning = false;
         },
         onDone: () => {
-          isStreaming = false;
-          isToolRunning = false;
           _restoreEditability();
-          if (!_hasReceivedText) {
-            // テキスト出力なし（コマンド実行）の場合はサマリーまたは「完了!」表示
-            if (isCommand) {
-              showCommandSummary(_changeLog);
-            } else {
-              showComplete();
-            }
-          }
+          _hideHistoryPanelLoading();
           resetSendMode();
-          // コマンド実行時のみ自動クローズ（通常チャットは × ボタンで手動クローズ）
-          if (isCommand && !isHovering) {
-            scheduleAutoClose();
+          // コマンド実行: 変更がある場合のみ要約をバックエンドに保存してからパネルをリフレッシュ
+          if (isCommand) {
+            if (_changeLog.length > 0) {
+              const summaryText = _buildCommandSummaryText(_changeLog);
+              _addSummaryToHistory(project, `/${parsed.command.name} 実行: ${summaryText}`)
+                .then(() => _refreshHistoryPanel());
+            } else {
+              _refreshHistoryPanel();
+            }
+          } else {
+            // 通常チャット: バックエンドに保存済みなのでパネルをリフレッシュ
+            _refreshHistoryPanel();
           }
-          // 履歴パネルが開いていれば更新
-          _refreshHistoryPanel();
         },
         onError: (msg) => {
-          isStreaming = false;
-          isToolRunning = false;
           _restoreEditability();
+          _hideHistoryPanelLoading();
           resetSendMode();
           showToast(`チャットエラー: ${msg}`, 'error');
-          responseEl.remove();
         },
       }
     );
@@ -659,6 +611,49 @@ const AppShell = (() => {
           },
         });
 
+      } else if (tool === 'create_sections_under_parent') {
+        const { parent_section_id = null, sections: newSections } = args;
+        const fixedSections = fixSectionOrder(newSections);
+
+        // 既存の子セクションのmaxOrderを取得
+        const existingChildren = project.sections.filter(s => s.parent_id === parent_section_id);
+        const baseOrder = existingChildren.length > 0
+          ? Math.max(...existingChildren.map(s => s.order ?? 0)) + 1
+          : 0;
+
+        // key → 実際の section_id のマッピング
+        const keyToId = {};
+
+        // 階層順にソート（親を先に作成）
+        const sorted = [...fixedSections].sort((a, b) => {
+          const aLevel = a.parent_key ? a.parent_key.split('-').length : 0;
+          const bLevel = b.parent_key ? b.parent_key.split('-').length : 0;
+          if (aLevel !== bLevel) return aLevel - bLevel;
+          return (a.order ?? 0) - (b.order ?? 0);
+        });
+
+        for (const item of sorted) {
+          let resolvedParentId;
+          if (item.parent_key) {
+            resolvedParentId = keyToId[item.parent_key] ?? parent_section_id;
+          } else {
+            resolvedParentId = parent_section_id;
+          }
+
+          const created = await ApiClient.post(`/api/projects/${project.id}/sections`, {
+            title: item.title,
+            summary: item.summary ?? '',
+            content: '',
+            parent_id: resolvedParentId,
+            order: item.parent_key ? (item.order ?? 0) : (baseOrder + (item.order ?? 0)),
+          });
+          keyToId[item.key] = created.id;
+          project.sections.push(created);
+          if (changeLog) changeLog.push({ type: 'created', title: created.title });
+        }
+
+        EditTab.render(project);
+
       } else if (tool === 'set_document_structure' || tool === 'create_document_structure') {
         const { sections: newSections } = args;
         const isReplace = tool === 'set_document_structure';
@@ -716,6 +711,79 @@ const AppShell = (() => {
 
   let _historyPanelOpen = false;
   let _historyPanelActiveScope = null;
+
+  /**
+   * 履歴パネルにメッセージ要素を直接追加して DOM 要素を返す
+   * @param {{role: string, content: string, timestamp: string}} msg
+   * @returns {HTMLElement} 追加されたメッセージ要素
+   */
+  function _appendMessageToHistoryPanel(msg) {
+    const container = document.getElementById('chat-history-panel-messages');
+    // プレースホルダーを削除
+    const placeholder = container.querySelector('.chat-history-placeholder');
+    if (placeholder) placeholder.remove();
+
+    const div = document.createElement('div');
+    div.className = `chat-history-msg ${msg.role}`;
+
+    if (msg.role === 'command') {
+      div.innerHTML = `
+        <div class="chat-history-msg-role command"><span>⚡ コマンド</span></div>
+        <div class="chat-history-msg-content">${escHtml(msg.content)}</div>
+        <div class="chat-history-msg-time">${new Date(msg.timestamp).toLocaleString('ja-JP')}</div>
+      `;
+    } else {
+      const roleLabel = msg.role === 'user' ? 'あなた' : 'AI';
+      const roleIcon = msg.role === 'user' ? '👤' : '🤖';
+      div.innerHTML = `
+        <div class="chat-history-msg-role ${msg.role}"><span>${roleIcon} ${roleLabel}</span></div>
+        <div class="chat-history-msg-content">${escHtml(msg.content)}</div>
+        <div class="chat-history-msg-time">${new Date(msg.timestamp).toLocaleString('ja-JP')}</div>
+      `;
+    }
+    // ローディングスピナーがあればその前に挿入、なければ末尾に追加
+    const loadingEl = container.querySelector('.chat-history-loading');
+    if (loadingEl) {
+      container.insertBefore(div, loadingEl);
+    } else {
+      container.appendChild(div);
+    }
+    container.scrollTop = container.scrollHeight;
+    return div;
+  }
+
+  /** 履歴パネルのローディングスピナーを表示する */
+  function _showHistoryPanelLoading() {
+    const container = document.getElementById('chat-history-panel-messages');
+    if (container.querySelector('.chat-history-loading')) return;
+    const el = document.createElement('div');
+    el.className = 'chat-history-loading';
+    el.innerHTML = '<span class="section-spinner"></span>';
+    container.appendChild(el);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  /** 履歴パネルのローディングスピナーを非表示にする */
+  function _hideHistoryPanelLoading() {
+    const container = document.getElementById('chat-history-panel-messages');
+    container.querySelector('.chat-history-loading')?.remove();
+  }
+
+  /**
+   * コマンド実行後の要約メッセージをチャット履歴に追加する
+   * @param {object} project
+   * @param {string} summaryText - 追加するメッセージ（200文字以内に切り詰め）
+   */
+  async function _addSummaryToHistory(project, summaryText) {
+    try {
+      const truncated = summaryText.length > 200 ? summaryText.slice(0, 200) + '…' : summaryText;
+      await ApiClient.post(`/api/projects/${project.id}/chat-history/add-message`, {
+        scope: _currentScope,
+        role: 'assistant',
+        content: truncated,
+      });
+    } catch (_) {}
+  }
 
   async function _toggleHistoryPanel() {
     const panel = document.getElementById('chat-history-panel');

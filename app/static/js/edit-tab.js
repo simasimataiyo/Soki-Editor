@@ -1150,6 +1150,30 @@ const EditTab = (() => {
     document.getElementById('btn-add-chapter').addEventListener('click', () => {
       _showAddSectionModal();
     });
+
+    // テキスト選択時の文字数表示（selectionchange イベント）
+    document.addEventListener('selectionchange', () => {
+      const display = document.getElementById('char-count-display');
+      if (!display || window.appState.getState().activeTab !== 'edit') return;
+
+      const sel = window.getSelection();
+      const selText = sel ? sel.toString() : '';
+
+      if (selText.length > 0) {
+        // エディタ内のテキスト選択かチェック（section-content または section-summary 内）
+        const anchorEl = sel.anchorNode?.parentElement;
+        const inEditor = anchorEl?.closest('[data-field="content"], [data-field="summary"]');
+        if (inEditor) {
+          const count = selText.replace(/\s/g, '').length;
+          display.textContent = `選択: ${count.toLocaleString()} 文字`;
+          display.style.display = '';
+          return;
+        }
+      }
+
+      // 選択なし or エディタ外の場合は通常の文字数表示に戻す
+      _updateCharCount();
+    });
   }
 
   /**
