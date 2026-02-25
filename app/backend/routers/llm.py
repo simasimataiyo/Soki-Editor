@@ -77,10 +77,11 @@ async def chat_stream(project_id: str, body: ChatRequest) -> StreamingResponse:
             if chunk.startswith("data:"):
                 try:
                     data = json.loads(chunk[5:].strip())
-                    if data.get("type") == "chunk" and not body.command:
-                        accumulated.append(data.get("text", ""))
+                    if data.get("type") == "chunk":
+                        if not body.command or body.command.startswith("review"):
+                            accumulated.append(data.get("text", ""))
                     elif data.get("type") == "done":
-                        if not body.command and accumulated:
+                        if (not body.command or body.command.startswith("review")) and accumulated:
                             # アシスタント応答を done yield 前に保存
                             await svc.append_chat_message(
                                 project_id,

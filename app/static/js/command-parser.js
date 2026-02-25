@@ -29,8 +29,16 @@ const CommandParser = (() => {
         description: '現在のセクションを概要から本文生成',
         requiresLLM: true,
       },
+      'draft-all': {
+        description: '現在のセクションと子セクション（または全セクション）の本文を一括生成',
+        requiresLLM: true,
+      },
       rewrite: {
         description: '現在のセクションを書き直し',
+        requiresLLM: true,
+      },
+      'rewrite-all': {
+        description: '現在のセクションと子セクション（または全セクション）の本文を一括で書き直し',
         requiresLLM: true,
       },
       expand: {
@@ -52,6 +60,22 @@ const CommandParser = (() => {
       clear: {
         description: '新しいスコープを作成して会話をリセット',
         requiresLLM: false,
+      },
+      'review-structure': {
+        description: '文書構造にフォーカスしてレビュー',
+        requiresLLM: true,
+      },
+      'review-rule': {
+        description: '執筆ルールの適用にフォーカスしてレビュー',
+        requiresLLM: true,
+      },
+      'review-source': {
+        description: 'ソース/参考文献の活用にフォーカスしてレビュー',
+        requiresLLM: true,
+      },
+      review: {
+        description: 'レビューを実行（フォーカスなし）',
+        requiresLLM: true,
       },
     },
     review: {

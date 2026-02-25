@@ -20,6 +20,30 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "update_multiple_sections",
+            "description": "複数のセクションの本文(content)を一括で更新する（/draft-all 向け）",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "updates": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "section_id": {"type": "string"},
+                                "content": {"type": "string"},
+                            },
+                            "required": ["section_id", "content"],
+                        },
+                    },
+                },
+                "required": ["updates"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "update_section",
             "description": "指定セクションの本文 content を更新する",
             "parameters": {
