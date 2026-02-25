@@ -117,6 +117,19 @@ const AppShell = (() => {
     document.getElementById('chat-resize-handle').addEventListener('dblclick', _toggleHistoryPanel);
     // document.getElementById('btn-chat-history').addEventListener('dblclick', _toggleHistoryPanel);
 
+    // チャットコピーボタンのイベントデリゲーション
+    document.getElementById('chat-history-panel-messages')?.addEventListener('click', (e) => {
+      if (e.target.classList.contains('chat-copy-btn')) {
+        const text = e.target.closest('.chat-history-msg').querySelector('.chat-history-msg-content').textContent;
+        const chatInput = document.getElementById('chat-input');
+        if (chatInput) {
+          chatInput.value = text;
+          chatInput.dispatchEvent(new Event('input', { bubbles: true }));
+          showToast('チャット入力にコピーしました', 'success');
+        }
+      }
+    });
+
     // 各タブのイベント
     EditTab.bindEvents();
     SourceTab.bindEvents();
@@ -526,6 +539,38 @@ const AppShell = (() => {
           },
         });
 
+      } else if (tool === 'update_multiple_sections') {
+        const { updates } = args;
+        for (const update of updates) {
+          const { section_id, content } = update;
+          const sec = project.sections.find(s => s.id === section_id);
+          if (!sec) continue;
+
+          const oldContent = sec.content;
+          if (changeLog) changeLog.push({ type: 'updated', title: sec.title });
+          await ApiClient.put(
+            `/api/projects/${project.id}/sections/${section_id}`,
+            { content }
+          );
+          sec.content = content;
+
+          const contentEl = document.querySelector(`[data-sec-id="${section_id}"][data-field="content"]`);
+          if (contentEl) contentEl.innerText = content;
+
+          UndoRedoManager.push({
+            do: async () => {
+              await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { content });
+              sec.content = content;
+              if (contentEl) contentEl.innerText = content;
+            },
+            undo: async () => {
+              await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { content: oldContent });
+              sec.content = oldContent;
+              if (contentEl) contentEl.innerText = oldContent;
+            },
+          });
+        }
+
       } else if (tool === 'create_section') {
         const { title, summary = '', content = '', parent_id = null } = args;
         const sec = await ApiClient.post(`/api/projects/${project.id}/sections`, {
@@ -733,10 +778,12 @@ const AppShell = (() => {
     } else {
       const roleLabel = msg.role === 'user' ? 'あなた' : 'AI';
       const roleIcon = msg.role === 'user' ? '👤' : '🤖';
+      const copyBtn = msg.role === 'assistant' ? `<button class="btn btn-sm btn-secondary chat-copy-btn" style="margin-top: 5px; font-size: 0.8em;">チャット入力にコピー</button>` : '';
       div.innerHTML = `
         <div class="chat-history-msg-role ${msg.role}"><span>${roleIcon} ${roleLabel}</span></div>
         <div class="chat-history-msg-content">${escHtml(msg.content)}</div>
         <div class="chat-history-msg-time">${new Date(msg.timestamp).toLocaleString('ja-JP')}</div>
+        ${copyBtn}
       `;
     }
     // ローディングスピナーがあればその前に挿入、なければ末尾に追加
@@ -791,7 +838,10 @@ const AppShell = (() => {
     _historyPanelOpen = !_historyPanelOpen;
     if (_historyPanelOpen) {
       panel.style.display = '';
-      await _refreshHistoryPanel();
+      // ストリーミング中でなければ最新履歴を取得して描画
+      if (!_currentSseCtrl) {
+        await _refreshHistoryPanel();
+      }
     } else {
       panel.style.display = 'none';
     }
@@ -835,10 +885,12 @@ const AppShell = (() => {
       } else {
         const roleLabel = msg.role === 'user' ? 'あなた' : 'AI';
         const roleIcon = msg.role === 'user' ? '👤' : '🤖';
+        const copyBtn = msg.role === 'assistant' ? `<button class="btn btn-sm btn-secondary chat-copy-btn" style="margin-top: 5px; font-size: 0.8em;">チャット入力にコピー</button>` : '';
         div.innerHTML = `
           <div class="chat-history-msg-role ${msg.role}"><span>${roleIcon} ${roleLabel}</span></div>
           <div class="chat-history-msg-content">${escHtml(msg.content)}</div>
           <div class="chat-history-msg-time">${new Date(msg.timestamp).toLocaleString('ja-JP')}</div>
+          ${copyBtn}
         `;
       }
       container.appendChild(div);
