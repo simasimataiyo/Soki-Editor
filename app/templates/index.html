@@ -117,6 +117,13 @@
             </div>
             <!-- チャット入力バー -->
             <div class="chat-bar" id="chat-bar">
+              <!-- チャット履歴インラインパネル（折りたたみ可能） -->
+              <div class="chat-history-panel" id="chat-history-panel" style="display:none">
+                <div class="chat-history-panel-tabs" id="chat-history-panel-tabs"></div>
+                <div class="chat-history-panel-messages" id="chat-history-panel-messages">
+                  <p class="chat-history-placeholder">スコープを選択してください</p>
+                </div>
+              </div>
               <div class="chat-textarea-wrapper">
                 <textarea
                   id="chat-input"
@@ -127,7 +134,7 @@
                 <div class="chat-resize-handle" id="chat-resize-handle" title="ドラッグで高さ調整"></div>
               </div>
               <div class="chat-controls">
-                <button class="btn btn-secondary btn-sm" id="btn-chat-history" title="チャット履歴">≡</button>
+                <button class="btn btn-secondary btn-sm" id="btn-chat-history" title="チャット履歴を開閉">≡</button>
                 <button class="btn-icon btn-send" id="btn-chat-send" title="送信">↑</button>
               </div>
             </div>
@@ -307,28 +314,6 @@
       <div class="modal-actions">
         <button class="btn btn-secondary" id="btn-fb-cancel">キャンセル</button>
         <button class="btn btn-primary" id="btn-fb-select">選択</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- モーダル: チャット履歴 -->
-  <div class="modal-overlay" id="modal-chat-history" style="display:none">
-    <div class="modal modal-xl">
-      <h3>チャット履歴</h3>
-      <div class="chat-history-panes">
-        <!-- 左ペイン: スコープ一覧 -->
-        <div class="chat-history-scopes">
-          <div id="chat-history-scopes-list" class="chat-history-scopes-list"></div>
-        </div>
-        <!-- 右ペイン: チャット一覧 -->
-        <div class="chat-history-messages">
-          <div id="chat-history-messages-list" class="chat-history-messages-list">
-            <p class="chat-history-placeholder">左ペインからスコープを選択してください</p>
-          </div>
-        </div>
-      </div>
-      <div class="modal-actions">
-        <button class="btn btn-secondary" id="btn-close-history">閉じる</button>
       </div>
     </div>
   </div>
