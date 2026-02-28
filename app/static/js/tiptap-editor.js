@@ -18,7 +18,7 @@ marked.setOptions({ gfm: true, breaks: false });
 
 // ─── カスタムノード: SectionHeading ─────────────────────────
 // セクションIDを data-section-id 属性として保持する見出しノード
-// level: 2-6 (h2-h6)、sectionId: UUID or null（新規見出しはnull）
+// level: 1-6 (h1-h6)、sectionId: UUID or null（新規見出しはnull）
 
 const SectionHeading = Node.create({
   name: 'sectionHeading',
@@ -58,7 +58,7 @@ const SectionHeading = Node.create({
 
   parseHTML() {
     // IDあり・なし両方の見出しを SectionHeading として取り込む
-    return [2, 3, 4, 5, 6].map(level => ({
+    return [1, 2, 3, 4, 5, 6].map(level => ({
       tag: `h${level}`,
       attrs: { level },
     }));
@@ -265,7 +265,7 @@ function _markdownWithMarkersToHtml(markdownContent) {
       const escSummary = (seg.summary || '').replace(/"/g, '&quot;');
       const escParentId = seg.parentId || '';
       segHtml = segHtml.replace(
-        /^(<h[2-6])(\s|>)/,
+        /^(<h[1-6])(\s|>)/,
         (_, tag, rest) => {
           let attrs = ` data-section-id="${seg.sectionId}"`;
           if (escSummary) attrs += ` data-summary="${escSummary}"`;

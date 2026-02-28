@@ -1139,7 +1139,7 @@ const EditTab = (() => {
         visit(s.id, depth + 1);
       });
     }
-    visit(null, 2); // ルートはレベル2 (##)
+    visit(null, 1); // ルートはレベル1 (#)
 
     let newContent = preamble;
     ordered.forEach(({ sec, depth }) => {
