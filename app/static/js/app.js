@@ -80,7 +80,6 @@ const AppShell = (() => {
     source: SourceTab,
     material: MaterialTab,
     rule: RuleTab,
-    review: ReviewTab,
     settings: SettingsTab,
   };
 
@@ -107,11 +106,31 @@ const AppShell = (() => {
       onSend: _sendChat,
     });
 
-    // チャット入力欄とレビュー入力欄のリサイズハンドルを初期化
+    // チャット入力欄のリサイズハンドルを初期化
     if (window.initResizeHandle) {
       window.initResizeHandle('chat-resize-handle', 'chat-input');
-      window.initResizeHandle('review-resize-handle', 'review-prompt');
     }
+
+    // パブリックなMarkdownエクスポートボタン
+    document.getElementById('btn-export-md')?.addEventListener('click', async () => {
+      const project = window.appState.getProject();
+      if (!project) return;
+      try {
+        const res = await fetch(`/api/projects/${project.id}/export`);
+        if (!res.ok) { showToast('エクスポートに失敗しました', 'error'); return; }
+        const mdText = await res.text();
+        const dialog = await ApiClient.saveFileDialog(`${project.name}.md`);
+        if (!dialog || !dialog.path) return;
+        const writeResult = await ApiClient.writeFile(dialog.path, mdText);
+        if (writeResult.ok) {
+          showToast('エクスポート完了', 'success');
+        } else {
+          showToast('ファイル保存に失敗しました', 'error');
+        }
+      } catch (e) {
+        showToast('エクスポートに失敗しました', 'error');
+      }
+    });
 
     // チャット履歴パネルのトグル
     document.getElementById('chat-resize-handle').addEventListener('dblclick', _toggleHistoryPanel);
@@ -135,7 +154,6 @@ const AppShell = (() => {
     SourceTab.bindEvents();
     MaterialTab.bindEvents();
     RuleTab.bindEvents();
-    ReviewTab.bindEvents();
     SettingsTab.bindEvents();
 
     // ルール左パネルの新規追加ボタン
@@ -144,7 +162,7 @@ const AppShell = (() => {
     });
 
     // @ オートコンプリートポップアップの初期化
-    AutocompletePopup.attachAll(['chat-input', 'review-prompt']);
+    AutocompletePopup.attachAll(['chat-input']);
 
     // statechange 購読
     document.addEventListener('statechange', (e) => {
@@ -182,7 +200,6 @@ const AppShell = (() => {
     SourceTab.reset();
     MaterialTab.reset();
     RuleTab.reset();
-    ReviewTab.reset();
   }
 
   function enterEditor(project) {
@@ -226,28 +243,6 @@ const AppShell = (() => {
       rule: [
         { id: 'btn-rule-import-top', label: 'インポート', handler: () => RuleTab.importCsv() },
         { id: 'btn-rule-export-top', label: 'エクスポート', handler: () => RuleTab.exportCsv() },
-      ],
-      review: [
-        {
-          id: 'btn-export-top', label: 'エクスポート', handler: async () => {
-            if (!project) return;
-            try {
-              const res = await fetch(`/api/projects/${project.id}/export`);
-              if (!res.ok) { showToast('エクスポートに失敗しました', 'error'); return; }
-              const mdText = await res.text();
-              const dialog = await ApiClient.saveFileDialog(`${project.name}.md`);
-              if (!dialog || !dialog.path) return;
-              const writeResult = await ApiClient.writeFile(dialog.path, mdText);
-              if (writeResult.ok) {
-                showToast('エクスポート完了', 'success');
-              } else {
-                showToast('ファイル保存に失敗しました', 'error');
-              }
-            } catch (e) {
-              showToast('エクスポートに失敗しました', 'error');
-            }
-          }
-        },
       ],
       settings: [],
     };

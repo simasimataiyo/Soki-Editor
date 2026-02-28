@@ -27,6 +27,7 @@
 
 - Python 3.11 以上 3.13 以下
 - node.js
+
 ## インストール
 
 ```bash
@@ -40,6 +41,10 @@ pip install -e .
 
 # フロントエンド依存ライブラリのインストール (Node.jsが必要)
 npm install
+
+# Tiptapのバンドル
+npx esbuild app/static/js/tiptap-editor.js --bundle --outfile=app/static/js/tiptap-bundle.js --format=esm
+
 ```
 
 ## 起動

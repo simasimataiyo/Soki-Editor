@@ -364,3 +364,4 @@ samples/
 delete_list.txt
 git-filter-repo
 global_settings.json
+app/static/js/tiptap-bundle.js

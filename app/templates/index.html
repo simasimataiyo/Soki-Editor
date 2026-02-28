@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Soki Editor</title>
   <link rel="stylesheet" href="/static/css/main.css" />
+  <link rel="icon" href="data:," />
 </head>
 
 <body>
@@ -83,15 +84,6 @@
               <span class="nav-label">Rules</span>
             </button>
           </li>
-          <li role="none">
-            <button class="nav-item" data-tab="review" role="menuitem" aria-label="レビュータブ" title="Review">
-              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-              <span class="nav-label">Review</span>
-            </button>
-          </li>
         </ul>
         <div class="sidebar-bottom">
           <button class="nav-item" data-tab="settings" role="menuitem" aria-label="設定タブ" title="Settings">
@@ -113,7 +105,19 @@
             <span id="project-name-display"></span>
             <span id="save-status" class="save-indicator saved">保存済み</span>
           </div>
-          <div class="top-bar-right" id="top-bar-actions"></div>
+          <div class="top-bar-right" style="display: flex; align-items: center; gap: 8px;">
+            <div id="top-bar-actions" style="display: flex; gap: 8px;"></div>
+            <button class="btn btn-secondary btn-sm" id="btn-export-md" title="Markdownエクスポート"
+              style="display: flex; align-items: center; justify-content: center; line-height: 1;">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+                style="margin-right: 4px;">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Export
+            </button>
+          </div>
           <span id="char-count-display" class="char-count-display" style="display:none"></span>
         </header>
 
@@ -230,38 +234,6 @@
             </div>
           </div>
 
-          <!-- Review タブ -->
-          <div class="tab-pane" id="tab-review">
-            <div class="two-pane">
-              <aside class="left-panel" id="review-panel">
-                <div class="panel-header">
-                  <span>Review</span>
-                </div>
-              </aside>
-              <div class="detail-pane review-sections" id="review-sections"></div>
-            </div>
-            <!-- レビュー送信バー -->
-            <div class="chat-bar" id="review-bar">
-              <div class="chat-textarea-wrapper">
-                <textarea id="review-prompt" class="chat-textarea"
-                  placeholder="レビュー指示を入力... (/review-structure, /review-rule, /review-source, /prompt save/load)"
-                  rows="2"></textarea>
-                <div class="chat-resize-handle" id="review-resize-handle" title="ドラッグで高さ調整"></div>
-              </div>
-              <div class="chat-controls">
-                <select id="review-scope" class="select-sm">
-                  <option value="all">全セクション(骨子)</option>
-                </select>
-                <button class="btn-icon btn-send" id="btn-review-send" title="レビュー実行"><svg viewBox="0 0 16 16"
-                    width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
-                    stroke-linejoin="round">
-                    <line x1="8" y1="13" x2="8" y2="3" />
-                    <polyline points="4,7 8,3 12,7" />
-                  </svg></button>
-              </div>
-            </div>
-          </div>
-
           <!-- Settings タブ -->
           <div class="tab-pane" id="tab-settings">
             <div class="two-pane">
@@ -364,7 +336,6 @@
   <script src="/static/js/command-parser.js"></script>
   <script src="/static/js/autocomplete-popup.js"></script>
   <script src="/static/js/chat-bar-common.js"></script>
-  <script src="/static/js/review-tab.js"></script>
   <script src="/static/js/settings-tab.js"></script>
   <script src="/static/js/app.js"></script>
 </body>
