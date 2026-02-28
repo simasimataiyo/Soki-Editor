@@ -26,6 +26,9 @@
           </div>
         </div>
         <div id="project-card-grid" class="project-card-grid"></div>
+        <div>
+          <!-- ここに設定画面に飛ぶボタンを設ける -->
+        </div>
       </main>
     </div>
 
@@ -33,14 +36,7 @@
     <div id="editor-screen" class="screen">
       <!-- サイドバーナビゲーション -->
       <nav class="sidebar" id="sidebar" role="navigation" aria-label="メインナビゲーション">
-        <div class="sidebar-top">
-          <div class="nav-item" id="btn-back" title="プロジェクト選択に戻る">
-            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-              <path d="M19 12H5M12 19l-7-7 7-7" />
-            </svg>
-            <span class="nav-label">Back</span>
-          </div>
-        </div>
+
         <ul class="sidebar-nav" role="menubar">
           <li role="none">
             <button class="nav-item active" data-tab="edit" role="menuitem" aria-label="編集タブ" aria-current="page"
@@ -86,6 +82,12 @@
           </li>
         </ul>
         <div class="sidebar-bottom">
+          <div class="nav-item" id="btn-back" title="プロジェクト選択に戻る">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+            <span class="nav-label">Back</span>
+          </div>
           <button class="nav-item" data-tab="settings" role="menuitem" aria-label="設定タブ" title="Settings">
             <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
               <circle cx="12" cy="12" r="3" />
@@ -103,7 +105,7 @@
         <header class="top-bar" id="top-bar">
           <div class="top-bar-left">
             <span id="project-name-display"></span>
-            <span id="save-status" class="save-indicator saved">保存済み</span>
+            <!-- <span id="save-status" class="save-indicator saved">保存済み</span> -->
           </div>
           <div class="top-bar-right" style="display: flex; align-items: center; gap: 8px;">
             <div id="top-bar-actions" style="display: flex; gap: 8px;"></div>
@@ -149,6 +151,14 @@
                   <span id="tiptap-toolbar-label" class="tiptap-toolbar-label"></span>
                   <button class="btn btn-sm btn-secondary" data-action="insert-ref">文献挿入</button>
                   <button class="btn btn-sm btn-secondary" data-action="insert-fig">図表挿入</button>
+                </div>
+                <!-- Bubble Menu Container -->
+                <div id="tiptap-bubble-menu" class="tiptap-bubble-menu" style="display:none">
+                  <button class="btn-bubble" data-action="bold" title="太字 (Ctrl+B)"><b>B</b></button>
+                  <button class="btn-bubble" data-action="italic" title="斜体 (Ctrl+I)"><i>I</i></button>
+                  <button class="btn-bubble" data-action="strike" title="取り消し線 (Ctrl+Shift+X)"><s>S</s></button>
+                  <button class="btn-bubble" data-action="code"
+                    title="インラインコード (Ctrl+E)"><code>&lt;/&gt;</code></button>
                 </div>
                 <div id="tiptap-editor-mount"></div>
               </div>

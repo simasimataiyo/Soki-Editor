@@ -9,6 +9,8 @@
 
 import { Editor, Node, Extension, mergeAttributes, textblockTypeInputRule } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
+import BubbleMenu from '@tiptap/extension-bubble-menu';
+import Placeholder from '@tiptap/extension-placeholder';
 import { marked } from 'marked';
 
 // marked の設定: GFMオン、改行保持
@@ -35,6 +37,21 @@ const SectionHeading = Node.create({
         default: null,
         parseHTML: el => el.getAttribute('data-section-id') || null,
         renderHTML: attrs => (attrs.sectionId ? { 'data-section-id': attrs.sectionId } : {}),
+      },
+      summary: {
+        default: '',
+        parseHTML: el => el.getAttribute('data-summary') || '',
+        renderHTML: attrs => (attrs.summary ? { 'data-summary': attrs.summary } : {}),
+      },
+      parentId: {
+        default: null,
+        parseHTML: el => el.getAttribute('data-parent-id') || null,
+        renderHTML: attrs => (attrs.parentId ? { 'data-parent-id': attrs.parentId } : {}),
+      },
+      sectionOrder: {
+        default: 0,
+        parseHTML: el => parseInt(el.getAttribute('data-section-order') || '0', 10),
+        renderHTML: attrs => ({ 'data-section-order': String(attrs.sectionOrder) }),
       },
     };
   },
@@ -132,6 +149,11 @@ function _initEditor() {
   const mountEl = document.getElementById('tiptap-editor-mount');
   if (!mountEl) return;
 
+  const bubbleMenuEl = document.getElementById('tiptap-bubble-menu');
+  if (bubbleMenuEl) {
+    bubbleMenuEl.style.display = ''; // tippyに管理を移す前に初期表示リセット
+  }
+
   editor = new Editor({
     element: mountEl,
     extensions: [
@@ -140,6 +162,15 @@ function _initEditor() {
       }),
       SectionHeading,
       TabHandler,
+      Placeholder.configure({
+        placeholder: '本文を入力...',
+      }),
+      ...(bubbleMenuEl ? [
+        BubbleMenu.configure({
+          element: bubbleMenuEl,
+          tippyOptions: { duration: 100 },
+        })
+      ] : []),
     ],
     content: '',
     editorProps: {
@@ -148,6 +179,25 @@ function _initEditor() {
       },
     },
   });
+
+  if (bubbleMenuEl) {
+    const btnBold = bubbleMenuEl.querySelector('[data-action="bold"]');
+    const btnItalic = bubbleMenuEl.querySelector('[data-action="italic"]');
+    const btnStrike = bubbleMenuEl.querySelector('[data-action="strike"]');
+    const btnCode = bubbleMenuEl.querySelector('[data-action="code"]');
+
+    if (btnBold) btnBold.addEventListener('click', () => editor.chain().focus().toggleBold().run());
+    if (btnItalic) btnItalic.addEventListener('click', () => editor.chain().focus().toggleItalic().run());
+    if (btnStrike) btnStrike.addEventListener('click', () => editor.chain().focus().toggleStrike().run());
+    if (btnCode) btnCode.addEventListener('click', () => editor.chain().focus().toggleCode().run());
+
+    editor.on('selectionUpdate', () => {
+      if (btnBold) btnBold.classList.toggle('is-active', editor.isActive('bold'));
+      if (btnItalic) btnItalic.classList.toggle('is-active', editor.isActive('italic'));
+      if (btnStrike) btnStrike.classList.toggle('is-active', editor.isActive('strike'));
+      if (btnCode) btnCode.classList.toggle('is-active', editor.isActive('code'));
+    });
+  }
 }
 
 // ─── Markdown → HTML 変換 ────────────────────────────────────
@@ -156,34 +206,53 @@ function _initEditor() {
  * マーカー付きMarkdown文字列をTiptap用HTMLに変換する
  * <!-- soki-section:uuid --> を検出してdata-section-id属性を付与する
  */
+/**
+ * マーカー文字列からセクションメタデータを抽出する（新旧両形式対応）
+ * 新形式: <!-- soki-section:{"id":"uuid","summary":"...","parentId":null,"sectionOrder":0} -->
+ * 旧形式: <!-- soki-section:uuid -->
+ * @returns {{ sectionId: string, summary: string, parentId: string|null, sectionOrder: number }}
+ */
+function _parseMarkerMeta(markerPayload) {
+  if (markerPayload.startsWith('{')) {
+    try {
+      const meta = JSON.parse(markerPayload);
+      return {
+        sectionId: meta.id || null,
+        summary: meta.summary || '',
+        parentId: meta.parentId || null,
+        sectionOrder: typeof meta.sectionOrder === 'number' ? meta.sectionOrder : 0,
+      };
+    } catch (_) { /* fallthrough */ }
+  }
+  // 旧形式: UUIDのみ
+  return { sectionId: markerPayload, summary: '', parentId: null, sectionOrder: 0 };
+}
+
 function _markdownWithMarkersToHtml(markdownContent) {
   if (!markdownContent || markdownContent.trim() === '') return '<p></p>';
 
-  const MARKER_RE = /<!-- soki-section:([a-f0-9-]+) -->\n?/g;
-  const parts = [];
-  let lastIndex = 0;
-  let match;
+  // 新形式: {JSON} / 旧形式: uuid の両方にマッチ
+  const MARKER_RE = /<!-- soki-section:(\{[^}]*\}|[a-f0-9-]+) -->\n?/g;
 
   // マーカーで分割して各チャンクを処理
-  const segments = []; // { sectionId: string|null, text: string }
-  let prevEnd = 0;
+  const segments = []; // { sectionId, summary, parentId, sectionOrder, text }
 
   const allMatches = [...markdownContent.matchAll(MARKER_RE)];
 
   if (allMatches.length === 0) {
     // マーカーなし: 全体をそのままMarkdown→HTMLに変換
-    segments.push({ sectionId: null, text: markdownContent });
+    segments.push({ sectionId: null, summary: '', parentId: null, sectionOrder: 0, text: markdownContent });
   } else {
     // マーカー前のテキスト
     if (allMatches[0].index > 0) {
-      segments.push({ sectionId: null, text: markdownContent.slice(0, allMatches[0].index) });
+      segments.push({ sectionId: null, summary: '', parentId: null, sectionOrder: 0, text: markdownContent.slice(0, allMatches[0].index) });
     }
     for (let i = 0; i < allMatches.length; i++) {
       const m = allMatches[i];
-      const sectionId = m[1];
+      const meta = _parseMarkerMeta(m[1]);
       const start = m.index + m[0].length;
       const end = i + 1 < allMatches.length ? allMatches[i + 1].index : markdownContent.length;
-      segments.push({ sectionId, text: markdownContent.slice(start, end) });
+      segments.push({ ...meta, text: markdownContent.slice(start, end) });
     }
   }
 
@@ -191,11 +260,19 @@ function _markdownWithMarkersToHtml(markdownContent) {
   for (const seg of segments) {
     if (!seg.text.trim()) continue;
     let segHtml = marked.parse(seg.text);
-    // 最初の見出しにdata-section-id属性を付与
+    // 最初の見出しにdata-*属性を付与
     if (seg.sectionId) {
+      const escSummary = (seg.summary || '').replace(/"/g, '&quot;');
+      const escParentId = seg.parentId || '';
       segHtml = segHtml.replace(
         /^(<h[2-6])(\s|>)/,
-        (_, tag, rest) => `${tag} data-section-id="${seg.sectionId}"${rest}`
+        (_, tag, rest) => {
+          let attrs = ` data-section-id="${seg.sectionId}"`;
+          if (escSummary) attrs += ` data-summary="${escSummary}"`;
+          if (escParentId) attrs += ` data-parent-id="${escParentId}"`;
+          attrs += ` data-section-order="${seg.sectionOrder}"`;
+          return `${tag}${attrs}${rest}`;
+        }
       );
     }
     html += segHtml;
@@ -245,7 +322,13 @@ function _serializeToMarkdown(doc) {
         const id = node.attrs.sectionId;
         const title = _serializeInline(node);
         if (id) {
-          lines.push(`<!-- soki-section:${id} -->`);
+          const meta = JSON.stringify({
+            id,
+            summary: node.attrs.summary || '',
+            parentId: node.attrs.parentId || null,
+            sectionOrder: node.attrs.sectionOrder ?? 0,
+          });
+          lines.push(`<!-- soki-section:${meta} -->`);
         }
         lines.push(`${'#'.repeat(level)} ${title}`);
         lines.push('');
@@ -326,6 +409,29 @@ function _parseSectionIds() {
     }
   });
   return ids;
+}
+
+/**
+ * 現在のTiptapドキュメントから全セクション情報を配列で返す
+ * @returns {{ id: string, title: string, level: number, summary: string, parentId: string|null, sectionOrder: number, pos: number }[]}
+ */
+function _parseSectionsFromDoc() {
+  if (!editor) return [];
+  const result = [];
+  editor.state.doc.forEach((node, pos) => {
+    if (node.type.name === 'sectionHeading' && node.attrs.sectionId) {
+      result.push({
+        id: node.attrs.sectionId,
+        title: node.textContent,
+        level: node.attrs.level,
+        summary: node.attrs.summary || '',
+        parentId: node.attrs.parentId || null,
+        sectionOrder: node.attrs.sectionOrder ?? 0,
+        pos,
+      });
+    }
+  });
+  return result;
 }
 
 /**
@@ -436,19 +542,58 @@ function _insertSectionHeading(sectionId, title, level, afterSectionId) {
 }
 
 /**
- * 指定IDの見出しノードにsectionId属性を付与する
+ * 指定位置の見出しノードにセクションメタデータ属性を付与する
  * @param {number} pos - ProseMirror位置
- * @param {string} sectionId - 付与するセクションID
+ * @param {{ sectionId: string, summary?: string, parentId?: string|null, sectionOrder?: number }} meta
  */
-function _assignSectionId(pos, sectionId) {
+function _assignSectionMeta(pos, meta) {
   if (!editor) return;
+  // IME変換中はdispatchを行わない（compositionを中断するとテキストが重複する）
+  if (editor.view.composing) return;
   _suppressUpdate = true;
   const { tr } = editor.state;
-  tr.setNodeMarkup(pos, null, {
-    ...editor.state.doc.nodeAt(pos).attrs,
-    sectionId,
-  });
+  const node = editor.state.doc.nodeAt(pos);
+  if (!node) { _suppressUpdate = false; return; }
+  tr.setNodeMarkup(pos, null, { ...node.attrs, ...meta });
   editor.view.dispatch(tr);
+  setTimeout(() => { _suppressUpdate = false; }, 50);
+}
+
+/**
+ * IDでノードを探してメタデータ属性を更新する（D&D後のorder/parentId更新用）
+ * @param {string} sectionId
+ * @param {{ summary?: string, parentId?: string|null, sectionOrder?: number }} attrs
+ */
+function _updateSectionMetaById(sectionId, attrs) {
+  if (!editor) return;
+  let targetPos = null;
+  editor.state.doc.forEach((node, pos) => {
+    if (node.type.name === 'sectionHeading' && node.attrs.sectionId === sectionId) {
+      targetPos = pos;
+    }
+  });
+  if (targetPos !== null) {
+    _assignSectionMeta(targetPos, attrs);
+  }
+}
+
+/**
+ * IDで見出しノードを探してTiptapドキュメントから削除する（アウトライン削除ボタン用）
+ * @param {string} sectionId
+ */
+function _deleteSectionHeading(sectionId) {
+  if (!editor) return;
+  let targetFrom = null;
+  let targetTo = null;
+  editor.state.doc.forEach((node, pos) => {
+    if (node.type.name === 'sectionHeading' && node.attrs.sectionId === sectionId) {
+      targetFrom = pos;
+      targetTo = pos + node.nodeSize;
+    }
+  });
+  if (targetFrom === null) return;
+  _suppressUpdate = true;
+  editor.chain().deleteRange({ from: targetFrom, to: targetTo }).run();
   setTimeout(() => { _suppressUpdate = false; }, 50);
 }
 
@@ -547,12 +692,59 @@ window.TiptapEditor = {
   },
 
   /**
-   * 指定位置の見出しノードにsectionIdを割り当てる
+   * 指定位置の見出しノードにセクションメタデータを割り当てる
    * @param {number} pos
+   * @param {{ sectionId: string, summary?: string, parentId?: string|null, sectionOrder?: number }} meta
+   */
+  assignSectionMeta(pos, meta) {
+    _assignSectionMeta(pos, meta);
+  },
+
+  /**
+   * タイトルで見出しノードを再検索してセクションメタデータを割り当てる
+   * （非同期処理後にposが古くなっている場合に使用）
+   * @param {string} title - 検索するタイトル文字列
+   * @param {{ sectionId: string, summary?: string, parentId?: string|null, sectionOrder?: number }} meta
+   */
+  assignSectionMetaByTitle(title, meta) {
+    if (!editor) return;
+    let targetPos = null;
+    editor.state.doc.forEach((node, pos) => {
+      if (node.type.name === 'sectionHeading' && !node.attrs.sectionId) {
+        const nodeTitle = node.textContent;
+        if (nodeTitle === title) {
+          targetPos = pos;
+        }
+      }
+    });
+    if (targetPos !== null) {
+      _assignSectionMeta(targetPos, meta);
+    }
+  },
+
+  /**
+   * 全sectionHeadingノードの属性+titleを配列で返す（アウトライン更新用）
+   * @returns {{ id, title, level, summary, parentId, sectionOrder, pos }[]}
+   */
+  parseSectionsFromDoc() {
+    return _parseSectionsFromDoc();
+  },
+
+  /**
+   * IDでノードを探してメタデータ属性を更新する（D&D後のorder/parentId更新用）
+   * @param {string} sectionId
+   * @param {{ summary?: string, parentId?: string|null, sectionOrder?: number }} attrs
+   */
+  updateSectionMetaById(sectionId, attrs) {
+    _updateSectionMetaById(sectionId, attrs);
+  },
+
+  /**
+   * IDで見出しノードをTiptapドキュメントから削除する（アウトライン削除ボタン用）
    * @param {string} sectionId
    */
-  assignSectionId(pos, sectionId) {
-    _assignSectionId(pos, sectionId);
+  deleteSectionHeading(sectionId) {
+    _deleteSectionHeading(sectionId);
   },
 
   /**

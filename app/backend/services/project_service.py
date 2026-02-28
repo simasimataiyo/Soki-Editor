@@ -31,6 +31,19 @@ _APPDATA_DIR = Path.home() / "AppData" / "Roaming" / "SokiEditor"
 _DEFAULT_REGISTRY = _APPDATA_DIR / "projects_registry.json"
 
 
+def _parse_marker_id(payload: str) -> str | None:
+    """マーカーペイロード（{ JSON } または UUID 文字列）からセクション ID を抽出する。"""
+    if payload.startswith("{"):
+        try:
+            return json.loads(payload).get("id")
+        except Exception:
+            return None
+    return payload
+
+# 新形式 {JSON} / 旧形式 UUID 両方にマッチする共通パターン
+_MARKER_RE = re.compile(r'<!-- soki-section:(\{[^}]*\}|[a-f0-9-]+) -->')
+
+
 class ProjectService:
     """プロジェクトデータのインメモリキャッシュと JSON 永続化を担う。"""
 
@@ -152,7 +165,8 @@ class ProjectService:
             sec_id = sec["id"]
             title = sec.get("title", "")
             body = (sec.get("content") or "").strip()
-            parts.append(f"<!-- soki-section:{sec_id} -->\n{heading_level} {title}\n\n{body}\n")
+            meta = json.dumps({"id": sec_id, "summary": sec.get("summary", ""), "parentId": sec.get("parent_id"), "sectionOrder": sec.get("order", 0)}, ensure_ascii=False)
+            parts.append(f"<!-- soki-section:{meta} -->\n{heading_level} {title}\n\n{body}\n")
 
         data["content"] = "\n".join(parts)
 
@@ -358,7 +372,7 @@ class ProjectService:
         project = await self.get_project(project_id)
         order = data.order if data.order is not None else len(project.sections)
         sec = Section(
-            id=str(uuid.uuid4()),
+            id=data.id if data.id else str(uuid.uuid4()),
             title=data.title,
             summary=data.summary,
             parent_id=data.parent_id,
@@ -366,14 +380,21 @@ class ProjectService:
         )
         project.sections.append(sec)
 
-        # project.content にスケルトットを追記（アウトラインからの追加時）
-        depth = self._section_depth(sec, project.sections)
-        heading_level = "#" * (depth + 1)
-        # 親セクションのブロック末尾に挿入する（なければ末尾）
-        skeleton = f"\n<!-- soki-section:{sec.id} -->\n{heading_level} {sec.title}\n\n"
-        project.content = self._insert_section_skeleton(
-            project.content, sec, skeleton, project.sections
+        # 指定IDのセクション（content に既存マーカーあり）はスケルトン追記をスキップ
+        marker_exists = any(
+            _parse_marker_id(m.group(1)) == sec.id
+            for m in _MARKER_RE.finditer(project.content)
         )
+        if not marker_exists:
+            # project.content にスケルトットを追記（アウトラインからの追加時）
+            depth = self._section_depth(sec, project.sections)
+            heading_level = "#" * (depth + 1)
+            # 親セクションのブロック末尾に挿入する（なければ末尾）
+            meta = json.dumps({"id": sec.id, "summary": sec.summary or "", "parentId": sec.parent_id, "sectionOrder": sec.order}, ensure_ascii=False)
+            skeleton = f"\n<!-- soki-section:{meta} -->\n{heading_level} {sec.title}\n\n"
+            project.content = self._insert_section_skeleton(
+                project.content, sec, skeleton, project.sections
+            )
 
         self._mark_dirty(project_id)
         return sec
@@ -402,18 +423,11 @@ class ProjectService:
 
         # 親セクションのブロック範囲末尾を探す
         # 親マーカーの後、次の同レベル以上のマーカーの直前に挿入
-        parent_marker = f"<!-- soki-section:{sec.parent_id} -->"
-        parent_start = content.find(parent_marker)
-        if parent_start == -1:
-            return content + skeleton
-
-        # 親の次のセクションマーカーを探す（親の子孫を含む）
-        # 親と同じかそれ以上のレベルのセクションの次のマーカーまでが親の範囲
-        marker_pattern = re.compile(r'<!-- soki-section:[a-f0-9-]+ -->')
-        matches = list(marker_pattern.finditer(content))
+        matches = list(_MARKER_RE.finditer(content))
 
         parent_match_idx = next(
-            (i for i, m in enumerate(matches) if m.start() == parent_start), None
+            (i for i, m in enumerate(matches) if _parse_marker_id(m.group(1)) == sec.parent_id),
+            None
         )
         if parent_match_idx is None:
             return content + skeleton
@@ -437,11 +451,8 @@ class ProjectService:
         # 親マーカー以降の同じかより浅い深さの次のマーカーを探す
         insert_pos = len(content)
         for match in matches[parent_match_idx + 1:]:
-            # マーカーIDを抽出してその深さを確認
-            marker_text = content[match.start():match.end()]
-            m = re.search(r'<!-- soki-section:([a-f0-9-]+) -->', marker_text)
-            if m:
-                other_id = m.group(1)
+            other_id = _parse_marker_id(match.group(1))
+            if other_id:
                 other_depth = get_depth_by_id(other_id)
                 if other_depth <= parent_depth:
                     insert_pos = match.start()
@@ -471,15 +482,25 @@ class ProjectService:
 
     @staticmethod
     def _update_section_title_in_body(body: str, section_id: str, new_title: str) -> str:
-        """project.content 内の特定セクションの見出しタイトルを更新する。"""
+        """project.content 内の特定セクションの見出しタイトルを更新する。新旧両マーカー形式対応。"""
+        # 新旧両形式のマーカーにマッチするパターン
         pattern = re.compile(
-            r'(<!-- soki-section:' + re.escape(section_id) + r' -->\n)'
+            r'(<!-- soki-section:(?:\{[^}]*\}|' + re.escape(section_id) + r') -->\n)'
             r'(#{1,6} )([^\n]+)(\n)'
         )
-        return pattern.sub(
-            lambda m: m.group(1) + m.group(2) + new_title + m.group(4),
-            body
-        )
+
+        def replacer(m: re.Match) -> str:
+            # マーカー内のIDが対象と一致するか確認
+            marker = m.group(1)
+            payload_match = re.search(r'<!-- soki-section:(\{[^}]*\}|[a-f0-9-]+) -->', marker)
+            if not payload_match:
+                return m.group(0)
+            mid = _parse_marker_id(payload_match.group(1))
+            if mid != section_id:
+                return m.group(0)
+            return m.group(1) + m.group(2) + new_title + m.group(4)
+
+        return pattern.sub(replacer, body)
 
     async def delete_section(self, project_id: str, section_id: str) -> None:
         project = await self.get_project(project_id)
@@ -515,24 +536,28 @@ class ProjectService:
 
     @staticmethod
     def extract_section_body(body: str, section_id: str) -> str:
-        """project.content から特定セクションのボディテキスト（見出し行除く）を抽出する。"""
+        """project.content から特定セクションのボディテキスト（見出し行除く）を抽出する。新旧両マーカー形式対応。"""
         pattern = re.compile(
-            r'<!-- soki-section:' + re.escape(section_id) + r' -->\n'
+            r'<!-- soki-section:(?:\{[^}]*\}|[a-f0-9-]+) -->\n'
             r'#{1,6} [^\n]+\n'
             r'(.*?)(?=<!-- soki-section:|$)',
             re.DOTALL
         )
-        m = pattern.search(body)
-        return m.group(1).strip() if m else ''
+        for m in pattern.finditer(body):
+            # マーカーのIDが一致するブロックを探す
+            marker_match = re.search(r'<!-- soki-section:(\{[^}]*\}|[a-f0-9-]+) -->', m.group(0))
+            if marker_match and _parse_marker_id(marker_match.group(1)) == section_id:
+                return m.group(1).strip()
+        return ''
 
     @staticmethod
     def replace_section_body(body: str, section_id: str, new_body_text: str) -> str:
-        """body の中から section_id のブロックを探して本文部分を置換する。
+        """body の中から section_id のブロックを探して本文部分を置換する。新旧両マーカー形式対応。
 
         マーカー行と見出し行は保持し、その後の本文テキストのみを new_body_text に置換する。
         """
         pattern = re.compile(
-            r'(<!-- soki-section:' + re.escape(section_id) + r' -->\n'
+            r'(<!-- soki-section:(?:\{[^}]*\}|[a-f0-9-]+) -->\n'
             r'#{1,6} [^\n]+\n)'
             r'(.*?)'
             r'(?=<!-- soki-section:|$)',
@@ -544,26 +569,41 @@ class ProjectService:
         else:
             replacement_text = "\n\n"
 
+        replaced = False
+
         def replacer(m: re.Match) -> str:
-            return m.group(1) + replacement_text
+            nonlocal replaced
+            if replaced:
+                return m.group(0)
+            marker_match = re.search(r'<!-- soki-section:(\{[^}]*\}|[a-f0-9-]+) -->', m.group(1))
+            if marker_match and _parse_marker_id(marker_match.group(1)) == section_id:
+                replaced = True
+                return m.group(1) + replacement_text
+            return m.group(0)
 
         result = pattern.sub(replacer, body)
-        if result == body:
-            # マーカーが見つからなかった場合は末尾に追加（フォールバック）
+        if not replaced:
             return body
         return result
 
     @staticmethod
     def remove_section_from_body(body: str, section_id: str) -> str:
-        """body から特定セクションのマーカーブロックを除去する。"""
+        """body から特定セクションのマーカーブロックを除去する。新旧両マーカー形式対応。"""
         pattern = re.compile(
-            r'<!-- soki-section:' + re.escape(section_id) + r' -->\n'
+            r'<!-- soki-section:(?:\{[^}]*\}|[a-f0-9-]+) -->\n'
             r'#{1,6} [^\n]+\n'
             r'.*?'
             r'(?=<!-- soki-section:|$)',
             re.DOTALL
         )
-        return pattern.sub('', body)
+
+        def remover(m: re.Match) -> str:
+            marker_match = re.search(r'<!-- soki-section:(\{[^}]*\}|[a-f0-9-]+) -->', m.group(0))
+            if marker_match and _parse_marker_id(marker_match.group(1)) == section_id:
+                return ''
+            return m.group(0)
+
+        return pattern.sub(remover, body)
 
     async def reorder_sections(
         self, project_id: str, order: list[SectionOrder]

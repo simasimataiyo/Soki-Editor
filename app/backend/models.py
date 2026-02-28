@@ -150,6 +150,7 @@ class ReviewRequest(BaseModel):
 
 
 class SectionCreate(BaseModel):
+    id: Optional[str] = None  # 指定時はそのIDを使用（整合性修復時など）
     title: str
     summary: str = ""
     parent_id: Optional[str] = None
