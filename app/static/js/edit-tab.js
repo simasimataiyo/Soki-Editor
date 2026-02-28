@@ -4,20 +4,92 @@
 
 const EditTab = (() => {
   let _project = null;
-  let _saveTimer = {};
   let _dragState = null;  // ドラッグ操作状態
-  let _savedRange = null; // モーダル表示前のカーソル位置保存用
+  let _savedTiptapPos = null; // モーダル表示前のカーソル位置保存用（Tiptap ProseMirror位置）
+
+  // Tiptapのupdateイベントハンドラ管理
+  let _tiptapUpdateTimer = null;
+  let _tiptapUpdateHandler = null;
 
   /**
    * EditTabを初期化してUIを描画する
+   * Tiptapが未初期化の場合は tiptap-ready イベントを待つ
    * @param {object} project - プロジェクトオブジェクト
    */
   function render(project) {
     _project = project;
     _renderOutline();
-    _renderDocView();
+
+    if (window.TiptapEditor && window.TiptapEditor.getEditor()) {
+      _renderDocView();
+      _registerTiptapUpdateHandler();
+    } else {
+      // type="module" スクリプトの遅延読み込みに対応
+      document.addEventListener('tiptap-ready', () => {
+        _renderDocView();
+        _registerTiptapUpdateHandler();
+      }, { once: true });
+    }
+
     _initReferencesCheckbox(project);
     _updateCharCount();
+  }
+
+  /**
+   * Tiptapのupdateイベントハンドラを登録する
+   * render()が呼ばれるたびに旧ハンドラを解除して再登録する
+   */
+  function _registerTiptapUpdateHandler() {
+    const editor = window.TiptapEditor.getEditor();
+    if (!editor) return;
+
+    if (_tiptapUpdateHandler) editor.off('update', _tiptapUpdateHandler);
+
+    _tiptapUpdateHandler = () => {
+      if (window.TiptapEditor._suppressUpdate) return;
+
+      // parseSections → in-memoryを即時更新（文字数カウント用）
+      const parsed = window.TiptapEditor.parseSections();
+      for (const p of parsed) {
+        if (!p.id) continue;
+        const sec = _project.sections.find(s => s.id === p.id);
+        if (sec) {
+          sec.content = p.content;
+          sec.title = p.title;
+        }
+      }
+      _updateCharCount();
+
+      // 2秒debounceでAPIに保存
+      clearTimeout(_tiptapUpdateTimer);
+      _tiptapUpdateTimer = setTimeout(() => {
+        const project = window.appState.getProject();
+        if (!project) return;
+        _syncTiptapToBackend(parsed, project);
+      }, 2000);
+    };
+
+    editor.on('update', _tiptapUpdateHandler);
+  }
+
+  /**
+   * TiptapのパースデータをバックエンドAPIにdiff保存する
+   * 変更のあるセクションのみPUTリクエストを送る
+   */
+  async function _syncTiptapToBackend(parsedSections, project) {
+    for (const p of parsedSections) {
+      if (!p.id) continue; // IDなし見出し（ユーザーが手動追加）はスキップ
+      const existing = project.sections.find(s => s.id === p.id);
+      if (!existing) continue;
+      const updates = {};
+      if (p.content !== existing.content) updates.content = p.content;
+      if (p.title !== existing.title) updates.title = p.title;
+      if (Object.keys(updates).length === 0) continue;
+      try {
+        await ApiClient.put(`/api/projects/${project.id}/sections/${p.id}`, updates);
+        Object.assign(existing, updates);
+      } catch (_) { }
+    }
   }
 
   /**
@@ -176,19 +248,18 @@ const EditTab = (() => {
     }
 
     li.addEventListener('click', () => {
-      const el = document.getElementById(`sec-block-${sec.id}`);
-      if (el) {
-        // トップバーの高さを考慮して位置調整
-        const topBar = document.querySelector('.top-bar');
-        const topBarHeight = topBar ? topBar.offsetHeight : 0;
-        // scrollIntoViewでまずビュー内に表示
-        el.scrollIntoView({ block: 'start' });
-        // 少し遅延後にトップバーの高さ分を調整
-        requestAnimationFrame(() => {
-          const rect = el.getBoundingClientRect();
-          const scrollTop = window.scrollY + rect.top - topBarHeight;
-          window.scrollTo({ behavior: 'smooth', top: Math.max(0, scrollTop) });
-        });
+      // Tiptapの対応する見出しへスクロール
+      const headingEl = document.querySelector(`#tiptap-editor-mount [data-section-id="${sec.id}"]`);
+      if (headingEl) {
+        const docView = document.getElementById('doc-view');
+        if (docView) {
+          const mountEl = document.getElementById('tiptap-editor-mount');
+          const mountTop = mountEl ? mountEl.offsetTop : 0;
+          const offset = headingEl.offsetTop + mountTop;
+          docView.scrollTo({ top: Math.max(0, offset - 8), behavior: 'smooth' });
+        } else {
+          headingEl.scrollIntoView({ block: 'start' });
+        }
       }
 
       // 選択状態を更新
@@ -227,27 +298,26 @@ const EditTab = (() => {
 
   // ─── ドキュメントビュー ─────────────────────────────────
 
-  let _secCollapsed = {};  // ドキュメントビュー折りたたみ状態
-
   /**
    * ドキュメントビュー全体を再描画する
-   * ルートセクションをツリー構造でレンダリングし、参考文献ブロックも表示する
+   * TiptapにセクションデータをロードしてWYSIWYGビューを更新する
    */
   function _renderDocView() {
-    const container = document.getElementById('doc-sections');
-    container.innerHTML = '';
-    const sorted = [..._project.sections].sort((a, b) => a.order - b.order);
+    if (!window.TiptapEditor) return;
 
-    // ツリー構造で再帰的にレンダリング
-    const roots = sorted.filter(s => !s.parent_id);
-    roots.forEach(sec => _renderDocSection(container, sec, sorted, 1));
+    // Tiptapにセクションデータをセット
+    window.TiptapEditor.setContentFromSections(_project.sections);
 
-    // 参考文献セクション（有効時のみ表示）
+    // 参考文献ブロックを#doc-view末尾に表示
+    const docView = document.getElementById('doc-view');
+    const existingRefBlock = docView.querySelector('.references-block');
+    if (existingRefBlock) existingRefBlock.remove();
+
     if (_project.references_section_enabled) {
-      _renderReferencesBlock(container, sorted);
+      const sorted = [..._project.sections].sort((a, b) => a.order - b.order);
+      _renderReferencesBlock(docView, sorted);
     }
 
-    // 選択中セクションのフローティングアクション（文献挿入・図表挿入）を復元
     _updateDocViewEditMode();
   }
 
@@ -327,175 +397,6 @@ const EditTab = (() => {
     container.appendChild(block);
   }
 
-  /**
-   * ドキュメントビューの1セクションブロックをレンダリングする
-   * 折りたたみ・選択・編集・削除・移動・子セクション追加のイベントを設定する
-   * @param {HTMLElement} container - 追加先の親要素
-   * @param {object} sec - セクションオブジェクト
-   * @param {Array} allSorted - order順にソート済みの全セクション配列
-   * @param {number} depth - 現在の階層深さ（1始まり）
-   */
-  function _renderDocSection(container, sec, allSorted, depth) {
-    const children = allSorted.filter(s => s.parent_id === sec.id);
-    const hasChildren = children.length > 0;
-    const isCollapsed = _secCollapsed[sec.id];
-    const isSelected = (window.appState.getSelectedSectionId() === sec.id);
-
-    const block = document.createElement('div');
-    block.className = `section-block depth-${depth}${isSelected ? ' selected' : ''}`;
-    block.id = `sec-block-${sec.id}`;
-    block.dataset.secId = sec.id;
-
-    const level = Math.min(depth + 1, 6);
-    const tag = `h${level}`;
-    const toggleIcon = isCollapsed ? SVG_TOGGLE_RIGHT : SVG_TOGGLE_DOWN;
-    const bulletMark = _getBulletMark(sec, allSorted);
-
-
-    block.innerHTML = `
-      <div class="section-header">
-        <span class="section-toggle" data-action="sec-toggle">${toggleIcon}</span>
-        <${tag} class="section-title" data-action="sec-collapse-toggle" data-sec-id="${sec.id}">
-          ${escHtml(sec.title)}
-        </${tag}>
-        <div class="section-actions">
-          <button class="btn-icon" data-action="add-child" title="子セクション追加" data-sec-id="${sec.id}">${SVG_ADD_CHILD}</button>
-          <button class="btn-icon" data-action="up" title="上へ">${SVG_ARROW_UP}</button>
-          <button class="btn-icon" data-action="down" title="下へ">${SVG_ARROW_DOWN}</button>
-          <button class="btn-icon" data-action="edit" title="編集">${SVG_EDIT}</button>
-          <button class="btn-icon" data-action="delete" title="削除">${SVG_DELETE}</button>
-        </div>
-      </div>
-      <div class="section-body${isCollapsed ? ' collapsed' : ''}">
-        <div class="section-summary${isSelected ? '' : ' hidden'}" contenteditable="${isSelected}" data-sec-id="${sec.id}" data-field="summary">${escHtml(sec.summary)}</div>
-        <div class="section-content-wrapper" style="position: relative;">
-          <div class="section-content" contenteditable="${isSelected}" data-sec-id="${sec.id}" data-field="content">${escHtml(sec.content)}</div>
-        </div>
-        <div class="section-children"></div>
-      </div>
-    `;
-
-    // 折りたたみトグル（コラプスボタンのみ）
-    block.querySelector('[data-action="sec-toggle"]').addEventListener('click', (e) => {
-      e.stopPropagation();
-      _secCollapsed[sec.id] = !_secCollapsed[sec.id];
-      _renderDocView();
-    });
-
-    // セクションブロッククリックで選択
-    block.addEventListener('click', (e) => {
-      // クリック対象が子孫のセクションブロックに属する場合は無視
-      // （子セクション自身のハンドラに任せる）
-      const closestBlock = e.target.closest('.section-block');
-      if (closestBlock !== block) return;
-
-      // content/summary クリック: 未選択なら選択してから編集可能にする
-      if (e.target.closest('[data-field="summary"]') || e.target.closest('[data-field="content"]')) {
-        if (window.appState.getSelectedSectionId() !== sec.id) {
-          window.appState.setSelectedSectionId(sec.id);
-          _updateDocViewEditMode();
-          AppShell.setCurrentScope(sec.id);
-        }
-        e.stopPropagation();
-        return;
-      }
-
-      // アクションボタン以外のクリックで選択
-      if (!e.target.closest('.section-actions') && !e.target.closest('.section-floating-actions')) {
-        window.appState.setSelectedSectionId(sec.id);
-        _updateDocViewEditMode();
-        AppShell.setCurrentScope(sec.id);
-      }
-    });
-
-    // 子セクション追加
-    block.querySelector('[data-action="add-child"]').addEventListener('click', (e) => {
-      e.stopPropagation();
-      _showAddSectionModal(sec.id);
-    });
-
-    // アクションボタン
-    block.querySelector('[data-action="edit"]').addEventListener('click', (e) => {
-      e.stopPropagation();
-      _editSectionMeta(sec);
-    });
-    block.querySelector('[data-action="delete"]').addEventListener('click', (e) => {
-      e.stopPropagation();
-      _deleteSection(sec);
-    });
-    block.querySelector('[data-action="up"]').addEventListener('click', (e) => {
-      e.stopPropagation();
-      _moveSection(sec, -1);
-    });
-    block.querySelector('[data-action="down"]').addEventListener('click', (e) => {
-      e.stopPropagation();
-      _moveSection(sec, 1);
-    });
-
-    // 概要・本文の変更保存（デバウンス）- contenteditable=false の間は input イベントが発火しないため常時登録
-    ['summary', 'content'].forEach(field => {
-      const el = block.querySelector(`[data-field="${field}"]`);
-      el.addEventListener('input', () => _debounceSave(sec.id, field, el));
-      // Tabキーでインデント挿入
-      el.addEventListener('keydown', (e) => {
-        if (e.key === 'Tab' && el.getAttribute('contenteditable') === 'true') {
-          e.preventDefault();
-          document.execCommand('insertText', false, '    ');
-        }
-      });
-      // ペースト時: スタイル情報を除去し、改行・空白のみプレーンテキストとして挿入
-      el.addEventListener('paste', (e) => {
-        e.preventDefault();
-        const text = (e.clipboardData || window.clipboardData).getData('text/plain');
-        document.execCommand('insertText', false, text);
-      });
-    });
-
-    container.appendChild(block);
-
-    // 子セクションをsection-children内にレンダリング
-    if (hasChildren && !isCollapsed) {
-      const childrenContainer = block.querySelector('.section-children');
-      children.sort((a, b) => a.order - b.order).forEach(child => {
-        _renderDocSection(childrenContainer, child, allSorted, depth + 1);
-      });
-    }
-  }
-
-  /**
-   * セクションのフィールド変更を2秒デバウンスしてAPIに保存する
-   * contentフィールドの場合は入力中もリアルタイムで文字数表示を更新する
-   * @param {string} sectionId - セクションID
-   * @param {string} field - 保存するフィールド名（'summary' または 'content'）
-   * @param {HTMLElement} el - 入力要素（innerTextを取得）
-   */
-  function _debounceSave(sectionId, field, el) {
-    const key = `${sectionId}-${field}`;
-    clearTimeout(_saveTimer[key]);
-    // 入力中もリアルタイムで文字数更新（contentフィールドの場合）
-    if (field === 'content') {
-      const project = window.appState.getProject();
-      if (project) {
-        const sec = project.sections.find(s => s.id === sectionId);
-        if (sec) sec[field] = el.innerText;
-        _updateCharCount();
-      }
-    }
-    _saveTimer[key] = setTimeout(async () => {
-      const project = window.appState.getProject();
-      if (!project) return;
-      const value = el.innerText;
-      try {
-        const updated = await ApiClient.put(
-          `/api/projects/${project.id}/sections/${sectionId}`,
-          { [field]: value }
-        );
-        // セクションをメモリ更新（画面再描画なし）
-        const sec = project.sections.find(s => s.id === sectionId);
-        if (sec) sec[field] = value;
-      } catch (_) { }
-    }, 2000);
-  }
 
   // ─── セクション操作 ─────────────────────────────────────
 
@@ -605,7 +506,6 @@ const EditTab = (() => {
     project.sections = project.sections.filter(s => s.id !== sec.id);
     _renderOutline();
     _renderDocView();
-    document.getElementById(`sec-block-${sec.id}`)?.remove();
 
     UndoRedoManager.push({
       do: async () => {
@@ -688,30 +588,21 @@ const EditTab = (() => {
     project.sections.push(sec);
     _renderOutline();
     _renderDocView();
-    _renderScopeSelect();
+    ReviewTab.updateSections(_project);
   }
 
   // ─── 文献・図表挿入ダイアログ ──────────────────────────
 
   /**
-   * 現在のカーソル位置を _savedRange に保存する
-   * カーソルが選択中セクションのcontentエリア内にない場合は null にリセットする
+   * 現在のTiptapカーソル位置を _savedTiptapPos に保存する
    */
   function _saveCursorPosition() {
-    const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0) {
-      const range = sel.getRangeAt(0);
-      // カーソルが選択中セクションの content 内にあるか確認
-      const selectedId = window.appState.getSelectedSectionId();
-      if (selectedId) {
-        const contentEl = document.querySelector(`[data-field="content"][data-sec-id="${selectedId}"]`);
-        if (contentEl && contentEl.contains(range.startContainer)) {
-          _savedRange = range.cloneRange();
-          return;
-        }
-      }
+    const editor = window.TiptapEditor && window.TiptapEditor.getEditor();
+    if (editor) {
+      _savedTiptapPos = editor.state.selection.from;
+    } else {
+      _savedTiptapPos = null;
     }
-    _savedRange = null;
   }
 
   /**
@@ -749,33 +640,26 @@ const EditTab = (() => {
   }
 
   /**
-   * 保存済みカーソル位置にテキストを挿入する
-   * カーソル位置が無効な場合はcontentエリアの末尾に追加する
+   * 保存済みカーソル位置（Tiptap ProseMirror位置）にテキストを挿入する
+   * カーソル位置が無効な場合はセクションのコンテンツ末尾に追加する
    * @param {string} sectionId - 挿入先のセクションID
    * @param {string} text - 挿入するテキスト
    */
   function _insertAtCursor(sectionId, text) {
-    const contentEl = document.querySelector(`[data-field="content"][data-sec-id="${sectionId}"]`);
-    if (!contentEl) return;
+    const editor = window.TiptapEditor && window.TiptapEditor.getEditor();
+    if (!editor) return;
 
-    // 保存済みカーソル位置を復元して挿入
-    if (_savedRange && contentEl.contains(_savedRange.startContainer)) {
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(_savedRange);
-      _savedRange.deleteContents();
-      _savedRange.insertNode(document.createTextNode(text));
-      sel.collapseToEnd();
+    if (_savedTiptapPos !== null) {
+      editor.chain().focus().insertContentAt(_savedTiptapPos, text).run();
     } else {
-      // カーソル位置がない場合は末尾に追加
-      const existing = contentEl.innerText;
-      const separator = existing && !existing.endsWith('\n') ? '\n' : '';
-      contentEl.innerText = existing + separator + text;
+      // フォールバック: セクションのコンテンツ末尾に挿入
+      const endPos = window.TiptapEditor.getSectionContentEnd(sectionId);
+      if (endPos !== null) {
+        editor.chain().focus().insertContentAt(endPos, text).run();
+      }
     }
-    _savedRange = null;
-
-    // input イベントを発火して自動保存をトリガー
-    contentEl.dispatchEvent(new Event('input', { bubbles: true }));
+    _savedTiptapPos = null;
+    // Tiptapのupdateイベントが自動保存をトリガーする
   }
 
 
@@ -792,17 +676,6 @@ const EditTab = (() => {
     let d = 1, pid = sec.parent_id;
     while (pid && byId[pid]) { d++; pid = byId[pid].parent_id; }
     return d;
-  }
-
-  /**
-   * セクションの階層深さに応じたビュレット記号を返す
-   * @param {object} sec - 対象セクションオブジェクト
-   * @param {Array} allSections - 全セクション配列
-   * @returns {string} ビュレット記号（深さ1〜2: '•'、3以降: '▸'）
-   */
-  function _getBulletMark(sec, allSections) {
-    const depth = _sectionDepth(sec, allSections);
-    return depth === 1 ? '•' : depth === 2 ? '•' : '▸';
   }
 
   // ─── ドラッグアンドドロップ ─────────────────────────────
@@ -917,7 +790,7 @@ const EditTab = (() => {
 
     _renderOutline();
     _renderDocView();
-    _renderScopeSelect();
+    ReviewTab.updateSections(_project);
     showToast('セクションを移動しました', 'success');
   }
 
@@ -955,69 +828,53 @@ const EditTab = (() => {
   // ─── 編集モード更新 ───────────────────────────────────
 
   /**
-   * 選択中セクションに応じてドキュメントビューの編集モードを更新する
-   * contenteditable・summary表示・フローティングアクションボタン・アウトライン選択状態を同期する
+   * 選択中セクションに応じてUI状態を更新する（Tiptap移行後の簡略版）
+   * アウトライン選択状態・セクションツールバーの表示/非表示を管理する
    */
   function _updateDocViewEditMode() {
     const selectedId = window.appState.getSelectedSectionId();
 
-    document.querySelectorAll('.section-block').forEach(block => {
-      const secId = block.dataset.secId;
+    // アウトラインの選択状態を全セクションで更新
+    document.querySelectorAll('.outline-item').forEach(item => {
+      const secId = item.dataset.id;
       const isSelected = (secId === selectedId);
-
-      // クラス更新
-      block.classList.toggle('selected', isSelected);
-
-      // contenteditable更新 + summaryの表示切り替え
-      // data-sec-id でフィルタして、ネストした子セクションの要素に影響しないようにする
-      const summaryEl = block.querySelector(`[data-field="summary"][data-sec-id="${secId}"]`);
-      if (summaryEl) {
-        summaryEl.setAttribute('contenteditable', isSelected);
-        summaryEl.classList.toggle('hidden', !isSelected);
-      }
-      const contentEl = block.querySelector(`[data-field="content"][data-sec-id="${secId}"]`);
-      if (contentEl) {
-        contentEl.setAttribute('contenteditable', isSelected);
-      }
-
-      // アウトラインの選択状態も更新
-      const outlineItem = document.querySelector(`.outline-item[data-id="${secId}"]`);
-      if (outlineItem) {
-        outlineItem.classList.toggle('selected', isSelected);
-        outlineItem.classList.toggle('active', isSelected);
-      }
+      item.classList.toggle('selected', isSelected);
+      item.classList.toggle('active', isSelected);
     });
 
-    // 選択中セクションにフローティングアクションボタンを表示
-    document.querySelectorAll('.section-floating-actions').forEach(el => el.remove());
+    // セクションツールバー（文献挿入・図表挿入）の表示/非表示
+    const toolbar = document.getElementById('tiptap-section-toolbar');
+    const toolbarLabel = document.getElementById('tiptap-toolbar-label');
+    if (toolbar) {
+      if (selectedId) {
+        const sec = _project && _project.sections.find(s => s.id === selectedId);
+        if (toolbarLabel) toolbarLabel.textContent = sec ? sec.title : '';
+        toolbar.style.display = '';
 
-    if (selectedId) {
-      const selectedBlock = document.querySelector(`#sec-block-${selectedId}`);
-      if (selectedBlock) {
-        const contentWrapper = selectedBlock.querySelector('.section-content-wrapper');
-        if (contentWrapper) {
-          const floatingActions = document.createElement('div');
-          floatingActions.className = 'section-floating-actions';
-          floatingActions.innerHTML = `
-            <button class="btn btn-sm btn-secondary" data-action="insert-ref" data-sec-id="${selectedId}">文献挿入</button>
-            <button class="btn btn-sm btn-secondary" data-action="insert-fig" data-sec-id="${selectedId}">図表挿入</button>
-          `;
-          contentWrapper.appendChild(floatingActions);
-
-          // ボタンイベントバインド
-          floatingActions.querySelector('[data-action="insert-ref"]').addEventListener('click', (e) => {
+        // ボタンのイベントを再バインド（cloneして重複防止）
+        const refBtn = toolbar.querySelector('[data-action="insert-ref"]');
+        const figBtn = toolbar.querySelector('[data-action="insert-fig"]');
+        if (refBtn) {
+          const newRefBtn = refBtn.cloneNode(true);
+          refBtn.parentNode.replaceChild(newRefBtn, refBtn);
+          newRefBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             _showInsertRefDialog(selectedId);
           });
-          floatingActions.querySelector('[data-action="insert-fig"]').addEventListener('click', (e) => {
+        }
+        if (figBtn) {
+          const newFigBtn = figBtn.cloneNode(true);
+          figBtn.parentNode.replaceChild(newFigBtn, figBtn);
+          newFigBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             _showInsertFigDialog(selectedId);
           });
         }
+      } else {
+        toolbar.style.display = 'none';
+        // 全セクション非選択時はスコープを「全セクション(骨子)」に戻す
+        AppShell.setCurrentScope('all');
       }
-    } else {
-      // 全セクション非選択時はスコープを「全セクション(骨子)」に戻す
-      AppShell.setCurrentScope('all');
     }
 
     _updateCharCount();
@@ -1134,7 +991,7 @@ const EditTab = (() => {
 
     _renderOutline();
     _renderDocView();
-    _renderScopeSelect();
+    ReviewTab.updateSections(_project);
     _updateDocViewEditMode();
   }
 
@@ -1150,29 +1007,30 @@ const EditTab = (() => {
       _showAddSectionModal();
     });
 
-    // テキスト選択時の文字数表示（selectionchange イベント）
-    document.addEventListener('selectionchange', () => {
-      const display = document.getElementById('char-count-display');
-      if (!display || window.appState.getState().activeTab !== 'edit') return;
-
-      const sel = window.getSelection();
-      const selText = sel ? sel.toString() : '';
-
-      if (selText.length > 0) {
-        // エディタ内のテキスト選択かチェック（section-content または section-summary 内）
-        const anchorEl = sel.anchorNode?.parentElement;
-        const inEditor = anchorEl?.closest('[data-field="content"], [data-field="summary"]');
-        if (inEditor) {
+    // Tiptapのテキスト選択時の文字数表示（tiptap-ready後に登録）
+    function _bindTiptapSelectionUpdate() {
+      const editor = window.TiptapEditor && window.TiptapEditor.getEditor();
+      if (!editor) return;
+      editor.on('selectionUpdate', ({ editor: ed }) => {
+        const display = document.getElementById('char-count-display');
+        if (!display || window.appState.getState().activeTab !== 'edit') return;
+        const { from, to } = ed.state.selection;
+        if (from !== to) {
+          const selText = ed.state.doc.textBetween(from, to, ' ');
           const count = selText.replace(/\s/g, '').length;
           display.textContent = `選択: ${count.toLocaleString()} 文字`;
           display.style.display = '';
-          return;
+        } else {
+          _updateCharCount();
         }
-      }
+      });
+    }
 
-      // 選択なし or エディタ外の場合は通常の文字数表示に戻す
-      _updateCharCount();
-    });
+    if (window.TiptapEditor && window.TiptapEditor.getEditor()) {
+      _bindTiptapSelectionUpdate();
+    } else {
+      document.addEventListener('tiptap-ready', _bindTiptapSelectionUpdate, { once: true });
+    }
   }
 
   /**
@@ -1181,10 +1039,17 @@ const EditTab = (() => {
    */
   function reset() {
     _project = null;
-    _saveTimer = {};
     _dragState = null;
     _collapsed = {};
-    _secCollapsed = {};
+    _savedTiptapPos = null;
+    clearTimeout(_tiptapUpdateTimer);
+    _tiptapUpdateTimer = null;
+    // Tiptapのupdateハンドラを解除
+    if (_tiptapUpdateHandler && window.TiptapEditor) {
+      const editor = window.TiptapEditor.getEditor();
+      if (editor) editor.off('update', _tiptapUpdateHandler);
+    }
+    _tiptapUpdateHandler = null;
   }
 
   return {

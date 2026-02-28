@@ -278,7 +278,7 @@ const AppShell = (() => {
     // 選択テキストをキャプチャ（フォーカス変化前に取得）
     const _sel = window.getSelection();
     const _selAnchor = _sel?.anchorNode?.parentElement;
-    const _isInEditor = _selAnchor?.closest('[data-field="content"], [data-field="summary"]');
+    const _isInEditor = _selAnchor?.closest('#tiptap-editor-mount .ProseMirror, [data-field="content"], [data-field="summary"]');
     const _selectedText = (_isInEditor && _sel.toString().trim()) ? _sel.toString().trim() : null;
 
     // /clear コマンド: LLM を呼ばずに新スコープを作成して終了
@@ -390,28 +390,13 @@ const AppShell = (() => {
 
     setStopMode();
 
-    // コマンド実行時: 編集対象セクションの contenteditable を非活性化
-    const _disabledContentEls = [];
+    // コマンド実行時: Tiptapエディタをロックして編集を無効化
     if (parsed.command) {
-      const targetEls = contextScope === 'all'
-        ? document.querySelectorAll('[data-field="content"], [data-field="summary"]')
-        : document.querySelectorAll(`[data-field="content"][data-sec-id="${contextScope}"], [data-field="summary"][data-sec-id="${contextScope}"]`);
-
-      targetEls.forEach(el => {
-        if (el.getAttribute('contenteditable') === 'true') {
-          el.setAttribute('contenteditable', 'false');
-          el.dataset.disabledByLlm = 'true';
-          _disabledContentEls.push(el);
-        }
-      });
+      if (window.TiptapEditor) window.TiptapEditor.setEditable(false);
     }
 
     function _restoreEditability() {
-      _disabledContentEls.forEach(el => {
-        el.setAttribute('contenteditable', 'true');
-        delete el.dataset.disabledByLlm;
-      });
-      _disabledContentEls.length = 0;
+      if (window.TiptapEditor) window.TiptapEditor.setEditable(true);
     }
 
     const isCommand = !!parsed.command;
@@ -522,20 +507,18 @@ const AppShell = (() => {
           { content }
         );
         sec.content = content;
-
-        const contentEl = document.querySelector(`[data-sec-id="${section_id}"][data-field="content"]`);
-        if (contentEl) contentEl.innerText = content;
+        if (window.TiptapEditor) window.TiptapEditor.updateSectionContent(section_id, content);
 
         UndoRedoManager.push({
           do: async () => {
             await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { content });
             sec.content = content;
-            if (contentEl) contentEl.innerText = content;
+            if (window.TiptapEditor) window.TiptapEditor.updateSectionContent(section_id, content);
           },
           undo: async () => {
             await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { content: oldContent });
             sec.content = oldContent;
-            if (contentEl) contentEl.innerText = oldContent;
+            if (window.TiptapEditor) window.TiptapEditor.updateSectionContent(section_id, oldContent);
           },
         });
 
@@ -553,20 +536,18 @@ const AppShell = (() => {
             { content }
           );
           sec.content = content;
-
-          const contentEl = document.querySelector(`[data-sec-id="${section_id}"][data-field="content"]`);
-          if (contentEl) contentEl.innerText = content;
+          if (window.TiptapEditor) window.TiptapEditor.updateSectionContent(section_id, content);
 
           UndoRedoManager.push({
             do: async () => {
               await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { content });
               sec.content = content;
-              if (contentEl) contentEl.innerText = content;
+              if (window.TiptapEditor) window.TiptapEditor.updateSectionContent(section_id, content);
             },
             undo: async () => {
               await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { content: oldContent });
               sec.content = oldContent;
-              if (contentEl) contentEl.innerText = oldContent;
+              if (window.TiptapEditor) window.TiptapEditor.updateSectionContent(section_id, oldContent);
             },
           });
         }
@@ -595,8 +576,7 @@ const AppShell = (() => {
         if (!sec) return;
         await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { summary });
         sec.summary = summary;
-        const summaryEl = document.querySelector(`[data-sec-id="${section_id}"][data-field="summary"]`);
-        if (summaryEl) summaryEl.innerText = summary;
+        // summaryはTiptap内に表示しないため、DOM更新不要
 
       } else if (tool === 'delete_section') {
         const { section_id } = args;

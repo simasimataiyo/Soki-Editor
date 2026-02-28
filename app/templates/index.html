@@ -112,7 +112,12 @@
               </aside>
               <!-- 右メインエリア: ドキュメントビュー -->
               <div class="doc-view" id="doc-view">
-                <div id="doc-sections"></div>
+                <div id="tiptap-section-toolbar" class="tiptap-section-toolbar" style="display:none">
+                  <span id="tiptap-toolbar-label" class="tiptap-toolbar-label"></span>
+                  <button class="btn btn-sm btn-secondary" data-action="insert-ref">文献挿入</button>
+                  <button class="btn btn-sm btn-secondary" data-action="insert-fig">図表挿入</button>
+                </div>
+                <div id="tiptap-editor-mount"></div>
               </div>
             </div>
             <!-- チャット入力バー -->
@@ -334,6 +339,7 @@
   <script src="/static/js/undo-redo-manager.js"></script>
   <script src="/static/js/modal.js"></script>
   <script src="/static/js/project-selector.js"></script>
+  <script type="module" src="/static/js/tiptap-editor.js"></script>
   <script src="/static/js/edit-tab.js"></script>
   <script src="/static/js/source-tab.js"></script>
   <script src="/static/js/material-tab.js"></script>

@@ -556,5 +556,10 @@ const ReviewTab = (() => {
     if (_sseCtrl) { _sseCtrl.abort(); _sseCtrl = null; }
   }
 
-  return { render, bindEvents, reset };
+  function updateSections(project) {
+    _project = project;
+    _renderScopeSelect();
+  }
+
+  return { render, bindEvents, reset, renderScopeSelect: _renderScopeSelect, updateSections };
 })();
