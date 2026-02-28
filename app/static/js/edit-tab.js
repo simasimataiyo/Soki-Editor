@@ -119,54 +119,123 @@ const EditTab = (() => {
    */
   async function _detectAndHandleNewHeadings() {
     if (!window.TiptapEditor.getHeadingsWithoutSectionId) return;
-    const headings = window.TiptapEditor.getHeadingsWithoutSectionId();
+    const editor = window.TiptapEditor.getEditor();
+    if (!editor) return;
+    const { from } = editor.state.selection;
+    let headings = window.TiptapEditor.getHeadingsWithoutSectionId();
     if (!headings || headings.length === 0) return;
+
+    // カーソルが内部にある見出し（＝編集中）は除外する
+    headings = headings.filter(h => {
+      // headingのposは開始位置、ノード全体は nodeSize
+      return !(from >= h.pos && from <= h.pos + h.nodeSize);
+    });
+    if (headings.length === 0) return;
 
     const project = window.appState.getProject();
     if (!project) return;
 
     for (const h of headings) {
-      // 親セクションを推定
-      const parentId = _inferParentId(h, project);
-      const siblings = project.sections.filter(s => s.parent_id === parentId);
-      const maxOrder = siblings.reduce((m, s) => Math.max(m, s.order), -1);
+      // タイトルが空の場合はまだ確定していないとみなしてスキップ
+      if (!h.title || h.title.trim() === '') continue;
+
+      // 前方から直近の既存見出しを探し、親と挿入順序を推定する
+      const { parentId, order, orderUpdates } = _inferHierarchyAndOrder(h, project, editor);
 
       try {
         const sec = await ApiClient.post(`/api/projects/${project.id}/sections`, {
           title: h.title,
           summary: '',
           parent_id: parentId,
-          order: maxOrder + 1,
+          order: order,
         });
         project.sections.push(sec);
+
+        // ローカルの後続の兄弟セクションのorderを更新
+        if (orderUpdates.length > 0) {
+          orderUpdates.forEach(u => {
+            const s = project.sections.find(sx => sx.id === u.section_id);
+            if (s) s.order = u.order;
+          });
+          // APIで一括リオーダー
+          await ApiClient.post(`/api/projects/${project.id}/sections/reorder`, [
+            { section_id: sec.id, parent_id: parentId, order: sec.order },
+            ...orderUpdates
+          ]);
+        }
+
         // TiptapノードにsectionId属性を付与
         window.TiptapEditor.assignSectionId(h.pos, sec.id);
         _renderOutline();
-      } catch (_) { }
+      } catch (e) { console.error(e) }
     }
   }
 
   /**
-   * 見出しのレベルから親セクションを推定する
-   * @param {{title: string, level: number, pos: number}} heading
-   * @param {object} project
-   * @returns {string|null}
+   * 見出しの位置から親セクションと挿入位置（order）を推定し、
+   * シフトすべき後続の兄弟セクションへの再計算リストを返す
+   * @param {object} heading 
+   * @param {object} project 
+   * @param {object} editor 
+   * @returns {{parentId: string|null, order: number, orderUpdates: object[]}}
    */
-  function _inferParentId(heading, project) {
-    // レベル2（##）はルート直下
-    if (heading.level <= 2) return null;
-    // より浅いレベルのセクションを探す
-    const content = window.TiptapEditor.getContentAsMarkdown();
-    const lines = content.substring(0, heading.pos).split('\n');
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const m = lines[i].match(/^(#{1,6})\s+(.+)/);
-      if (m && m[1].length < heading.level) {
-        const parentTitle = m[2].trim();
-        const parentSec = project.sections.find(s => s.title === parentTitle);
-        if (parentSec) return parentSec.id;
+  function _inferHierarchyAndOrder(heading, project, editor) {
+    let parentId = null;
+    let prevSiblingId = null;
+
+    // Tiptapドキュメント上で、この見出しより前にあるID付き見出しを列挙
+    const prevHeadings = [];
+    editor.state.doc.nodesBetween(0, heading.pos, (node, pos) => {
+      if (node.type.name === 'sectionHeading' && node.attrs.sectionId) {
+        prevHeadings.push({ id: node.attrs.sectionId, level: node.attrs.level });
+      }
+    });
+
+    // 親を探す: 逆順に見て、h.level より小さいレベルの見出しが親
+    for (let i = prevHeadings.length - 1; i >= 0; i--) {
+      const ph = prevHeadings[i];
+      if (ph.level < heading.level) {
+        parentId = ph.id;
+        break;
       }
     }
-    return null;
+
+    // 挿入すべき order を決定するため、同じ親を持つ直前の兄弟要素を探す
+    for (let i = prevHeadings.length - 1; i >= 0; i--) {
+      const ph = prevHeadings[i];
+      if (ph.level < heading.level) break; // 親に到達したら探索終了
+      const pSec = project.sections.find(s => s.id === ph.id);
+      if (pSec && pSec.parent_id === parentId) {
+        prevSiblingId = ph.id;
+        break;
+      }
+    }
+
+    const siblings = project.sections
+      .filter(s => s.parent_id === parentId)
+      .sort((a, b) => a.order - b.order);
+
+    let insertIndex = 0;
+    if (prevSiblingId) {
+      const idx = siblings.findIndex(s => s.id === prevSiblingId);
+      if (idx !== -1) insertIndex = idx + 1;
+      else insertIndex = siblings.length;
+    }
+
+    const orderUpdates = [];
+    for (let i = insertIndex; i < siblings.length; i++) {
+      orderUpdates.push({
+        section_id: siblings[i].id,
+        parent_id: parentId,
+        order: i + 1
+      });
+    }
+
+    return {
+      parentId,
+      order: insertIndex,
+      orderUpdates
+    };
   }
 
   /**
@@ -698,8 +767,8 @@ const EditTab = (() => {
       sec.parent_id = newParentId;
       sec.order = updateData.order;
     }
+    await _syncOutlineToBody();
     _renderOutline();
-    _renderDocView();
   }
 
   /**
@@ -714,14 +783,8 @@ const EditTab = (() => {
     await ApiClient.delete(`/api/projects/${project.id}/sections/${sec.id}`);
     project.sections = project.sections.filter(s => s.id !== sec.id);
 
-    // 削除後にproject.contentを再取得して同期
-    try {
-      const result = await ApiClient.get(`/api/projects/${project.id}/content`);
-      project.content = result.content;
-    } catch (_) { }
-
+    await _syncOutlineToBody();
     _renderOutline();
-    _renderDocView();
   }
 
   /**
@@ -746,8 +809,8 @@ const EditTab = (() => {
     await ApiClient.post(`/api/projects/${project.id}/sections/reorder`,
       siblings.map(s => ({ section_id: s.id, parent_id: s.parent_id, order: s.order }))
     );
+    await _syncOutlineToBody();
     _renderOutline();
-    _renderDocView();
   }
 
   // ─── セクション追加ボタン ──────────────────────────────
@@ -765,8 +828,8 @@ const EditTab = (() => {
       title, parent_id: null, order: maxOrder + 1,
     });
     project.sections.push(sec);
+    await _syncOutlineToBody();
     _renderOutline();
-    _renderDocView();
   }
 
   /**
@@ -786,8 +849,8 @@ const EditTab = (() => {
       title, parent_id: parentId, order: maxOrder + 1,
     });
     project.sections.push(sec);
+    await _syncOutlineToBody();
     _renderOutline();
-    _renderDocView();
     ReviewTab.updateSections(_project);
   }
 
@@ -862,6 +925,75 @@ const EditTab = (() => {
     // Tiptapのupdateイベントが自動保存をトリガーする
   }
 
+  /**
+   * アウトラインパネルの最新状態（順序・親・タイトル）に合わせて
+   * project.content の Markdown を再構築し、Tiptap エディタに即時反映する。
+   * これにより、アウトライン上のドラッグ&ドロップやタイトル編集が本文に即時同期される。
+   */
+  async function _syncOutlineToBody() {
+    if (!window.TiptapEditor || !_project) return;
+
+    // 現在のテキストを抽出
+    const currentContent = window.TiptapEditor.getContentAsMarkdown();
+    const MARKER_RE = /<!-- soki-section:([a-f0-9-]+) -->\n?/g;
+    const allMatches = [...currentContent.matchAll(MARKER_RE)];
+
+    let preamble = '';
+    const sectionBlocks = {};
+
+    if (allMatches.length === 0) {
+      preamble = currentContent;
+    } else {
+      if (allMatches[0].index > 0) {
+        preamble = currentContent.slice(0, allMatches[0].index);
+      }
+      for (let i = 0; i < allMatches.length; i++) {
+        const m = allMatches[i];
+        const id = m[1];
+        const start = m.index;
+        const end = (i + 1 < allMatches.length) ? allMatches[i + 1].index : currentContent.length;
+        sectionBlocks[id] = currentContent.slice(start, end);
+      }
+    }
+
+    // アウトラインツリー順に並び替え
+    const byParent = {};
+    _project.sections.forEach(s => {
+      const key = s.parent_id || '__root__';
+      if (!byParent[key]) byParent[key] = [];
+      byParent[key].push(s);
+    });
+    Object.values(byParent).forEach(arr => arr.sort((a, b) => a.order - b.order));
+
+    const ordered = [];
+    function visit(parentId, depth) {
+      const key = parentId || '__root__';
+      (byParent[key] || []).forEach(s => {
+        ordered.push({ sec: s, depth });
+        visit(s.id, depth + 1);
+      });
+    }
+    visit(null, 2); // ルートはレベル2 (##)
+
+    let newContent = preamble;
+    ordered.forEach(({ sec, depth }) => {
+      let block = sectionBlocks[sec.id] || `<!-- soki-section:${sec.id} -->\n## ${sec.title}\n\n`;
+      const levelStr = '#'.repeat(Math.min(depth, 6));
+
+      // ブロック内の最初の見出し (#...) のレベルとタイトル文字列をアウトラインの最新状態に置換する
+      // ※ (?:\r?\n)? はマーカー後の改行用
+      block = block.replace(/(<!-- soki-section:[a-f0-9-]+ -->(?:\r?\n)?)#{1,6}\s+[^\n]+(.*)/s, `$1${levelStr} ${sec.title}$2`);
+
+      newContent += block;
+      if (!newContent.endsWith('\n')) newContent += '\n';
+    });
+
+    _project.content = newContent;
+    window.TiptapEditor.setContentFromMarkdown(newContent);
+    await _syncContentToBackend();
+
+    _renderDocView();
+  }
 
   // ─── ユーティリティ ────────────────────────────────────
 
@@ -988,8 +1120,8 @@ const EditTab = (() => {
       }
     });
 
+    await _syncOutlineToBody();
     _renderOutline();
-    _renderDocView();
     ReviewTab.updateSections(_project);
     showToast('セクションを移動しました', 'success');
   }
@@ -1215,17 +1347,13 @@ const EditTab = (() => {
 
     project.sections.push(sec);
 
-    // バックエンドで更新されたproject.contentを取得
-    try {
-      const contentResult = await ApiClient.get(`/api/projects/${project.id}/content`);
-      project.content = contentResult.content;
-    } catch (_) { }
+    // 新規セクションを追加したので、本文にも反映する
+    await _syncOutlineToBody();
 
     // 新規セクションを選択状態に
     window.appState.setSelectedSectionId(sec.id);
 
     _renderOutline();
-    _renderDocView();
 
     // Tiptap上で新規セクションの見出しにスクロール
     if (window.TiptapEditor && window.TiptapEditor.scrollToSection) {

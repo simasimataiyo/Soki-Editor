@@ -7,7 +7,7 @@
  * マーカー形式: <!-- soki-section:uuid --> を見出し直前に挿入
  */
 
-import { Editor, Node, Extension, mergeAttributes } from 'https://esm.sh/@tiptap/core@2';
+import { Editor, Node, Extension, mergeAttributes, textblockTypeInputRule } from 'https://esm.sh/@tiptap/core@2';
 import StarterKit from 'https://esm.sh/@tiptap/starter-kit@2';
 import { marked } from 'https://esm.sh/marked@12';
 
@@ -96,6 +96,31 @@ const SectionHeading = Node.create({
       },
     };
   },
+
+  addInputRules() {
+    return [
+      textblockTypeInputRule({
+        find: /^(#{1,6})\s$/,
+        type: this.type,
+        getAttributes: match => ({ level: match[1].length }),
+      }),
+    ];
+  },
+});
+
+const TabHandler = Extension.create({
+  name: 'tabHandler',
+  addKeyboardShortcuts() {
+    return {
+      Tab: ({ editor }) => {
+        // もしリスト内ならデフォルトのTab（インデント変更）に任せる
+        if (editor.isActive('listItem')) return false;
+        // それ以外はテキスト入力エリアにインデント（スペース2つ）を挿入
+        editor.commands.insertContent('  ');
+        return true;
+      },
+    };
+  },
 });
 
 // ─── Tiptap Editor インスタンス ──────────────────────────────
@@ -114,6 +139,7 @@ function _initEditor() {
         heading: false, // 組み込みHeadingを無効化してSectionHeadingを使用
       }),
       SectionHeading,
+      TabHandler,
     ],
     content: '',
     editorProps: {
@@ -315,6 +341,7 @@ function _getHeadingsWithoutSectionId() {
         title: node.textContent,
         level: node.attrs.level,
         pos,
+        nodeSize: node.nodeSize,
       });
     }
   });
