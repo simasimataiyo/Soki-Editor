@@ -7,7 +7,10 @@
  * マーカー形式: <!-- soki-section:uuid --> を見出し直前に挿入
  */
 
-import { Editor, Node, Extension, mergeAttributes, textblockTypeInputRule } from '@tiptap/core';
+import { Editor, Node, Extension, InputRule, mergeAttributes, textblockTypeInputRule } from '@tiptap/core';
+import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Decoration, DecorationSet } from '@tiptap/pm/view';
+import CharacterCount from '@tiptap/extension-character-count';
 import StarterKit from '@tiptap/starter-kit';
 import BubbleMenu from '@tiptap/extension-bubble-menu';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -140,6 +143,216 @@ const TabHandler = Extension.create({
   },
 });
 
+const ReferenceNode = Node.create({
+  name: 'referenceNode',
+  group: 'inline',
+  inline: true,
+  atom: true,
+  addAttributes() {
+    return {
+      refId: {
+        default: null,
+        parseHTML: el => el.getAttribute('data-ref-id'),
+        renderHTML: attrs => ({ 'data-ref-id': attrs.refId }),
+      },
+    };
+  },
+  parseHTML() {
+    return [{ tag: 'span[data-ref-id]' }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ['span', mergeAttributes(HTMLAttributes, { class: 'reference-node', contenteditable: 'false' }), `[^${HTMLAttributes['data-ref-id']}]`];
+  },
+  addInputRules() {
+    return [
+      new InputRule({
+        find: /\[\^(ref-[^\]]+)\]$/,
+        handler: ({ state, range, match }) => {
+          const { tr } = state;
+          tr.replaceWith(range.from, range.to, this.type.create({ refId: match[1] }));
+        },
+      }),
+    ];
+  },
+});
+
+const FigureNode = Node.create({
+  name: 'figureNode',
+  group: 'inline',
+  inline: true,
+  atom: true,
+  addAttributes() {
+    return {
+      figId: {
+        default: null,
+        parseHTML: el => el.getAttribute('data-fig-id'),
+        renderHTML: attrs => ({ 'data-fig-id': attrs.figId }),
+      },
+      altText: {
+        default: '',
+        parseHTML: el => el.getAttribute('data-alt-text'),
+        renderHTML: attrs => ({ 'data-alt-text': attrs.altText }),
+      }
+    };
+  },
+  parseHTML() {
+    return [{ tag: 'span[data-fig-id]' }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ['span', mergeAttributes(HTMLAttributes, { class: 'figure-node', contenteditable: 'false' }), `![${HTMLAttributes['data-alt-text'] || ''}]("${HTMLAttributes['data-fig-id'] || ''}")`];
+  },
+  addInputRules() {
+    return [
+      new InputRule({
+        find: /!\[([^\]]*)\]\([^)]*"([^"]+)"\)$/,
+        handler: ({ state, range, match }) => {
+          const { tr } = state;
+          tr.replaceWith(range.from, range.to, this.type.create({ altText: match[1], figId: match[2] }));
+        },
+      }),
+    ];
+  },
+});
+
+const ReferenceListPluginKey = new PluginKey('referenceListPlugin');
+const ReferenceListExtension = Extension.create({
+  name: 'referenceList',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: ReferenceListPluginKey,
+        state: {
+          init() { return null; },
+          apply(tr, oldState) { return null; }
+        },
+        props: {
+          decorations(state) {
+            const isEnabled = window.TiptapEditor && window.TiptapEditor._referencesEnabled;
+            if (!isEnabled) return DecorationSet.empty;
+            const refMap = {};
+            let counter = 0;
+            state.doc.descendants(node => {
+              if (node.type.name === 'referenceNode') {
+                const srcId = node.attrs.refId;
+                if (!refMap[srcId]) {
+                  counter++;
+                  refMap[srcId] = counter;
+                }
+              }
+            });
+            const entries = Object.entries(refMap).sort((a, b) => a[1] - b[1]);
+            const block = document.createElement('div');
+            block.className = 'section-block references-block';
+            block.contentEditable = 'false';
+
+            const sources = (window.TiptapEditor && window.TiptapEditor._sourcesData) ? window.TiptapEditor._sourcesData : [];
+            const srcById = {};
+            sources.forEach(s => {
+              if (s.bibliography && s.bibliography.include_in_references) {
+                srcById[s.id] = s;
+              }
+            });
+
+            const escapeHTML = str => str ? String(str).replace(/[&<>'"]/g, t => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[t])) : '';
+
+            let entriesHtml = '';
+            if (entries.length === 0) {
+              entriesHtml = '<p class="references-empty">参考文献はまだありません。本文中に [^ref-xxx] 形式で文献を挿入してください。</p>';
+            } else {
+              entriesHtml = entries.map(([srcId, num]) => {
+                const src = srcById[srcId];
+                if (!src) return '';
+                const bib = src.bibliography;
+                if (!bib) return ''; // Add extra safety for bib
+                const parts = [];
+                if (bib.author) parts.push(escapeHTML(bib.author));
+                if (bib.title) parts.push(`『${escapeHTML(bib.title)}』`);
+                if (bib.journal) parts.push(escapeHTML(bib.journal));
+                if (bib.year) parts.push(`(${escapeHTML(bib.year)})`);
+                if (bib.url) parts.push(escapeHTML(bib.url));
+                const text = parts.length ? parts.join(' ') : '(文献情報なし)';
+                return `<div class="references-entry">[${num}] ${text}</div>`;
+              }).join('');
+            }
+            block.innerHTML = `
+              <div class="section-header references-header" style="margin-top: 2rem;">
+                <h2 class="section-title"><span class="section-bullet">≡</span> 参考文献</h2>
+              </div>
+              <div class="section-body references-body">
+                ${entriesHtml}
+              </div>
+            `;
+            const dec = Decoration.widget(state.doc.content.size, block, { side: 1, marks: [] });
+            return DecorationSet.create(state.doc, [dec]);
+          }
+        }
+      })
+    ];
+  }
+});
+
+let _tooltipEl = null;
+function _getTooltip() {
+  if (!_tooltipEl) {
+    _tooltipEl = document.createElement('div');
+    _tooltipEl.className = 'section-tooltip';
+    _tooltipEl.style.display = 'none';
+    document.body.appendChild(_tooltipEl);
+  }
+  return _tooltipEl;
+}
+
+const TooltipPluginKey = new PluginKey('tooltipPlugin');
+const TooltipExtension = Extension.create({
+  name: 'tooltipExtension',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: TooltipPluginKey,
+        props: {
+          handleDOMEvents: {
+            mouseover(view, event) {
+              const target = event.target;
+              if (!target) return false;
+
+              const tooltip = _getTooltip();
+              const showTooltip = (text) => {
+                tooltip.textContent = text;
+                tooltip.style.display = 'block';
+                tooltip.style.left = (event.pageX + 10) + 'px';
+                tooltip.style.top = (event.pageY + 10) + 'px';
+              };
+
+              const heading = target.closest('h1, h2, h3, h4, h5, h6');
+              if (heading && heading.hasAttribute('data-summary')) {
+                const summary = heading.getAttribute('data-summary');
+                if (summary) { showTooltip(summary); return false; }
+              }
+              if (target.matches('span.reference-node')) {
+                const srcId = target.getAttribute('data-ref-id');
+                const src = ((window.TiptapEditor && window.TiptapEditor._sourcesData) || []).find(s => s.id === srcId);
+                if (src) { showTooltip(src.bibliography?.title || src.name); return false; }
+              }
+              if (target.matches('span.figure-node')) {
+                const figId = target.getAttribute('data-fig-id');
+                const mat = ((window.TiptapEditor && window.TiptapEditor._materialsData) || []).find(s => s.id === figId);
+                if (mat) { showTooltip(mat.caption || mat.name); return false; }
+              }
+
+              tooltip.style.display = 'none';
+              return false;
+            },
+            mouseout(view, event) {
+              if (_tooltipEl) _tooltipEl.style.display = 'none';
+              return false;
+            }
+          }
+        }
+      })
+    ];
+  }
+});
+
 // ─── Tiptap Editor インスタンス ──────────────────────────────
 
 let editor = null;
@@ -162,6 +375,11 @@ function _initEditor() {
       }),
       SectionHeading,
       TabHandler,
+      ReferenceNode,
+      FigureNode,
+      CharacterCount.configure({ limit: null }),
+      ReferenceListExtension,
+      TooltipExtension,
       Placeholder.configure({
         placeholder: '本文を入力...',
       }),
@@ -259,7 +477,13 @@ function _markdownWithMarkersToHtml(markdownContent) {
   let html = '';
   for (const seg of segments) {
     if (!seg.text.trim()) continue;
-    let segHtml = marked.parse(seg.text);
+
+    // Replace markdown refs and figs with spans so marked doesn't touch them and parseHTML picks them up
+    let textForMarked = seg.text
+      .replace(/\[\^(ref-[^\]]+)\]/g, '<span data-ref-id="$1"></span>')
+      .replace(/!\[([^\]]*)\]\([^)]*"([^"]+)"\)/g, (_, alt, id) => `<span data-alt-text="${alt}" data-fig-id="${id}"></span>`);
+
+    let segHtml = marked.parse(textForMarked);
     // 最初の見出しにdata-*属性を付与
     if (seg.sectionId) {
       const escSummary = (seg.summary || '').replace(/"/g, '&quot;');
@@ -304,6 +528,10 @@ function _serializeInline(node) {
         if (markNames.includes('strike')) t = `~~${t}~~`;
       }
       text += t;
+    } else if (child.type.name === 'referenceNode') {
+      text += `[^${child.attrs.refId}]`;
+    } else if (child.type.name === 'figureNode') {
+      text += `![${child.attrs.altText}]("${child.attrs.figId}")`;
     }
   });
   return text;
@@ -650,6 +878,23 @@ function _updateSectionContent(sectionId, newContent) {
 // ─── 公開 API ────────────────────────────────────────────────
 
 window.TiptapEditor = {
+  _referencesEnabled: false,
+  _sourcesData: [],
+  _materialsData: [],
+
+  setProjectData(enabled, sources, materials) {
+    this._referencesEnabled = enabled;
+    this._sourcesData = sources;
+    this._materialsData = materials;
+    if (editor && editor.view) {
+      editor.view.dispatch(editor.state.tr.setMeta('projectDataUpdate', true));
+    }
+  },
+
+  getCharacterCount() {
+    return editor ? editor.storage.characterCount.characters() : 0;
+  },
+
   /** _suppressUpdate フラグ（edit-tab.js から参照） */
   get _suppressUpdate() { return _suppressUpdate; },
   set _suppressUpdate(v) { _suppressUpdate = v; },

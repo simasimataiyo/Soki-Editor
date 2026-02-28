@@ -412,8 +412,12 @@ const EditTab = (() => {
       });
       // ローカルプロジェクト状態を更新
       const proj = window.appState.getProject();
-      if (proj) proj.references_section_enabled = enabled;
-      _renderDocView();
+      if (proj) {
+        proj.references_section_enabled = enabled;
+        if (window.TiptapEditor) {
+          window.TiptapEditor.setProjectData(enabled, proj.sources || [], proj.materials || []);
+        }
+      }
     });
   }
 
@@ -642,177 +646,15 @@ const EditTab = (() => {
   function _renderDocView() {
     if (!window.TiptapEditor) return;
 
+    // Set Editor Project Data for extensions to use (CharacterCount, References)
+    window.TiptapEditor.setProjectData(_project.references_section_enabled, _project.sources || [], _project.materials || []);
+
     // Tiptapにproject.contentをセット（新アーキテクチャ）
     window.TiptapEditor.setContentFromMarkdown(_project.content || '');
     // project.sections[] のメタデータ（summary/parentId/order）をTiptapノード属性に注入
     _injectSectionMeta();
 
-    // 参考文献ブロックを#doc-view末尾に表示
-    const docView = document.getElementById('doc-view');
-    const existingRefBlock = docView.querySelector('.references-block');
-    if (existingRefBlock) existingRefBlock.remove();
-
-    if (_project.references_section_enabled) {
-      _renderReferencesBlock(docView);
-    }
-
-    _initTooltips();
     _updateDocViewEditMode();
-  }
-
-  /**
-   * 参考文献ブロックをドキュメントビューの末尾に描画する
-   * project.content の [^ref-xxx] タグを出現順に収集し、番号付きリストとして表示する
-   * @param {HTMLElement} container - 追加先の親要素
-   */
-  function _renderReferencesBlock(container) {
-    // project.content から [^ref-xxx] を出現順に収集
-    const refPattern = /\[\^(ref-[^\]]+)\]/g;
-    const srcById = {};
-    (_project.sources || []).forEach(s => {
-      if (s.bibliography && s.bibliography.include_in_references) {
-        srcById[s.id] = s;
-      }
-    });
-
-    const contentToScan = _project.content || '';
-    const refMap = {};
-    let counter = 0;
-    let m;
-    refPattern.lastIndex = 0;
-    while ((m = refPattern.exec(contentToScan)) !== null) {
-      const srcId = m[1];
-      if (srcId in srcById && !(srcId in refMap)) {
-        counter++;
-        refMap[srcId] = counter;
-      }
-    }
-
-    const entries = Object.entries(refMap).sort((a, b) => a[1] - b[1]);
-
-    const block = document.createElement('div');
-    block.className = 'section-block references-block';
-
-    let entriesHtml = '';
-    if (entries.length === 0) {
-      entriesHtml = '<p class="references-empty">参考文献はまだありません。本文中に [^ref-xxx] 形式で文献を挿入してください。</p>';
-    } else {
-      entriesHtml = entries.map(([srcId, num]) => {
-        const src = srcById[srcId];
-        if (!src) return '';
-        const bib = src.bibliography;
-        const parts = [];
-        if (bib.author) parts.push(escHtml(bib.author));
-        if (bib.title) parts.push(`『${escHtml(bib.title)}』`);
-        if (bib.journal) parts.push(escHtml(bib.journal));
-        if (bib.year) parts.push(`(${escHtml(bib.year)})`);
-        if (bib.url) parts.push(escHtml(bib.url));
-        const text = parts.length ? parts.join(' ') : '(文献情報なし)';
-        return `<div class="references-entry">[${num}] ${text}</div>`;
-      }).join('');
-    }
-
-    block.innerHTML = `
-      <div class="section-header references-header">
-        <h2 class="section-title">
-          <span class="section-bullet">≡</span> 参考文献
-        </h2>
-        <div class="section-actions" style="opacity:1">
-          <button class="btn btn-sm btn-secondary" data-action="refresh-references">リスト更新</button>
-        </div>
-      </div>
-      <div class="section-body references-body">
-        ${entriesHtml}
-      </div>
-    `;
-
-    block.querySelector('[data-action="refresh-references"]').addEventListener('click', (e) => {
-      e.stopPropagation();
-      _renderDocView();
-    });
-
-    container.appendChild(block);
-  }
-
-  // ─── ツールチップ ──────────────────────────────────────
-
-  /**
-   * ツールチップDOMを初期化し、エディタのmouseoverイベントを監視する
-   */
-  function _initTooltips() {
-    // ツールチップ要素を作成（既存があれば再利用）
-    if (!_tooltip) {
-      _tooltip = document.createElement('div');
-      _tooltip.className = 'section-tooltip';
-      _tooltip.style.display = 'none';
-      document.body.appendChild(_tooltip);
-    }
-
-    const editorEl = document.getElementById('tiptap-editor-mount');
-    if (!editorEl) return;
-
-    // 既存のリスナーを除去してから再登録
-    editorEl.removeEventListener('mouseover', _onEditorMouseover);
-    editorEl.removeEventListener('mouseout', _onEditorMouseout);
-    editorEl.addEventListener('mouseover', _onEditorMouseover);
-    editorEl.addEventListener('mouseout', _onEditorMouseout);
-  }
-
-  function _onEditorMouseover(e) {
-    if (!_project || !_tooltip) return;
-
-    // セクション見出しのホバー
-    const heading = e.target.closest('[data-section-id]');
-    if (heading) {
-      const sectionId = heading.dataset.sectionId;
-      const sec = _project.sections.find(s => s.id === sectionId);
-      if (sec && sec.summary) {
-        _showTooltip(e, sec.summary);
-        return;
-      }
-    }
-
-    // [^ref-xxx] ホバー（テキストノード内のパターン検出）
-    const textNode = e.target;
-    if (textNode && textNode.textContent) {
-      const refMatch = textNode.textContent.match(/\[\^(ref-[^\]]+)\]/);
-      if (refMatch) {
-        const srcId = refMatch[1];
-        const src = (_project.sources || []).find(s => s.id === srcId);
-        if (src) {
-          _showTooltip(e, src.bibliography?.title || src.name);
-          return;
-        }
-      }
-      // ![fig-xxx] ホバー
-      const figMatch = textNode.textContent.match(/!\[[^\]]*\]\([^)]*"([^"]+)"\)/);
-      if (figMatch) {
-        const matId = figMatch[1];
-        const mat = (_project.materials || []).find(m => m.id === matId);
-        if (mat) {
-          _showTooltip(e, mat.caption || mat.name);
-          return;
-        }
-      }
-    }
-
-    _hideTooltip();
-  }
-
-  function _onEditorMouseout() {
-    _hideTooltip();
-  }
-
-  function _showTooltip(e, text) {
-    if (!_tooltip) return;
-    _tooltip.textContent = text;
-    _tooltip.style.display = 'block';
-    _tooltip.style.left = `${e.clientX + 12}px`;
-    _tooltip.style.top = `${e.clientY + 12}px`;
-  }
-
-  function _hideTooltip() {
-    if (_tooltip) _tooltip.style.display = 'none';
   }
 
 
@@ -1355,7 +1197,7 @@ const EditTab = (() => {
       count = _countSectionBodyChars(content, selectedId);
       label = `選択中: ${count.toLocaleString()} 文字`;
     } else {
-      count = _countBodyChars(content);
+      count = window.TiptapEditor ? window.TiptapEditor.getCharacterCount() : _countBodyChars(content);
       label = `全文: ${count.toLocaleString()} 文字`;
     }
 
@@ -1597,7 +1439,6 @@ const EditTab = (() => {
       if (editor) editor.off('update', _tiptapUpdateHandler);
     }
     _tiptapUpdateHandler = null;
-    _hideTooltip();
   }
 
   return {
