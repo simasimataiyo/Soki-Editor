@@ -7,9 +7,9 @@
  * マーカー形式: <!-- soki-section:uuid --> を見出し直前に挿入
  */
 
-import { Editor, Node, Extension, mergeAttributes, textblockTypeInputRule } from 'https://esm.sh/@tiptap/core@2';
-import StarterKit from 'https://esm.sh/@tiptap/starter-kit@2';
-import { marked } from 'https://esm.sh/marked@12';
+import { Editor, Node, Extension, mergeAttributes, textblockTypeInputRule } from '@tiptap/core';
+import StarterKit from '@tiptap/starter-kit';
+import { marked } from 'marked';
 
 // marked の設定: GFMオン、改行保持
 marked.setOptions({ gfm: true, breaks: false });

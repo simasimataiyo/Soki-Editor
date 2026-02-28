@@ -1,0 +1,30 @@
+{
+  "name": "soki-editor",
+  "version": "1.0.0",
+  "description": "構造化された長文ドキュメントをLLMで支援する執筆アプリケーション。",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simasimataiyo/Soki-Editor.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/simasimataiyo/Soki-Editor/issues"
+  },
+  "homepage": "https://github.com/simasimataiyo/Soki-Editor#readme",
+  "dependencies": {
+    "@tiptap/core": "^3.20.0",
+    "@tiptap/starter-kit": "^3.20.0",
+    "marked": "^17.0.3"
+  }
+}

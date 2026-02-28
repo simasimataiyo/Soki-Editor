@@ -26,17 +26,20 @@
 ## 動作環境
 
 - Python 3.11 以上 3.13 以下
-
+- node.js
 ## インストール
 
 ```bash
 git clone https://github.com/simasimataiyo/Soki-Editor.git
 cd Soki-Editor
 
+# Python環境の構築
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
-
 pip install -e .
+
+# フロントエンド依存ライブラリのインストール (Node.jsが必要)
+npm install
 ```
 
 ## 起動
