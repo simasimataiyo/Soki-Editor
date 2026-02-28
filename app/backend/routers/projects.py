@@ -140,6 +140,46 @@ async def update_references_section(project_id: str, body: dict) -> dict:
         raise HTTPException(status_code=404, detail="プロジェクトが見つかりません")
 
 
+@router.get("/projects/{project_id}/content")
+async def get_project_content(project_id: str) -> dict:
+    """プロジェクトの本文コンテンツ（マーカー付きMarkdown）を返す。"""
+    svc = get_service()
+    try:
+        content = await svc.get_content(project_id)
+        return {"content": content}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="プロジェクトが見つかりません")
+
+
+@router.put("/projects/{project_id}/content")
+async def update_project_content(project_id: str, body: dict) -> dict:
+    """プロジェクトの本文コンテンツを全体更新する。"""
+    svc = get_service()
+    try:
+        content = body.get("content", "")
+        await svc.update_content(project_id, content)
+        return {"status": "ok"}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="プロジェクトが見つかりません")
+
+
+@router.patch("/projects/{project_id}/content/sections/{section_id}")
+async def patch_section_in_content(
+    project_id: str, section_id: str, body: dict
+) -> dict:
+    """project.content の特定セクションの本文テキストを更新し、更新後の全コンテンツを返す。
+
+    LLMツール（update_section, update_multiple_sections）からの呼び出し向け。
+    """
+    svc = get_service()
+    try:
+        new_body = body.get("content", "")
+        updated_content = await svc.update_section_in_body(project_id, section_id, new_body)
+        return {"content": updated_content}
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.put("/projects/{project_id}/data-dir")
 async def update_data_dir(project_id: str, body: DataDirUpdate) -> dict:
     svc = get_service()

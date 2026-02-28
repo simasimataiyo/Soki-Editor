@@ -11,6 +11,14 @@ const EditTab = (() => {
   let _tiptapUpdateTimer = null;
   let _tiptapUpdateHandler = null;
 
+  // セクション削除検知用: setContentFromMarkdown時のみ更新
+  let _previousSectionIds = new Set();
+  // セクション削除確認中フラグ（二重モーダル防止）
+  let _deletionConfirmInProgress = false;
+
+  // ツールチップ DOM
+  let _tooltip = null;
+
   /**
    * EditTabを初期化してUIを描画する
    * Tiptapが未初期化の場合は tiptap-ready イベントを待つ
@@ -48,48 +56,160 @@ const EditTab = (() => {
     _tiptapUpdateHandler = () => {
       if (window.TiptapEditor._suppressUpdate) return;
 
-      // parseSections → in-memoryを即時更新（文字数カウント用）
-      const parsed = window.TiptapEditor.parseSections();
-      for (const p of parsed) {
-        if (!p.id) continue;
-        const sec = _project.sections.find(s => s.id === p.id);
-        if (sec) {
-          sec.content = p.content;
-          sec.title = p.title;
-        }
+      // 1. 削除されたセクションIDを検知
+      const currentIds = window.TiptapEditor.parseSectionIds();
+      const deletedIds = [..._previousSectionIds].filter(id => !currentIds.has(id));
+      if (deletedIds.length > 0 && !_deletionConfirmInProgress) {
+        _handleSectionDeletion(deletedIds);
+        return; // バックエンド同期を止める
       }
+
+      // 2. IDなし見出しを検知（新規セクション）
+      _detectAndHandleNewHeadings();
+
+      // 3. タイトル変化をアウトラインに反映
+      _syncTitlesFromContent(window.TiptapEditor.getContentAsMarkdown());
+
+      // 4. 文字数カウント更新
       _updateCharCount();
 
-      // 2秒debounceでAPIに保存
+      // 5. 2秒debounceで PUT /content
       clearTimeout(_tiptapUpdateTimer);
-      _tiptapUpdateTimer = setTimeout(() => {
-        const project = window.appState.getProject();
-        if (!project) return;
-        _syncTiptapToBackend(parsed, project);
-      }, 2000);
+      _tiptapUpdateTimer = setTimeout(() => _syncContentToBackend(), 2000);
     };
 
     editor.on('update', _tiptapUpdateHandler);
   }
 
   /**
-   * TiptapのパースデータをバックエンドAPIにdiff保存する
-   * 変更のあるセクションのみPUTリクエストを送る
+   * TiptapのMarkdownコンテンツをバックエンドのproject.contentとして保存する
    */
-  async function _syncTiptapToBackend(parsedSections, project) {
-    for (const p of parsedSections) {
-      if (!p.id) continue; // IDなし見出し（ユーザーが手動追加）はスキップ
-      const existing = project.sections.find(s => s.id === p.id);
-      if (!existing) continue;
-      const updates = {};
-      if (p.content !== existing.content) updates.content = p.content;
-      if (p.title !== existing.title) updates.title = p.title;
-      if (Object.keys(updates).length === 0) continue;
+  async function _syncContentToBackend() {
+    const project = window.appState.getProject();
+    if (!project) return;
+    const content = window.TiptapEditor.getContentAsMarkdown();
+    try {
+      await ApiClient.put(`/api/projects/${project.id}/content`, { content });
+      project.content = content;
+    } catch (_) { }
+  }
+
+  /**
+   * Markdownコンテンツを解析してセクションタイトルをアウトラインに反映する
+   * @param {string} content - project.content のMarkdown文字列
+   */
+  function _syncTitlesFromContent(content) {
+    if (!_project) return;
+    const markerPattern = /<!-- soki-section:([a-f0-9-]+) -->\n(#{1,6})\s+(.+)/g;
+    let m;
+    let changed = false;
+    while ((m = markerPattern.exec(content)) !== null) {
+      const [, id, , title] = m;
+      const sec = _project.sections.find(s => s.id === id);
+      if (sec && sec.title !== title.trim()) {
+        sec.title = title.trim();
+        changed = true;
+      }
+    }
+    if (changed) _renderOutline();
+  }
+
+  /**
+   * IDなし見出しを検知し、新規セクションとしてバックエンドに登録してIDを付与する
+   */
+  async function _detectAndHandleNewHeadings() {
+    if (!window.TiptapEditor.getHeadingsWithoutSectionId) return;
+    const headings = window.TiptapEditor.getHeadingsWithoutSectionId();
+    if (!headings || headings.length === 0) return;
+
+    const project = window.appState.getProject();
+    if (!project) return;
+
+    for (const h of headings) {
+      // 親セクションを推定
+      const parentId = _inferParentId(h, project);
+      const siblings = project.sections.filter(s => s.parent_id === parentId);
+      const maxOrder = siblings.reduce((m, s) => Math.max(m, s.order), -1);
+
       try {
-        await ApiClient.put(`/api/projects/${project.id}/sections/${p.id}`, updates);
-        Object.assign(existing, updates);
+        const sec = await ApiClient.post(`/api/projects/${project.id}/sections`, {
+          title: h.title,
+          summary: '',
+          parent_id: parentId,
+          order: maxOrder + 1,
+        });
+        project.sections.push(sec);
+        // TiptapノードにsectionId属性を付与
+        window.TiptapEditor.assignSectionId(h.pos, sec.id);
+        _renderOutline();
       } catch (_) { }
     }
+  }
+
+  /**
+   * 見出しのレベルから親セクションを推定する
+   * @param {{title: string, level: number, pos: number}} heading
+   * @param {object} project
+   * @returns {string|null}
+   */
+  function _inferParentId(heading, project) {
+    // レベル2（##）はルート直下
+    if (heading.level <= 2) return null;
+    // より浅いレベルのセクションを探す
+    const content = window.TiptapEditor.getContentAsMarkdown();
+    const lines = content.substring(0, heading.pos).split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const m = lines[i].match(/^(#{1,6})\s+(.+)/);
+      if (m && m[1].length < heading.level) {
+        const parentTitle = m[2].trim();
+        const parentSec = project.sections.find(s => s.title === parentTitle);
+        if (parentSec) return parentSec.id;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * セクション見出し削除時の確認モーダルを表示する
+   * キャンセル→undo、確認→セクション削除+content更新
+   * @param {string[]} deletedIds - 削除されたセクションIDの配列
+   */
+  async function _handleSectionDeletion(deletedIds) {
+    _deletionConfirmInProgress = true;
+    const project = window.appState.getProject();
+    if (!project) { _deletionConfirmInProgress = false; return; }
+
+    const names = deletedIds.map(id => {
+      const sec = project.sections.find(s => s.id === id);
+      return sec ? `「${sec.title}」` : id;
+    }).join('、');
+
+    const confirmed = await Modal.confirm(
+      `${names} のセクション見出しが削除されました。セクションを削除しますか？\n\nキャンセルすると元に戻します。`
+    );
+
+    _deletionConfirmInProgress = false;
+
+    if (!confirmed) {
+      // Undo でエディタを元に戻す
+      const editor = window.TiptapEditor.getEditor();
+      if (editor) editor.commands.undo();
+      return;
+    }
+
+    // 確認→セクション削除 + project.content 更新
+    for (const id of deletedIds) {
+      try {
+        await ApiClient.delete(`/api/projects/${project.id}/sections/${id}`);
+        project.sections = project.sections.filter(s => s.id !== id);
+      } catch (_) { }
+    }
+
+    // content を即時同期
+    await _syncContentToBackend();
+    // _previousSectionIds を更新して再検知ループを防ぐ
+    _previousSectionIds = window.TiptapEditor.parseSectionIds();
+    _renderOutline();
   }
 
   /**
@@ -248,17 +368,22 @@ const EditTab = (() => {
     }
 
     li.addEventListener('click', () => {
-      // Tiptapの対応する見出しへスクロール
-      const headingEl = document.querySelector(`#tiptap-editor-mount [data-section-id="${sec.id}"]`);
-      if (headingEl) {
-        const docView = document.getElementById('doc-view');
-        if (docView) {
-          const mountEl = document.getElementById('tiptap-editor-mount');
-          const mountTop = mountEl ? mountEl.offsetTop : 0;
-          const offset = headingEl.offsetTop + mountTop;
-          docView.scrollTo({ top: Math.max(0, offset - 8), behavior: 'smooth' });
-        } else {
-          headingEl.scrollIntoView({ block: 'start' });
+      // TiptapEditor.scrollToSection を使ってスクロール
+      if (window.TiptapEditor && window.TiptapEditor.scrollToSection) {
+        window.TiptapEditor.scrollToSection(sec.id);
+      } else {
+        // フォールバック
+        const headingEl = document.querySelector(`#tiptap-editor-mount [data-section-id="${sec.id}"]`);
+        if (headingEl) {
+          const docView = document.getElementById('doc-view');
+          if (docView) {
+            const mountEl = document.getElementById('tiptap-editor-mount');
+            const mountTop = mountEl ? mountEl.offsetTop : 0;
+            const offset = headingEl.offsetTop + mountTop;
+            docView.scrollTo({ top: Math.max(0, offset - 8), behavior: 'smooth' });
+          } else {
+            headingEl.scrollIntoView({ block: 'start' });
+          }
         }
       }
 
@@ -300,13 +425,15 @@ const EditTab = (() => {
 
   /**
    * ドキュメントビュー全体を再描画する
-   * TiptapにセクションデータをロードしてWYSIWYGビューを更新する
+   * TiptapにprojectのMarkdownコンテンツをロードしてWYSIWYGビューを更新する
    */
   function _renderDocView() {
     if (!window.TiptapEditor) return;
 
-    // Tiptapにセクションデータをセット
-    window.TiptapEditor.setContentFromSections(_project.sections);
+    // Tiptapにproject.contentをセット（新アーキテクチャ）
+    window.TiptapEditor.setContentFromMarkdown(_project.content || '');
+    // _previousSectionIds をリセット（setContentFromMarkdown時のみ更新）
+    _previousSectionIds = window.TiptapEditor.parseSectionIds();
 
     // 参考文献ブロックを#doc-view末尾に表示
     const docView = document.getElementById('doc-view');
@@ -314,21 +441,20 @@ const EditTab = (() => {
     if (existingRefBlock) existingRefBlock.remove();
 
     if (_project.references_section_enabled) {
-      const sorted = [..._project.sections].sort((a, b) => a.order - b.order);
-      _renderReferencesBlock(docView, sorted);
+      _renderReferencesBlock(docView);
     }
 
+    _initTooltips();
     _updateDocViewEditMode();
   }
 
   /**
    * 参考文献ブロックをドキュメントビューの末尾に描画する
-   * 本文中の [^ref-xxx] タグを出現順に収集し、番号付きリストとして表示する
+   * project.content の [^ref-xxx] タグを出現順に収集し、番号付きリストとして表示する
    * @param {HTMLElement} container - 追加先の親要素
-   * @param {Array} sortedSections - order順にソート済みの全セクション配列
    */
-  function _renderReferencesBlock(container, sortedSections) {
-    // 本文中の [^ref-xxx] を出現順に収集
+  function _renderReferencesBlock(container) {
+    // project.content から [^ref-xxx] を出現順に収集
     const refPattern = /\[\^(ref-[^\]]+)\]/g;
     const srcById = {};
     (_project.sources || []).forEach(s => {
@@ -337,19 +463,18 @@ const EditTab = (() => {
       }
     });
 
+    const contentToScan = _project.content || '';
     const refMap = {};
     let counter = 0;
-    sortedSections.forEach(sec => {
-      let m;
-      refPattern.lastIndex = 0;
-      while ((m = refPattern.exec(sec.content || '')) !== null) {
-        const srcId = m[1];
-        if (srcId in srcById && !(srcId in refMap)) {
-          counter++;
-          refMap[srcId] = counter;
-        }
+    let m;
+    refPattern.lastIndex = 0;
+    while ((m = refPattern.exec(contentToScan)) !== null) {
+      const srcId = m[1];
+      if (srcId in srcById && !(srcId in refMap)) {
+        counter++;
+        refMap[srcId] = counter;
       }
-    });
+    }
 
     const entries = Object.entries(refMap).sort((a, b) => a[1] - b[1]);
 
@@ -397,12 +522,92 @@ const EditTab = (() => {
     container.appendChild(block);
   }
 
+  // ─── ツールチップ ──────────────────────────────────────
+
+  /**
+   * ツールチップDOMを初期化し、エディタのmouseoverイベントを監視する
+   */
+  function _initTooltips() {
+    // ツールチップ要素を作成（既存があれば再利用）
+    if (!_tooltip) {
+      _tooltip = document.createElement('div');
+      _tooltip.className = 'section-tooltip';
+      _tooltip.style.display = 'none';
+      document.body.appendChild(_tooltip);
+    }
+
+    const editorEl = document.getElementById('tiptap-editor-mount');
+    if (!editorEl) return;
+
+    // 既存のリスナーを除去してから再登録
+    editorEl.removeEventListener('mouseover', _onEditorMouseover);
+    editorEl.removeEventListener('mouseout', _onEditorMouseout);
+    editorEl.addEventListener('mouseover', _onEditorMouseover);
+    editorEl.addEventListener('mouseout', _onEditorMouseout);
+  }
+
+  function _onEditorMouseover(e) {
+    if (!_project || !_tooltip) return;
+
+    // セクション見出しのホバー
+    const heading = e.target.closest('[data-section-id]');
+    if (heading) {
+      const sectionId = heading.dataset.sectionId;
+      const sec = _project.sections.find(s => s.id === sectionId);
+      if (sec && sec.summary) {
+        _showTooltip(e, sec.summary);
+        return;
+      }
+    }
+
+    // [^ref-xxx] ホバー（テキストノード内のパターン検出）
+    const textNode = e.target;
+    if (textNode && textNode.textContent) {
+      const refMatch = textNode.textContent.match(/\[\^(ref-[^\]]+)\]/);
+      if (refMatch) {
+        const srcId = refMatch[1];
+        const src = (_project.sources || []).find(s => s.id === srcId);
+        if (src) {
+          _showTooltip(e, src.bibliography?.title || src.name);
+          return;
+        }
+      }
+      // ![fig-xxx] ホバー
+      const figMatch = textNode.textContent.match(/!\[[^\]]*\]\([^)]*"([^"]+)"\)/);
+      if (figMatch) {
+        const matId = figMatch[1];
+        const mat = (_project.materials || []).find(m => m.id === matId);
+        if (mat) {
+          _showTooltip(e, mat.caption || mat.name);
+          return;
+        }
+      }
+    }
+
+    _hideTooltip();
+  }
+
+  function _onEditorMouseout() {
+    _hideTooltip();
+  }
+
+  function _showTooltip(e, text) {
+    if (!_tooltip) return;
+    _tooltip.textContent = text;
+    _tooltip.style.display = 'block';
+    _tooltip.style.left = `${e.clientX + 12}px`;
+    _tooltip.style.top = `${e.clientY + 12}px`;
+  }
+
+  function _hideTooltip() {
+    if (_tooltip) _tooltip.style.display = 'none';
+  }
+
 
   // ─── セクション操作 ─────────────────────────────────────
 
   /**
-   * セクションのメタ情報（タイトル・親セクション）を編集するモーダルを表示し、変更をAPIに保存する
-   * モーダル内に削除ボタンも提供する
+   * セクションのメタ情報（タイトル・概要・親セクション）を編集するモーダルを表示し、変更をAPIに保存する
    * @param {object} sec - 編集対象のセクションオブジェクト
    */
   async function _editSectionMeta(sec) {
@@ -448,6 +653,7 @@ const EditTab = (() => {
 
     const result = await Modal.form('セクション編集', [
       { name: 'title', label: 'タイトル', type: 'text', value: sec.title },
+      { name: 'summary', label: '概要', type: 'textarea', value: sec.summary || '' },
       { name: 'parent_id', label: '親セクション', type: 'select', value: sec.parent_id || '', options: parentOptions },
     ], {
       confirmText: '保存',
@@ -467,10 +673,12 @@ const EditTab = (() => {
     if (result === null) return;
 
     const newTitle = result.title.trim();
+    const newSummary = result.summary;
     const newParentId = result.parent_id || null;
 
     const updateData = {};
     if (newTitle && newTitle !== sec.title) updateData.title = newTitle;
+    if (newSummary !== (sec.summary || '')) updateData.summary = newSummary;
     if (newParentId !== sec.parent_id) {
       updateData.parent_id = newParentId;
       // 新しい親の末尾に追加
@@ -485,6 +693,7 @@ const EditTab = (() => {
       updateData
     );
     if (updateData.title !== undefined) sec.title = updateData.title;
+    if (updateData.summary !== undefined) sec.summary = updateData.summary;
     if ('parent_id' in updateData) {
       sec.parent_id = newParentId;
       sec.order = updateData.order;
@@ -495,33 +704,24 @@ const EditTab = (() => {
 
   /**
    * 確認ダイアログを表示してセクションを削除する
-   * Undo/Redoスタックに操作を積み、削除後は画面を再描画する
+   * 削除後はproject.contentからも該当ブロックを除去する
    * @param {object} sec - 削除対象のセクションオブジェクト
    */
   async function _deleteSection(sec) {
     if (!(await Modal.confirm(`「${sec.title}」を削除しますか？`))) return;
     const project = window.appState.getProject();
 
-    const oldSecs = [...project.sections];
+    await ApiClient.delete(`/api/projects/${project.id}/sections/${sec.id}`);
     project.sections = project.sections.filter(s => s.id !== sec.id);
+
+    // 削除後にproject.contentを再取得して同期
+    try {
+      const result = await ApiClient.get(`/api/projects/${project.id}/content`);
+      project.content = result.content;
+    } catch (_) { }
+
     _renderOutline();
     _renderDocView();
-
-    UndoRedoManager.push({
-      do: async () => {
-        await ApiClient.delete(`/api/projects/${project.id}/sections/${sec.id}`);
-      },
-      undo: async () => {
-        const restored = await ApiClient.post(`/api/projects/${project.id}/sections`, {
-          title: sec.title, summary: sec.summary, content: sec.content,
-          parent_id: sec.parent_id, order: sec.order,
-        });
-        project.sections = oldSecs;
-        render(project);
-      },
-    });
-
-    await ApiClient.delete(`/api/projects/${project.id}/sections/${sec.id}`);
   }
 
   /**
@@ -797,6 +997,35 @@ const EditTab = (() => {
   // ─── 文字数カウント ───────────────────────────────────
 
   /**
+   * project.content のマーカー・見出し行を除いた本文文字数を返す
+   * @param {string} content - project.content
+   * @returns {number}
+   */
+  function _countBodyChars(content) {
+    return (content || '')
+      .replace(/<!-- soki-section:[a-f0-9-]+ -->/g, '')
+      .replace(/^#{1,6}\s+.+$/gm, '')
+      .replace(/\s/g, '').length;
+  }
+
+  /**
+   * 指定セクションの本文文字数を返す
+   * @param {string} content - project.content
+   * @param {string} sectionId - セクションID
+   * @returns {number}
+   */
+  function _countSectionBodyChars(content, sectionId) {
+    const escapedId = sectionId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(
+      `<!-- soki-section:${escapedId} -->\\n#{1,6} [^\\n]+\\n(.*?)(?=<!-- soki-section:|$)`,
+      's'
+    );
+    const m = pattern.exec(content || '');
+    if (!m) return 0;
+    return m[1].replace(/\s/g, '').length;
+  }
+
+  /**
    * トップバーの文字数カウント表示を更新する
    * Editタブのみ表示し、セクション選択中は選択セクションの文字数、非選択時は全文字数を表示する
    */
@@ -809,15 +1038,15 @@ const EditTab = (() => {
       return;
     }
 
+    const content = project.content || '';
     const selectedId = window.appState.getSelectedSectionId();
     let count, label;
 
     if (selectedId) {
-      const sec = project.sections.find(s => s.id === selectedId);
-      count = sec ? (sec.content || '').replace(/\s/g, '').length : 0;
+      count = _countSectionBodyChars(content, selectedId);
       label = `選択中: ${count.toLocaleString()} 文字`;
     } else {
-      count = project.sections.reduce((sum, s) => sum + (s.content || '').replace(/\s/g, '').length, 0);
+      count = _countBodyChars(content);
       label = `全文: ${count.toLocaleString()} 文字`;
     }
 
@@ -884,6 +1113,7 @@ const EditTab = (() => {
 
   /**
    * セクション追加モーダルを表示し、タイトル・概要・親セクションを入力してAPIに保存する
+   * 追加後はTiptapエディタに見出しを挿入する
    * @param {string|null|undefined} parentId - デフォルト親セクションID
    *   セクションID → そのセクションを親としてデフォルト設定
    *   null → 親なし（ルート）をデフォルト設定
@@ -975,22 +1205,33 @@ const EditTab = (() => {
     const siblings = sections.filter(s => s.parent_id === selectedParent);
     const maxOrder = siblings.reduce((m, s) => Math.max(m, s.order), -1);
 
-    // APIコール
+    // APIコール（backendがproject.contentにスケルトンを追記する）
     const sec = await ApiClient.post(`/api/projects/${project.id}/sections`, {
       title,
       summary,
-      content: '',
       parent_id: selectedParent || null,
       order: maxOrder + 1,
     });
 
     project.sections.push(sec);
 
+    // バックエンドで更新されたproject.contentを取得
+    try {
+      const contentResult = await ApiClient.get(`/api/projects/${project.id}/content`);
+      project.content = contentResult.content;
+    } catch (_) { }
+
     // 新規セクションを選択状態に
     window.appState.setSelectedSectionId(sec.id);
 
     _renderOutline();
     _renderDocView();
+
+    // Tiptap上で新規セクションの見出しにスクロール
+    if (window.TiptapEditor && window.TiptapEditor.scrollToSection) {
+      window.TiptapEditor.scrollToSection(sec.id);
+    }
+
     ReviewTab.updateSections(_project);
     _updateDocViewEditMode();
   }
@@ -1042,6 +1283,8 @@ const EditTab = (() => {
     _dragState = null;
     _collapsed = {};
     _savedTiptapPos = null;
+    _previousSectionIds = new Set();
+    _deletionConfirmInProgress = false;
     clearTimeout(_tiptapUpdateTimer);
     _tiptapUpdateTimer = null;
     // Tiptapのupdateハンドラを解除
@@ -1050,6 +1293,7 @@ const EditTab = (() => {
       if (editor) editor.off('update', _tiptapUpdateHandler);
     }
     _tiptapUpdateHandler = null;
+    _hideTooltip();
   }
 
   return {

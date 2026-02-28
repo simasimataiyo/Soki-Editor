@@ -472,7 +472,8 @@ class LLMService:
                 )
 
         for sec in sorted_sections:
-            section_context = f"# {sec.title}\n{sec.summary}\n\n{sec.content}"
+            sec_body = self._extract_section_body(project.content, sec.id)
+            section_context = f"# {sec.title}\n{sec.summary}\n\n{sec_body}"
             review_system = rendered_system_prompt + explicit_source_context
             messages = [
                 {"role": "system", "content": review_system},
@@ -727,6 +728,19 @@ class LLMService:
 
         return [system_msg, *kept, last_msg]
 
+    @staticmethod
+    def _extract_section_body(project_content: str, section_id: str) -> str:
+        """project.content から特定セクションのボディテキスト（見出し行除く）を抽出する。"""
+        import re
+        pattern = re.compile(
+            r'<!-- soki-section:' + re.escape(section_id) + r' -->\n'
+            r'#{1,6} [^\n]+\n'
+            r'(.*?)(?=<!-- soki-section:|$)',
+            re.DOTALL
+        )
+        m = pattern.search(project_content)
+        return m.group(1).strip() if m else ''
+
     def _build_command_messages(
         self,
         project: Project,
@@ -783,6 +797,20 @@ class LLMService:
         # コマンド名の正規化（ハイフン区切り形式を内部形式に変換）
         command_mode = self._normalize_command(command, command_args)
 
+        # セクション本文の取得（project.content から抽出）
+        target_section_body = None
+        if target_section:
+            target_section_body = self._extract_section_body(
+                project.content, target_section.id
+            )
+        # review/rewrite コマンドで全セクションの本文も必要な場合
+        section_bodies_by_id = {}
+        if command in ("rewrite", "review"):
+            for sec in sorted_sections:
+                section_bodies_by_id[sec.id] = self._extract_section_body(
+                    project.content, sec.id
+                )
+
         system_content = template.render(
             command=command_mode["base_command"],
             command_mode=command_mode["mode"],
@@ -790,6 +818,8 @@ class LLMService:
             sections=sorted_sections,
             context_scope=context_scope_value,
             target_section=target_section,
+            target_section_body=target_section_body,
+            section_bodies_by_id=section_bodies_by_id,
             source_summaries=source_summaries,
             explicit_sources=explicit_sources,
             explicit_materials=explicit_materials,
@@ -888,12 +918,20 @@ class LLMService:
         history_sources = [src_by_id[rid] for rid in history_ref_ids if rid in src_by_id]
         history_materials = [mat_by_id[rid] for rid in history_ref_ids if rid in mat_by_id]
 
+        # セクション本文の取得（project.content から抽出）
+        target_section_body = None
+        if target_section:
+            target_section_body = self._extract_section_body(
+                project.content, target_section.id
+            )
+
         # システムプロンプトの生成
         system_content = template.render(
             enabled_rules=enabled_rules,
             sections=sorted_sections,
             context_scope=context_scope_value,
             target_section=target_section,
+            target_section_body=target_section_body,
             source_summaries=source_summaries,
             explicit_sources=explicit_sources,
             explicit_materials=explicit_materials,

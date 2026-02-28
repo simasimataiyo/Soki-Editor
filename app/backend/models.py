@@ -74,7 +74,7 @@ class Section(BaseModel):
     id: str
     title: str = "新しいセクション"
     summary: str = ""
-    content: str = ""
+    content: Optional[str] = None  # 非推奨。新アーキテクチャでは project.content に統合
     parent_id: Optional[str] = None
     order: int = 0
 
@@ -108,6 +108,7 @@ class Project(BaseModel):
     sources: list[Source] = []
     materials: list[Material] = []
     sections: list[Section] = []
+    content: str = ""  # 全文Markdownテキスト（<!-- soki-section:uuid --> マーカー付き）
     chat_history: list[ChatMessage] = []
     review_system_prompt: str = ""
     review_comments: list[ReviewComment] = []
@@ -151,7 +152,6 @@ class ReviewRequest(BaseModel):
 class SectionCreate(BaseModel):
     title: str
     summary: str = ""
-    content: str = ""
     parent_id: Optional[str] = None
     order: Optional[int] = None
 
@@ -159,7 +159,6 @@ class SectionCreate(BaseModel):
 class SectionUpdate(BaseModel):
     title: Optional[str] = None
     summary: Optional[str] = None
-    content: Optional[str] = None
     parent_id: Optional[str] = None
     order: Optional[int] = None
 

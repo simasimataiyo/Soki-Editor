@@ -493,6 +493,17 @@ const AppShell = (() => {
     return fixed;
   }
 
+  /**
+   * project.contentをバックエンドから再取得してローカルを更新し、EditTabを再描画する
+   */
+  async function _refreshProjectContent(project) {
+    try {
+      const result = await ApiClient.get(`/api/projects/${project.id}/content`);
+      project.content = result.content;
+    } catch (_) { }
+    EditTab.render(project);
+  }
+
   async function _applyToolCall(project, tool, args, changeLog = null) {
     try {
       if (tool === 'update_section') {
@@ -500,27 +511,15 @@ const AppShell = (() => {
         const sec = project.sections.find(s => s.id === section_id);
         if (!sec) return;
 
-        const oldContent = sec.content;
         if (changeLog) changeLog.push({ type: 'updated', title: sec.title });
-        await ApiClient.put(
-          `/api/projects/${project.id}/sections/${section_id}`,
+
+        // 新アーキテクチャ: PATCH /content/sections/{id} でproject.content内の本文を更新
+        const result = await ApiClient.patch(
+          `/api/projects/${project.id}/content/sections/${section_id}`,
           { content }
         );
-        sec.content = content;
-        if (window.TiptapEditor) window.TiptapEditor.updateSectionContent(section_id, content);
-
-        UndoRedoManager.push({
-          do: async () => {
-            await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { content });
-            sec.content = content;
-            if (window.TiptapEditor) window.TiptapEditor.updateSectionContent(section_id, content);
-          },
-          undo: async () => {
-            await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { content: oldContent });
-            sec.content = oldContent;
-            if (window.TiptapEditor) window.TiptapEditor.updateSectionContent(section_id, oldContent);
-          },
-        });
+        project.content = result.content;
+        if (window.TiptapEditor) window.TiptapEditor.setContentFromMarkdown(project.content);
 
       } else if (tool === 'update_multiple_sections') {
         const { updates } = args;
@@ -529,44 +528,32 @@ const AppShell = (() => {
           const sec = project.sections.find(s => s.id === section_id);
           if (!sec) continue;
 
-          const oldContent = sec.content;
           if (changeLog) changeLog.push({ type: 'updated', title: sec.title });
-          await ApiClient.put(
-            `/api/projects/${project.id}/sections/${section_id}`,
+          const result = await ApiClient.patch(
+            `/api/projects/${project.id}/content/sections/${section_id}`,
             { content }
           );
-          sec.content = content;
-          if (window.TiptapEditor) window.TiptapEditor.updateSectionContent(section_id, content);
-
-          UndoRedoManager.push({
-            do: async () => {
-              await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { content });
-              sec.content = content;
-              if (window.TiptapEditor) window.TiptapEditor.updateSectionContent(section_id, content);
-            },
-            undo: async () => {
-              await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { content: oldContent });
-              sec.content = oldContent;
-              if (window.TiptapEditor) window.TiptapEditor.updateSectionContent(section_id, oldContent);
-            },
-          });
+          project.content = result.content;
         }
+        // 全更新後に一度だけTiptapを更新
+        if (window.TiptapEditor) window.TiptapEditor.setContentFromMarkdown(project.content);
 
       } else if (tool === 'create_section') {
-        const { title, summary = '', content = '', parent_id = null } = args;
+        const { title, summary = '', parent_id = null } = args;
         const sec = await ApiClient.post(`/api/projects/${project.id}/sections`, {
-          title, summary, content, parent_id,
+          title, summary, parent_id,
         });
         project.sections.push(sec);
         if (changeLog) changeLog.push({ type: 'created', title: sec.title });
-        EditTab.render(project);
+        // バックエンドがproject.contentにスケルトンを追記するため再取得
+        await _refreshProjectContent(project);
 
         UndoRedoManager.push({
           do: async () => { },
           undo: async () => {
             await ApiClient.delete(`/api/projects/${project.id}/sections/${sec.id}`);
             project.sections = project.sections.filter(s => s.id !== sec.id);
-            EditTab.render(project);
+            await _refreshProjectContent(project);
           },
         });
 
@@ -584,7 +571,8 @@ const AppShell = (() => {
         if (changeLog && secToDelete) changeLog.push({ type: 'deleted', title: secToDelete.title });
         await ApiClient.delete(`/api/projects/${project.id}/sections/${section_id}`);
         project.sections = project.sections.filter(s => s.id !== section_id);
-        EditTab.render(project);
+        // バックエンドがproject.contentからブロックを除去するため再取得
+        await _refreshProjectContent(project);
 
       } else if (tool === 'update_section_title') {
         const { section_id, title } = args;
@@ -594,18 +582,19 @@ const AppShell = (() => {
         if (changeLog) changeLog.push({ type: 'title_changed', oldTitle, newTitle: title });
         await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { title });
         sec.title = title;
-        EditTab.render(project);
+        // バックエンドがproject.content内の見出しタイトルを更新するため再取得
+        await _refreshProjectContent(project);
 
         UndoRedoManager.push({
           do: async () => {
             await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { title });
             sec.title = title;
-            EditTab.render(project);
+            await _refreshProjectContent(project);
           },
           undo: async () => {
             await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { title: oldTitle });
             sec.title = oldTitle;
-            EditTab.render(project);
+            await _refreshProjectContent(project);
           },
         });
 
@@ -667,7 +656,6 @@ const AppShell = (() => {
           const created = await ApiClient.post(`/api/projects/${project.id}/sections`, {
             title: item.title,
             summary: item.summary ?? '',
-            content: '',
             parent_id: resolvedParentId,
             order: item.parent_key ? (item.order ?? 0) : (baseOrder + (item.order ?? 0)),
           });
@@ -676,7 +664,8 @@ const AppShell = (() => {
           if (changeLog) changeLog.push({ type: 'created', title: created.title });
         }
 
-        EditTab.render(project);
+        // バックエンドがproject.contentにスケルトンを追記するため再取得
+        await _refreshProjectContent(project);
 
       } else if (tool === 'set_document_structure' || tool === 'create_document_structure') {
         const { sections: newSections } = args;
@@ -715,7 +704,6 @@ const AppShell = (() => {
           const created = await ApiClient.post(`/api/projects/${project.id}/sections`, {
             title: item.title,
             summary: item.summary ?? '',
-            content: '',
             parent_id: parentId,
             order: item.order ?? 0,
           });
@@ -724,7 +712,8 @@ const AppShell = (() => {
           if (changeLog) changeLog.push({ type: 'created', title: created.title });
         }
 
-        EditTab.render(project);
+        // バックエンドがproject.contentを構築するため再取得
+        await _refreshProjectContent(project);
       }
     } catch (e) {
       showToast(`ツールコール適用エラー: ${e.message}`, 'error');

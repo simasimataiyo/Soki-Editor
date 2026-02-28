@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     pass
 
-from app.backend.models import Project, Section, SectionPreview
+from app.backend.models import Project, SectionPreview
 
 
 class ExportService:
@@ -17,45 +17,22 @@ class ExportService:
     _REF_PATTERN = re.compile(r"\[\^(ref-[^\]]+)\]")
     # ![caption](path "fig-xxx") マッチパターン
     _FIG_PATTERN = re.compile(r'!\[([^\]]*)\]\([^)]*\s+"(fig-[^"]+)"\)')
+    # soki-section マーカーパターン
+    _MARKER_PATTERN = re.compile(r'<!-- soki-section:[a-f0-9-]+ -->\n?')
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     def export_to_markdown(self, project: Project) -> str:
-        """全セクションを階層見出し付き Markdown に変換し、
-        参照解決・参考文献付与を行う。"""
+        """project.content を使い、マーカーを除去した上で参照解決・参考文献付与を行う。"""
         ref_map, fig_map = self.build_reference_maps(project)
-        sections_by_id = {s.id: s for s in project.sections}
-        sorted_sections = sorted(project.sections, key=lambda s: s.order)
 
-        lines: list[str] = []
+        # マーカーを除去
+        content = self._MARKER_PATTERN.sub('', project.content)
 
-        def _depth(sec: Section) -> int:
-            d = 1
-            pid = sec.parent_id
-            while pid and pid in sections_by_id:
-                d += 1
-                pid = sections_by_id[pid].parent_id
-            return d
-
-        # 階層構造を維持してセクションを出力（再帰的）
-        roots = [s for s in sorted_sections if not s.parent_id]
-
-        def _render_section(sec: Section, depth: int) -> None:
-            heading = "#" * depth
-            lines.append(f"{heading} {sec.title}")
-            if sec.content:
-                resolved = self.resolve_references(sec.content, ref_map, fig_map)
-                lines.append(resolved)
-            lines.append("")
-            # 子セクションを再帰的に出力
-            children = [s for s in sorted_sections if s.parent_id == sec.id]
-            for child in sorted(children, key=lambda s: s.order):
-                _render_section(child, depth + 1)
-
-        for sec in roots:
-            _render_section(sec, 1)
+        # 参照解決
+        content = self.resolve_references(content, ref_map, fig_map)
 
         # 参考文献リスト（フラグが有効な場合のみ出力）
         if project.references_section_enabled:
@@ -64,7 +41,7 @@ class ExportService:
                 for src_id, num in sorted(ref_map.items(), key=lambda x: x[1])
             ]
             if numbered:
-                lines.append("## 参考文献")
+                lines = [content.rstrip(), "", "## 参考文献"]
                 src_by_id = {s.id: s for s in project.sources}
                 for src_id, num in numbered:
                     src = src_by_id.get(src_id)
@@ -73,8 +50,9 @@ class ExportService:
                         entry = self._format_bibliography(bib)
                         lines.append(f"[{num}] {entry}")
                 lines.append("")
+                return "\n".join(lines)
 
-        return "\n".join(lines)
+        return content
 
     def resolve_references(
         self,
@@ -106,7 +84,7 @@ class ExportService:
     def build_reference_maps(
         self, project: Project
     ) -> tuple[dict[str, int], dict[str, tuple[str, int]]]:
-        """本文出現順に ref_map と fig_map を構築する。"""
+        """project.content を1回スキャンして ref_map と fig_map を構築する。"""
         src_by_id = {
             s.id: s
             for s in project.sources
@@ -121,37 +99,38 @@ class ExportService:
         fig_counter = 0
         tbl_counter = 0
 
-        sorted_sections = sorted(project.sections, key=lambda s: s.order)
+        text = project.content
 
-        for sec in sorted_sections:
-            text = sec.content
-            # 文献参照
-            for m in self._REF_PATTERN.finditer(text):
-                src_id = m.group(1)
-                if src_id in src_by_id and src_id not in ref_map:
-                    ref_counter += 1
-                    ref_map[src_id] = ref_counter
-            # 図表参照
-            for m in self._FIG_PATTERN.finditer(text):
-                fig_id = m.group(2)
-                if fig_id in mat_by_id and fig_id not in fig_map:
-                    mat = mat_by_id[fig_id]
-                    if mat.type == "figure":
-                        fig_counter += 1
-                        fig_map[fig_id] = ("figure", fig_counter)
-                    else:
-                        tbl_counter += 1
-                        fig_map[fig_id] = ("table", tbl_counter)
+        # 文献参照
+        for m in self._REF_PATTERN.finditer(text):
+            src_id = m.group(1)
+            if src_id in src_by_id and src_id not in ref_map:
+                ref_counter += 1
+                ref_map[src_id] = ref_counter
+
+        # 図表参照
+        for m in self._FIG_PATTERN.finditer(text):
+            fig_id = m.group(2)
+            if fig_id in mat_by_id and fig_id not in fig_map:
+                mat = mat_by_id[fig_id]
+                if mat.type == "figure":
+                    fig_counter += 1
+                    fig_map[fig_id] = ("figure", fig_counter)
+                else:
+                    tbl_counter += 1
+                    fig_map[fig_id] = ("table", tbl_counter)
 
         return ref_map, fig_map
 
     def get_preview_content(self, project: Project) -> list[SectionPreview]:
         """Review タブ表示用: 各セクションの参照解決済みコンテンツを返す。"""
+        from app.backend.services.project_service import ProjectService
         ref_map, fig_map = self.build_reference_maps(project)
         previews: list[SectionPreview] = []
         sorted_sections = sorted(project.sections, key=lambda s: s.order)
         for sec in sorted_sections:
-            resolved = self.resolve_references(sec.content, ref_map, fig_map)
+            body = ProjectService.extract_section_body(project.content, sec.id)
+            resolved = self.resolve_references(body, ref_map, fig_map)
             previews.append(
                 SectionPreview(section_id=sec.id, rendered_content=resolved)
             )
