@@ -122,6 +122,9 @@ const AppShell = (() => {
       if (s.left_panel_width) {
         SettingsTab.applyLeftPanelWidth(s.left_panel_width);
       }
+      if (s.history_panel_width) {
+        SettingsTab.applyHistoryPanelWidth(s.history_panel_width);
+      }
     }).catch(() => {});
 
     // 3カラムパネルリサイズを初期化
@@ -821,15 +824,25 @@ const AppShell = (() => {
       document.getElementById('chat-history-side'),
       'left',
       pxVal('--history-panel-min-w'), pxVal('--history-panel-max-w'),
-      /* isHistory */ true
+      /* isHistory */ true,
+      (px) => {
+        SettingsTab.applyHistoryPanelWidth(px);
+        ApiClient.put('/api/settings', { history_panel_width: px }).catch(() => {});
+      }
     );
+
+    const saveLeftPanelWidth = (px) => {
+      SettingsTab.applyLeftPanelWidth(px);
+      ApiClient.put('/api/settings', { left_panel_width: px }).catch(() => {});
+    };
 
     // Source タブ左パネル
     _setupHorizResizer(
       document.getElementById('source-resizer'),
       document.getElementById('source-panel'),
       'right',
-      pxVal('--left-panel-min-w'), pxVal('--left-panel-max-w')
+      pxVal('--left-panel-min-w'), pxVal('--left-panel-max-w'),
+      false, saveLeftPanelWidth
     );
 
     // Material タブ左パネル
@@ -837,7 +850,8 @@ const AppShell = (() => {
       document.getElementById('material-resizer'),
       document.getElementById('material-panel'),
       'right',
-      pxVal('--left-panel-min-w'), pxVal('--left-panel-max-w')
+      pxVal('--left-panel-min-w'), pxVal('--left-panel-max-w'),
+      false, saveLeftPanelWidth
     );
 
     // Rule タブ左パネル
@@ -845,7 +859,8 @@ const AppShell = (() => {
       document.getElementById('rule-resizer'),
       document.getElementById('rule-panel'),
       'right',
-      pxVal('--left-panel-min-w'), pxVal('--left-panel-max-w')
+      pxVal('--left-panel-min-w'), pxVal('--left-panel-max-w'),
+      false, saveLeftPanelWidth
     );
   }
 
@@ -857,8 +872,9 @@ const AppShell = (() => {
    * @param {number} minW - 最小幅
    * @param {number} maxW - 最大幅
    * @param {boolean} isHistory - チャット履歴パネル（折りたたみ対応）
+   * @param {function(number):void} [onSaveWidth] - ドラッグ完了時に幅(px)を受け取るコールバック
    */
-  function _setupHorizResizer(resizer, panel, side, minW, maxW, isHistory = false) {
+  function _setupHorizResizer(resizer, panel, side, minW, maxW, isHistory = false, onSaveWidth = null) {
     if (!resizer || !panel) return;
 
     let startX = 0;
@@ -904,6 +920,11 @@ const AppShell = (() => {
         resizer.classList.remove('dragging');
         document.body.style.userSelect = '';
         document.body.style.cursor = '';
+
+        // ドラッグ完了時に幅を保存
+        if (isDragging && onSaveWidth) {
+          onSaveWidth(parseInt(panel.style.width, 10));
+        }
 
         // クリック（ドラッグなし）ならトグル
         if (!isDragging && isHistory) {

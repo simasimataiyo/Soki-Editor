@@ -7,6 +7,10 @@ const SettingsTab = (() => {
     document.documentElement.style.setProperty('--left-panel-w', px + 'px');
   }
 
+  function applyHistoryPanelWidth(px) {
+    document.documentElement.style.setProperty('--history-panel-w', px + 'px');
+  }
+
   async function render(_project) {
     try {
       const s = await ApiClient.get('/api/settings');
@@ -16,6 +20,7 @@ const SettingsTab = (() => {
       document.getElementById('settings-pdf-dpi').value = s.pdf_page_dpi ?? 96;
       document.getElementById('settings-left-panel-width').value = s.left_panel_width ?? 280;
       applyLeftPanelWidth(s.left_panel_width ?? 280);
+      applyHistoryPanelWidth(s.history_panel_width ?? 280);
     } catch (_) {}
   }
 
@@ -42,5 +47,5 @@ const SettingsTab = (() => {
     });
   }
 
-  return { render, bindEvents, applyLeftPanelWidth };
+  return { render, bindEvents, applyLeftPanelWidth, applyHistoryPanelWidth };
 })();

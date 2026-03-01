@@ -32,6 +32,7 @@
 :root {
   --sidebar-w: 64px;
   --left-panel-w: 350px;
+  --history-panel-w: 280px;
   --outline-panel-min-w: 120px;
   --outline-panel-max-w: 500px;
   --history-panel-min-w: 160px;
@@ -440,7 +441,7 @@ body {
   flex-direction: column;
   overflow: hidden;
   background: var(--color-surface);
-  width: var(--left-panel-w);
+  width: var(--history-panel-w);
   min-width: 0;
   flex-shrink: 0;
 }
