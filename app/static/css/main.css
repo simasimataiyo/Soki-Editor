@@ -132,35 +132,6 @@ body {
   margin-top: 6px;
 }
 
-/* btn-text, btn-dark は btn-tertiary, btn-primary に統合済み。後方互換のためエイリアスを残す */
-.btn-text {
-  background: none;
-  color: var(--color-text);
-  font-size: 14px;
-  padding: 7px 4px;
-  border: none;
-  cursor: pointer;
-  font-family: inherit;
-}
-
-.btn-text:hover:not(:disabled) {
-  background: var(--color-bg);
-}
-
-.btn-dark {
-  background: var(--color-text);
-  color: var(--color-white);
-  border-radius: 8px;
-  font-size: 14px;
-  padding: 8px 18px;
-  border: none;
-  cursor: pointer;
-  font-family: inherit;
-}
-
-.btn-dark:hover:not(:disabled) {
-  background: var(--color-text-hover);
-}
 
 /* ─── エディタ画面レイアウト ─────────────────────────────── */
 #editor-screen {
@@ -209,14 +180,9 @@ body {
   cursor: pointer;
   transition: background .15s;
   color: var(--color-text-muted);
-  border-left: 2px solid transparent;
   background: none;
   border: none;
   border-left: 2px solid transparent;
-  border-top: none;
-  border-right: none;
-  border-bottom: none;
-  padding: 8px 4px;
   text-align: center;
 }
 
@@ -609,17 +575,6 @@ body {
   flex-shrink: 0;
 }
 
-/* btn-outline は btn-secondary に統合。後方互換エイリアス */
-.btn-outline {
-  background: var(--color-surface);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-}
-
-.btn-outline:hover:not(:disabled) {
-  background: var(--color-bg);
-  border-color: var(--color-text-muted);
-}
 
 /* ─── 詳細ペイン タイトルバー（共通） ──────────────────── */
 .detail-title-bar {
@@ -772,133 +727,10 @@ body {
   overflow-y: auto;
   padding: 16px 32px 32px;
   background: var(--color-surface);
-}
-
-.section-block {
-  margin-bottom: 8px;
-  border: none;
-  border-radius: 0;
-  overflow: visible;
-}
-
-.section-block.depth-2 {
-  margin-left: 12px;
-}
-
-.section-block.depth-3 {
-  margin-left: 24px;
-}
-
-.section-block.depth-4 {
-  margin-left: 36px;
-}
-
-.section-block.depth-5 {
-  margin-left: 48px;
-}
-
-.section-block .section-header {
-  padding: 6px 0;
-  background: none;
-  border-bottom: none;
   display: flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
 }
 
-.section-block .section-header h2 {
-  font-size: 18px;
-  font-weight: 700;
-  flex: 1;
-  margin: 0;
-}
-
-.section-block .section-header h3 {
-  font-size: 15px;
-  font-weight: 600;
-  flex: 1;
-  margin: 0;
-}
-
-.section-block .section-header h4 {
-  font-size: 14px;
-  font-weight: 600;
-  flex: 1;
-  margin: 0;
-  color: var(--color-text-muted);
-}
-
-.section-block .section-header h5 {
-  font-size: 13px;
-  font-weight: 600;
-  flex: 1;
-  margin: 0;
-  color: var(--color-text-muted);
-}
-
-.section-block .section-header h6 {
-  font-size: 12px;
-  font-weight: 500;
-  flex: 1;
-  margin: 0;
-  color: var(--color-text-muted);
-  font-style: italic;
-}
-
-.section-bullet {
-  color: var(--color-text-muted);
-  margin-right: 2px;
-}
-
-.section-toggle {
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  flex-shrink: 0;
-  border-radius: 3px;
-  transition: background .1s;
-}
-
-.section-toggle:hover {
-  background: var(--color-bg);
-}
-
-.section-actions {
-  display: flex;
-  gap: 2px;
-  opacity: 0;
-  transition: opacity .15s;
-  flex-shrink: 0;
-}
-
-.section-block:hover>.section-header .section-actions,
-.section-block:focus-within>.section-header .section-actions {
-  opacity: 1;
-}
-
-.section-actions .btn-icon {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-muted);
-  border: none;
-  background: none;
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.section-actions .btn-icon:hover {
-  background: var(--color-bg);
-  color: var(--color-text);
-}
 
 /* ─── Tiptap Editor & Toolbar ────────────────────────── */
 .tiptap-toolbar {
@@ -922,10 +754,10 @@ body {
 }
 
 .tiptap-toolbar-label {
+  flex: 1;
   font-weight: 600;
   color: var(--color-text);
   font-size: 13px;
-  margin-right: auto;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -961,70 +793,6 @@ body {
   height: 0;
 }
 
-.section-body {
-  padding: 0 32px 16px 32px;
-}
-
-.section-body.collapsed {
-  display: none;
-}
-
-.section-summary {
-  padding: 8px 0;
-  background: var(--color-primary-pale);
-  font-size: 13px;
-  color: var(--color-text-muted);
-  border-radius: 8px;
-  margin: 4px 0 8px;
-  line-height: 1.6;
-  min-height: 3.2em;
-  /* 2行分の縦幅 */
-}
-
-.section-summary[contenteditable] {
-  outline: none;
-}
-
-.section-summary[contenteditable]:focus {
-  background: var(--color-primary-pale);
-}
-
-.section-summary:empty::before {
-  content: '概要を入力...';
-  color: var(--color-text-muted);
-}
-
-.section-content {
-  padding: 4px 0 12px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  font-size: 14px;
-}
-
-.section-block.selected .section-content {
-  min-height: 16em;
-  /* 編集中は10行分の縦幅を確保 */
-}
-
-.section-block.selected .section-summary,
-.section-content[contenteditable] {
-  outline: none;
-}
-
-.section-content[contenteditable]:focus {
-  background: var(--color-bg);
-  border-radius: 4px;
-  padding: 4px;
-}
-
-.section-content:empty::before {
-  content: '本文を入力...';
-  color: var(--color-text-muted);
-}
-
-.section-children {
-  margin-top: 4px;
-}
 
 /* ─── 参考文献ブロック（ドキュメントビュー内） ────────────── */
 .references-block {
@@ -1149,49 +917,6 @@ body {
   white-space: nowrap;
 }
 
-.llm-response-area {
-  max-height: 30vh;
-  min-height: 40px;
-  padding: 8px 12px;
-  background: var(--color-primary-pale);
-  border-radius: 8px;
-  font-size: 14px;
-  line-height: 1.5;
-  display: block;
-  overflow-y: auto;
-  position: relative;
-  /* 閉じるボタンの配置用 */
-}
-
-.llm-response-text {
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  user-select: text;
-  cursor: text;
-  padding-right: 20px;
-  /* 閉じるボタン分の余白 */
-}
-
-.llm-response-close-btn {
-  position: absolute;
-  top: 6px;
-  right: 8px;
-  background: none;
-  border: none;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-  padding: 0 2px;
-  border-radius: 3px;
-  transition: color .1s, background .1s;
-  flex-shrink: 0;
-}
-
-.llm-response-close-btn:hover {
-  color: var(--color-danger);
-  background: rgba(0, 0, 0, .05);
-}
 
 /* ─── 送信ボタン ─────────────────────────────────────────── */
 .btn-send {
@@ -1433,187 +1158,6 @@ body {
   margin-bottom: 6px;
 }
 
-/* ─── レビュータブ ───────────────────────────────────────── */
-.review-sections {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.review-section-block {
-  border-bottom: 1px solid var(--color-border);
-}
-
-.review-section-block:last-child {
-  border-bottom: none;
-}
-
-.review-section-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 0;
-  cursor: default;
-  user-select: text;
-}
-
-.review-section-header .chevron {
-  width: 16px;
-  height: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-muted);
-  flex-shrink: 0;
-}
-
-.review-section-header h3 {
-  font-size: 16px;
-  font-weight: 700;
-  flex: 1;
-  margin: 0;
-}
-
-.review-section-body {
-  padding: 0 0 16px;
-}
-
-.review-section-body.collapsed {
-  display: none;
-}
-
-.review-section-content {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0;
-}
-
-.review-section-text {
-  padding: 14px;
-  line-height: 1.7;
-  overflow-wrap: break-word;
-  font-size: 14px;
-  user-select: text;
-}
-
-.review-section-comments {
-  padding: 0 0 0 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-/* ─── レビューカード ───────────────────────────────────── */
-.review-section-comments {
-  padding: 0 0 0 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.comment-card {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: var(--color-surface);
-}
-
-.comment-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg);
-}
-
-.comment-card-header .comment-label {
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  color: var(--color-primary);
-}
-
-.comment-card-header .comment-label:hover {
-  color: var(--color-primary-light);
-}
-
-.comment-card-header .comment-close {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 16px;
-  color: var(--color-text-muted);
-  padding: 0 2px;
-}
-
-.comment-card-header .comment-close:hover {
-  color: var(--color-text);
-}
-
-.comment-card-body {
-  padding: 10px 12px;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.comment-card-section {
-  padding: 12px;
-}
-
-.comment-card-problem {
-  font-weight: 600;
-  color: var(--color-text);
-  margin-bottom: 6px;
-}
-
-.comment-card-solution {
-  color: var(--color-text-muted);
-  line-height: 1.5;
-}
-
-.comment-card-actions {
-  padding: 8px 12px;
-  border-top: 1px solid var(--color-border-light);
-  display: flex;
-  gap: 8px;
-}
-
-.comment-card-actions .btn {
-  font-size: 12px;
-  padding: 4px 10px;
-}
-
-/* セクションごとの全削除ボタン */
-.review-comments-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px 0 8px 0;
-  border-bottom: 1px solid var(--color-border-light);
-  margin-bottom: 8px;
-}
-
-.review-comments-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-text-muted);
-}
-
-.btn-clear-comments {
-  font-size: 11px;
-  color: var(--color-text-muted);
-  background: none;
-  border: 1px solid var(--color-border-light);
-  padding: 2px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.btn-clear-comments:hover {
-  color: var(--color-danger);
-  border-color: var(--color-danger);
-}
 
 /* ─── マテリアルリスト（縦型カード） ─────────────────────── */
 .material-card-list {
@@ -2054,32 +1598,6 @@ body {
   flex-shrink: 0;
 }
 
-.chat-history-content {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 520px;
-  overflow-y: auto;
-}
-
-.history-msg {
-  padding: 8px 12px;
-  border-radius: var(--radius);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.history-msg.user {
-  background: var(--color-text);
-  color: var(--color-white);
-  align-self: flex-end;
-  max-width: 80%;
-}
-
-.history-msg.assistant {
-  background: var(--color-bg);
-  max-width: 80%;
-}
 
 /* ─── トースト ───────────────────────────────────────────── */
 .toast-container {
@@ -2231,28 +1749,6 @@ body {
   opacity: 1;
 }
 
-.section-block.selected {
-  border-left: 3px solid var(--color-text);
-  background: var(--color-primary-pale);
-}
-
-/* 非選択セクションの編集不可表示（直属の要素のみ。子セクション内の要素には影響しない） */
-.section-block:not(.selected)>.section-body>.section-summary[contenteditable="true"],
-.section-block:not(.selected)>.section-body>.section-content-wrapper>.section-content[contenteditable="true"] {
-  pointer-events: none;
-  opacity: 0.7;
-  background: transparent !important;
-}
-
-.section-block.selected>.section-body>.section-summary[contenteditable="true"],
-.section-block.selected>.section-body>.section-content-wrapper>.section-content[contenteditable="true"] {
-  pointer-events: auto;
-  opacity: 1;
-}
-
-.section-block:not(.selected)>.section-body>.section-summary.hidden {
-  display: none;
-}
 
 /* ─── ドラッグハンドル ───────────────────────────────────── */
 .drag-handle {
@@ -2290,38 +1786,6 @@ body {
   background: var(--color-primary-pale);
 }
 
-/* ─── フローティングアクションボタン ───────────────────────── */
-.section-content-wrapper {
-  position: relative;
-}
-
-.section-floating-actions {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
-  display: flex;
-  gap: 6px;
-  opacity: 0;
-  transition: opacity .15s;
-}
-
-.section-content-wrapper:hover .section-floating-actions,
-.section-floating-actions:hover {
-  opacity: 1;
-}
-
-/* ─── セクション名トグル（コラプスボタン） ───────────────── */
-.section-title-toggle {
-  cursor: pointer;
-  transition: background .15s;
-  padding: 2px 4px;
-  border-radius: 3px;
-  user-select: none;
-}
-
-.section-title-toggle:hover {
-  background: var(--color-bg);
-}
 
 /* ─── PDF解析モーダル共通 ────────────────────────────────── */
 .pdf-modal-header {
@@ -2587,33 +2051,6 @@ body {
   font-size: 12px;
 }
 
-/* ─── 保存状態インジケーター ───────────────────────────── */
-.save-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--color-text-muted);
-  padding: 4px 8px;
-  border-radius: 4px;
-  transition: background 0.2s, color 0.2s;
-  margin-left: 8px;
-}
-
-.save-indicator.saving {
-  background: var(--color-primary-pale);
-  color: var(--color-primary);
-}
-
-.save-indicator.saved {
-  background: #e6f4ea;
-  color: #137333;
-}
-
-.save-indicator.error {
-  background: #fce8e6;
-  color: #c5221f;
-}
 
 /* ─── レスポンシブデザイン ───────────────────────────────── */
 
@@ -2676,58 +2113,15 @@ body {
   z-index: 10000;
 }
 
-/* ─── チャット履歴アイテム ───────────────────────────────── */
-.chat-history-item {
-  padding: 12px;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.chat-history-item:last-child {
-  border-bottom: none;
-}
-
-.chat-history-role {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-
-.chat-history-role.user {
-  color: var(--color-primary);
-}
-
-.chat-history-role.assistant {
-  color: var(--color-success);
-}
-
-.chat-history-role.command {
-  color: var(--color-warning);
-}
-
-.chat-history-content {
-  font-size: 14px;
-  line-height: 1.5;
-  margin-bottom: 8px;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-}
-
-.chat-history-time {
-  font-size: 12px;
-  color: var(--color-text-muted);
-}
 
 /* ─── チャット履歴インラインパネル ───────────────────────── */
 .chat-history-panel {
-  border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
-  max-height: 280px;
   display: flex;
   flex-direction: column;
+  flex: 1;
   overflow: hidden;
+  min-height: 0;
 }
 
 .chat-history-panel-tabs {
@@ -2867,14 +2261,6 @@ body {
   text-align: right;
 }
 
-/* 旧スタイルの互換性維持 */
-.chat-history-content {
-  display: none;
-}
-
-.history-msg {
-  display: none;
-}
 
 .skip-link:focus {
   top: 0;
@@ -2946,32 +2332,6 @@ body {
   opacity: 0.65;
   pointer-events: none;
   cursor: not-allowed;
-}
-
-/* セクションツールバー（文献挿入・図表挿入） */
-.tiptap-section-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 32px;
-  border-bottom: 1px solid var(--color-border-light, #e5e7eb);
-  background: var(--color-surface);
-  flex-shrink: 0;
-}
-
-.tiptap-toolbar-label {
-  flex: 1;
-  font-size: 0.85em;
-  color: var(--color-text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* doc-view をflexboxに対応させる */
-.doc-view {
-  display: flex;
-  flex-direction: column;
 }
 
 /* ─── Tiptap タイポグラフィ追加スタイル ─────────────────── */
@@ -3060,4 +2420,107 @@ body {
 
 .custom-drag-handle:active {
   cursor: grabbing;
+}
+
+/* ─── Editタブ 3カラムレイアウト ─────────────────────────── */
+.edit-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* 中央エリア（エディタ + チャットバー） */
+.edit-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* チャット履歴右サイドパネル */
+.chat-history-side {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface);
+  width: 320px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.chat-history-side.collapsed {
+  width: 0 !important;
+  border-left: none;
+  overflow: hidden;
+}
+
+/* ─── パネルリサイザー（垂直ドラッグ境界線） ──────────────── */
+.panel-resizer {
+  width: 5px;
+  background: var(--color-bg);
+  cursor: col-resize;
+  flex-shrink: 0;
+  position: relative;
+  /* transition: width 0.15s, background 0.15s; */
+  z-index: 10;
+  
+}
+
+.panel-resizer:hover,
+.panel-resizer.dragging {
+  background: var(--color-text-muted);
+}
+
+/* チャット履歴境界リサイザー（クリックで折りたたみ） */
+.panel-resizer.history-resizer {
+  cursor: pointer;
+}
+
+.panel-resizer.history-resizer::before {
+  content: "◀";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 9px;
+  color: var(--color-text-light);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 18px;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.panel-resizer.history-resizer:hover::before {
+  opacity: 1;
+}
+
+/* 履歴パネルが開いている場合は矢印を反転 */
+.panel-resizer.history-resizer.history-open::before {
+  content: "▶";
+}
+
+/* chat-bar を edit-center 内で下部に固定 */
+#tab-edit .chat-bar {
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+/* edit-center 内の doc-view は残りを占有 */
+#tab-edit .doc-view {
+  flex: 1;
+  min-height: 0;
+}
+
+/* edit-layout 内の left-panel は border-right を持たない（panel-resizer が代替） */
+.edit-layout > .left-panel {
+  border-right: none;
 }

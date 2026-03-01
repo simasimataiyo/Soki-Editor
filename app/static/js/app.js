@@ -111,6 +111,9 @@ const AppShell = (() => {
       window.initResizeHandle('chat-resize-handle', 'chat-input');
     }
 
+    // 3カラムパネルリサイズを初期化
+    _initPanelResizers();
+
     // パブリックなMarkdownエクスポートボタン
     document.getElementById('btn-export-md')?.addEventListener('click', async () => {
       const project = window.appState.getProject();
@@ -132,9 +135,7 @@ const AppShell = (() => {
       }
     });
 
-    // チャット履歴パネルのトグル
-    document.getElementById('chat-resize-handle').addEventListener('dblclick', _toggleHistoryPanel);
-    // document.getElementById('btn-chat-history').addEventListener('dblclick', _toggleHistoryPanel);
+    // チャット履歴パネルのトグルは _initPanelResizers 内で設定済み
 
     // チャットコピーボタンのイベントデリゲーション
     document.getElementById('chat-history-panel-messages')?.addEventListener('click', (e) => {
@@ -308,7 +309,10 @@ const AppShell = (() => {
     // 送信時にチャット履歴パネルを自動オープン
     if (!_historyPanelOpen) {
       _historyPanelOpen = true;
-      document.getElementById('chat-history-panel').style.display = '';
+      const sidePanel = document.getElementById('chat-history-side');
+      const resizer = document.getElementById('history-resizer');
+      if (sidePanel) sidePanel.classList.remove('collapsed');
+      if (resizer) { resizer.classList.remove('collapsed-indicator'); resizer.classList.add('history-open'); }
     }
 
     // /structure-section コマンドの場合、選択中のセクションを対象にする
@@ -715,7 +719,99 @@ const AppShell = (() => {
     }
   }
 
-  // ─── チャット履歴インラインパネル ─────────────────────
+  // ─── 3カラムパネルリサイズ ─────────────────────
+
+  /**
+   * アウトライン ↔ エディタ、エディタ ↔ チャット履歴のドラッグリサイズを初期化する
+   */
+  function _initPanelResizers() {
+    // アウトライン ↔ エディタ境界
+    _setupHorizResizer(
+      document.getElementById('outline-resizer'),
+      document.getElementById('outline-panel'),
+      'right',
+      120, 500
+    );
+
+    // エディタ ↔ チャット履歴境界（ドラッグでリサイズ、クリックでトグル）
+    _setupHorizResizer(
+      document.getElementById('history-resizer'),
+      document.getElementById('chat-history-side'),
+      'left',
+      160, 600,
+      /* isHistory */ true
+    );
+  }
+
+  /**
+   * 水平リサイザーをセットアップする
+   * @param {HTMLElement} resizer - ドラッグハンドル要素
+   * @param {HTMLElement} panel - リサイズ対象パネル
+   * @param {'right'|'left'} side - どちら側のパネルか
+   * @param {number} minW - 最小幅
+   * @param {number} maxW - 最大幅
+   * @param {boolean} isHistory - チャット履歴パネル（折りたたみ対応）
+   */
+  function _setupHorizResizer(resizer, panel, side, minW, maxW, isHistory = false) {
+    if (!resizer || !panel) return;
+
+    let startX = 0;
+    let startW = 0;
+    let isDragging = false;
+    let clickThreshold = 5; // ドラッグと判定するピクセル数
+
+    resizer.addEventListener('mousedown', (e) => {
+      startX = e.clientX;
+      startW = panel.getBoundingClientRect().width;
+      isDragging = false;
+
+      const onMove = (e) => {
+        const dx = e.clientX - startX;
+        if (!isDragging && Math.abs(dx) > clickThreshold) {
+          isDragging = true;
+          resizer.classList.add('dragging');
+          document.body.style.userSelect = 'none';
+          document.body.style.cursor = 'col-resize';
+        }
+        if (!isDragging) return;
+
+        let newW;
+        if (side === 'right') {
+          newW = startW + dx;
+        } else {
+          newW = startW - dx;
+        }
+        newW = Math.max(minW, Math.min(maxW, newW));
+
+        // 折りたたみ状態を解除してリサイズ
+        if (isHistory && panel.classList.contains('collapsed')) {
+          panel.classList.remove('collapsed');
+          resizer.classList.add('history-open');
+          _historyPanelOpen = true;
+        }
+        panel.style.width = newW + 'px';
+      };
+
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        resizer.classList.remove('dragging');
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+
+        // クリック（ドラッグなし）ならトグル
+        if (!isDragging && isHistory) {
+          _toggleHistoryPanel();
+        }
+      };
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+      e.preventDefault();
+    });
+  }
+
+  // ─── チャット履歴右パネル ─────────────────────
 
   let _historyPanelOpen = false;
 
@@ -795,25 +891,30 @@ const AppShell = (() => {
   }
 
   async function _toggleHistoryPanel() {
-    const panel = document.getElementById('chat-history-panel');
+    const sidePanel = document.getElementById('chat-history-side');
+    const resizer = document.getElementById('history-resizer');
     const project = window.appState.getProject();
     if (!project) return;
 
     _historyPanelOpen = !_historyPanelOpen;
     if (_historyPanelOpen) {
-      panel.style.display = '';
+      sidePanel.classList.remove('collapsed');
+      resizer.classList.remove('collapsed-indicator');
+      resizer.classList.add('history-open');
       // ストリーミング中でなければ最新履歴を取得して描画
       if (!_currentSseCtrl) {
         await _refreshHistoryPanel();
       }
     } else {
-      panel.style.display = 'none';
+      sidePanel.classList.add('collapsed');
+      resizer.classList.add('collapsed-indicator');
+      resizer.classList.remove('history-open');
     }
   }
 
   async function _refreshHistoryPanel() {
     const project = window.appState.getProject();
-    if (!project || !_historyPanelOpen) return;
+    if (!project) return;
 
     try {
       const msgs = await ApiClient.get(`/api/projects/${project.id}/chat-history`);

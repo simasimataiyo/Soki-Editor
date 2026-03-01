@@ -730,10 +730,20 @@ class LLMService:
 
     @staticmethod
     def _extract_section_body(project_content: str, section_id: str) -> str:
-        """project.content から特定セクションのボディテキスト（見出し行除く）を抽出する。"""
+        """project.content から特定セクションのボディテキスト（見出し行除く）を抽出する。
+
+        新形式: <!-- soki-section:{"id": "uuid", ...} -->
+        旧形式: <!-- soki-section:uuid -->
+        """
         import re
+        # 新形式（JSON内の"id"フィールドでマッチ）と旧形式（UUID直接）の両方に対応
+        escaped_id = re.escape(section_id)
         pattern = re.compile(
-            r'<!-- soki-section:' + re.escape(section_id) + r' -->\n'
+            r'<!-- soki-section:(?:'
+            + r'\{[^}]*"id"\s*:\s*"' + escaped_id + r'"[^}]*\}'
+            + r'|'
+            + escaped_id
+            + r') -->\n'
             r'#{1,6} [^\n]+\n'
             r'(.*?)(?=<!-- soki-section:|$)',
             re.DOTALL
@@ -805,7 +815,7 @@ class LLMService:
             )
         # review/rewrite コマンドで全セクションの本文も必要な場合
         section_bodies_by_id = {}
-        if command in ("rewrite", "review"):
+        if command_mode["base_command"] in ("rewrite", "review"):
             for sec in sorted_sections:
                 section_bodies_by_id[sec.id] = self._extract_section_body(
                     project.content, sec.id

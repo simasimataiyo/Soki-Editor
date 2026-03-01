@@ -1361,10 +1361,12 @@ const EditTab = (() => {
         // 選択状態が変わった場合のみ更新（無限ループや不要な再描画を防ぐ）
         if (currentSectionId && currentSectionId !== window.appState.getSelectedSectionId()) {
           window.appState.setSelectedSectionId(currentSectionId);
+          AppShell.setCurrentScope(currentSectionId);
           _updateDocViewEditMode();
         } else if (!currentSectionId && window.appState.getSelectedSectionId()) {
           // 本文冒頭（最初の見出しより前）にカーソルがある場合はセクション非選択状態
           window.appState.setSelectedSectionId(null);
+          AppShell.setCurrentScope('all');
           _updateDocViewEditMode();
         }
 
