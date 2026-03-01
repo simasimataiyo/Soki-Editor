@@ -847,6 +847,43 @@ function _deleteSectionHeading(sectionId) {
 }
 
 /**
+ * IDで見出しノードを探し、その見出しおよび後続の子セクションを含むブロック全体をTiptapから削除する
+ * @param {string} sectionId
+ */
+function _deleteSectionBlock(sectionId) {
+  if (!editor) return;
+  let targetFrom = null;
+  let targetTo = null;
+  let targetLevel = null;
+  let found = false;
+
+  editor.state.doc.forEach((node, pos) => {
+    if (!found) {
+      if (node.type.name === 'sectionHeading' && node.attrs.sectionId === sectionId) {
+        targetFrom = pos;
+        targetLevel = node.attrs.level;
+        found = true;
+      }
+    } else {
+      if (targetTo === null) {
+        if (node.type.name === 'sectionHeading' && node.attrs.level <= targetLevel) {
+          targetTo = pos;
+        }
+      }
+    }
+  });
+
+  if (targetFrom === null) return;
+  if (targetTo === null) {
+    targetTo = editor.state.doc.content.size;
+  }
+
+  _suppressUpdate = true;
+  editor.chain().deleteRange({ from: targetFrom, to: targetTo }).run();
+  setTimeout(() => { _suppressUpdate = false; }, 50);
+}
+
+/**
  * 指定セクションのコンテンツをTiptap上で更新する
  * app.js の update_section ツールハンドラから呼ばれる（PATCH後のビュー更新）
  * 現在はsetContentFromMarkdownで全体更新するため、レガシー互換として残す
@@ -1012,6 +1049,14 @@ window.TiptapEditor = {
    */
   deleteSectionHeading(sectionId) {
     _deleteSectionHeading(sectionId);
+  },
+
+  /**
+   * IDで見出しノードを探し、その見出しおよび後続の子セクションを含むブロック全体をTiptapから削除する
+   * @param {string} sectionId
+   */
+  deleteSectionBlock(sectionId) {
+    _deleteSectionBlock(sectionId);
   },
 
   /**

@@ -682,12 +682,30 @@ const EditTab = (() => {
    */
   async function _deleteSection(sec) {
     const project = window.appState.getProject();
+    const sections = project.sections;
 
-    await ApiClient.delete(`/api/projects/${project.id}/sections/${sec.id}`);
-    project.sections = project.sections.filter(s => s.id !== sec.id);
+    // 自分と子孫のIDセットを作成
+    function getDescendantIds(id) {
+      const children = sections.filter(s => s.parent_id === id);
+      return [id, ...children.flatMap(c => getDescendantIds(c.id))];
+    }
+    const idsToDelete = new Set(getDescendantIds(sec.id));
 
-    // TiptapドキュメントからもsectionHeadingノードを削除（suppressUpdateでループ防止）
-    window.TiptapEditor.deleteSectionHeading(sec.id);
+    // APIから削除
+    for (const id of idsToDelete) {
+      try {
+        await ApiClient.delete(`/api/projects/${project.id}/sections/${id}`);
+      } catch (_) { }
+    }
+
+    project.sections = project.sections.filter(s => !idsToDelete.has(s.id));
+
+    // Tiptapドキュメントから該当ブロック（子セクションとその中身を含む）をすべて削除
+    if (window.TiptapEditor.deleteSectionBlock) {
+      window.TiptapEditor.deleteSectionBlock(sec.id);
+    } else {
+      window.TiptapEditor.deleteSectionHeading(sec.id);
+    }
 
     await _syncContentToBackend();
     _renderOutline();
