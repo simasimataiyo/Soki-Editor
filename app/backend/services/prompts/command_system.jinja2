@@ -143,18 +143,29 @@ sections 配列の各要素:
 {% elif command == "draft" %}
 ## タスク: 本文の執筆
 
+**重要な制約（必ず守ること）:**
+- `create_section`、`delete_section`、`move_section`、`set_document_structure`、`create_document_structure`、`create_sections_under_parent` は **絶対に使用しないでください**
+- セクションの追加・削除・移動・構造変更は一切禁止です
+- `section_id` には必ず以下に列挙した既存セクションIDのみを使用してください
+
 {% if command_mode == "all" %}
 {% if target_section %}
 対象セクション「{{ target_section.title }}」およびその配下の子セクションについて、それぞれの概要に基づいて学術的な本文を一括執筆してください。
-概要:
+
+執筆対象のセクション（これ以外のIDは使用禁止）:
 - ID: {{ target_section.id }} | {{ target_section.title }}: {{ target_section.summary or '(概要なし)' }}
 {% for child in sections %}{% if child.parent_id == target_section.id %}
 - ID: {{ child.id }} | {{ child.title }}: {{ child.summary or '(概要なし)' }}
 {% endif %}{% endfor %}
 各セクションの本文は最大500文字程度としてください。
-`update_multiple_sections` ツールを使用して、対象の複数セクションの本文（content）を一括更新してください。
+`update_multiple_sections` ツールを使用して、上記セクションIDの本文（content）を一括更新してください。
 {% else %}
 全セクションについて、それぞれの概要に基づいて学術的な本文を一括執筆してください。
+
+執筆対象のセクション（これ以外のIDは使用禁止）:
+{% for sec in sections %}
+- ID: {{ sec.id }} | {{ sec.title }}: {{ sec.summary or '(概要なし)' }}
+{% endfor %}
 各セクションの本文は最大500文字程度としてください。
 `update_multiple_sections` ツールを使用して、各セクションの本文を一括更新してください。
 {% endif %}
@@ -174,20 +185,34 @@ sections 配列の各要素:
 {% elif command == "rewrite" %}
 ## タスク: 本文の書き直し
 
+**重要な制約（必ず守ること）:**
+- `create_section`、`delete_section`、`move_section`、`set_document_structure`、`create_document_structure`、`create_sections_under_parent` は **絶対に使用しないでください**
+- 見出し(#,##,###,####,...)は絶対に使わないでください
+- セクションの追加・削除・移動・構造変更は一切禁止です
+- 既存のセクション構造（ID、タイトル、階層）は変更せず、**本文（content）のみ**を書き直してください
+- `section_id` には必ず以下に列挙した既存セクションIDのみを使用してください
+
 {% if command_mode == "all" %}
 {% if target_section %}
 対象セクション「{{ target_section.title }}」およびその配下の子セクションについて、既存の本文を内容を維持しつつより良い表現で一括で書き直してください。
 
-現在の本文:
+更新対象のセクション（これ以外のIDは使用禁止）:
 - ID: {{ target_section.id }} | {{ target_section.title }}: {{ target_section_body or '(本文なし)' }}
 {% for child in sections %}{% if child.parent_id == target_section.id %}
 {% set child_body = section_bodies_by_id.get(child.id, '') if section_bodies_by_id else '' %}
 - ID: {{ child.id }} | {{ child.title }}: {{ child_body or '(本文なし)' }}
 {% endif %}{% endfor %}
 
-`update_multiple_sections` ツールを使用して、対象の複数セクションの本文を更新してください。
+`update_multiple_sections` ツールを使用して、上記セクションIDの本文のみを更新してください。
 {% else %}
 全セクションについて、既存の本文を内容を維持しつつより良い表現で一括で書き直してください。
+
+更新対象のセクション（これ以外のIDは使用禁止）:
+{% for sec in sections %}
+{% set sec_body = section_bodies_by_id.get(sec.id, '') if section_bodies_by_id else '' %}
+- ID: {{ sec.id }} | {{ sec.title }}: {{ sec_body or '(本文なし)' }}
+{% endfor %}
+
 `update_multiple_sections` ツールを使用して各セクションの本文を更新してください。
 {% endif %}
 {% else %}
@@ -207,6 +232,8 @@ sections 配列の各要素:
 {% elif command == "expand" %}
 ## タスク: 本文の拡張（加筆）
 
+**重要な制約:** セクションの追加・削除・移動は禁止です。`update_section` で本文のみを更新してください。
+
 {% if target_section %}
 対象セクション「{{ target_section.title }}」の本文を拡張してください。
 内容の一貫性を保ちながら、詳細な説明、具体例、論拠の補強を追加してください。
@@ -224,6 +251,8 @@ sections 配列の各要素:
 {% elif command == "shorten" %}
 ## タスク: 本文の圧縮
 
+**重要な制約:** セクションの追加・削除・移動は禁止です。`update_section` で本文のみを更新してください。
+
 {% if target_section %}
 対象セクション「{{ target_section.title }}」の本文を圧縮してください。
 重要な内容を維持しながら、冗長な表現を削除してください。
@@ -240,6 +269,8 @@ sections 配列の各要素:
 
 {% elif command == "tone" %}
 ## タスク: 文体の変更
+
+**重要な制約:** セクションの追加・削除・移動は禁止です。`update_section` で本文のみを更新してください。
 
 {% if target_section %}
 対象セクション「{{ target_section.title }}」の文体を変更してください。
@@ -314,16 +345,23 @@ sections 配列の各要素:
 
 ## 利用可能なツール
 
+**本文更新ツール（全コマンドで使用可）:**
 - `update_section`: セクションの本文（content）を単体で更新する
 - `update_multiple_sections`: 複数のセクションの本文（content）を一括で更新する
-- `create_section`: 新しいセクションを1件作成する（title, summary, content, parent_id を指定）
+
+**メタデータ更新ツール（`structure` コマンドのみ使用可）:**
 - `update_section_summary`: セクションの概要（summary）を更新する
 - `update_section_title`: セクションのタイトルを変更する（section_id, title）
+
+**構造変更ツール（`structure` コマンドのみ使用可 / `rewrite`・`draft`・`expand`・`shorten`・`tone` では絶対使用禁止）:**
+- `create_section`: 新しいセクションを1件作成する（title, summary, content, parent_id を指定）
 - `delete_section`: セクションを削除する
 - `move_section`: セクションを別の親・位置に移動する（section_id, parent_id, order）
 - `set_document_structure`: 全セクションを削除して新しい骨子を一括作成する
 - `create_document_structure`: 既存セクションを残したまま新しい骨子構造を一括追加する
 - `create_sections_under_parent`: 指定セクション配下に子セクションを一括追加する
+
+**ソース参照ツール:**
 - `fetch_sources`: 参考文献の全文を取得する（最大4つのソースIDを指定）
 
 **構造生成ツール使用時の注意:**

@@ -255,11 +255,6 @@ const SourceTab = (() => {
             <h3>内容${fullTextProc ? SPINNER : ''}</h3>
           </div>
           <div class="collapsible-body${_sectionCollapsed['content'] ? ' collapsed' : ''}">
-            <div class="source-actions">
-              <button class="btn btn-secondary btn-sm" id="btn-analyze-image" ${fullTextProc ? 'disabled' : ''}>画像認識</button>
-              <button class="btn btn-secondary btn-sm" id="btn-read-file" ${fullTextProc ? 'disabled' : ''}>ファイル読み込み</button>
-            </div>
-
             <div class="form-group" style="margin-bottom:12px">
               <label>全文</label>
               <textarea class="form-control" id="src-full-text" rows="10" ${fullTextProc ? 'disabled' : ''}>${escHtml(src.full_text)}</textarea>
@@ -269,6 +264,12 @@ const SourceTab = (() => {
               <label>ファイルパス</label>
               <input type="text" class="form-control" id="src-file-path" value="${escHtml(src.file_path || '')}" readonly />
             </div>
+
+            <div class="source-actions">
+              <button class="btn btn-secondary btn-sm" id="btn-analyze-image" ${fullTextProc ? 'disabled' : ''}>画像解説を追加</button>
+              <button class="btn btn-secondary btn-sm" id="btn-read-file" ${fullTextProc ? 'disabled' : ''}>ファイル読み込み</button>
+            </div>
+
           </div>
         </div>
 
@@ -279,10 +280,10 @@ const SourceTab = (() => {
             <h3>要約${summaryProc ? SPINNER : ''}</h3>
           </div>
           <div class="collapsible-body${_sectionCollapsed['summary'] ? ' collapsed' : ''}">
+            <textarea class="form-control" id="src-summary" rows="5" ${summaryProc ? 'disabled' : ''}>${escHtml(src.summary)}</textarea>
             <div class="source-actions">
               <button class="btn btn-secondary btn-sm" id="btn-summarize" ${summaryProc ? 'disabled' : ''}>ソースから要約生成</button>
             </div>
-            <textarea class="form-control" id="src-summary" rows="5" ${summaryProc ? 'disabled' : ''}>${escHtml(src.summary)}</textarea>
           </div>
         </div>
 

@@ -138,7 +138,9 @@
                 <div class="panel-header">
                   <span>Outline</span>
                 </div>
-                <button class="btn-add-item" id="btn-add-chapter">セクション追加</button>
+                <div class="panel-buttons">
+                  <button class="btn-add-item" id="btn-add-chapter">セクション追加</button>
+                </div>
                 <ul class="outline-list" id="outline-list"></ul>
                 <div class="outline-references" id="outline-references">
                   <span class="outline-references-label">
@@ -220,8 +222,8 @@
                 <div class="panel-header">
                   <span>Sources</span>
                 </div>
-                <button class="btn-add-item" id="btn-add-source">新規追加</button>
-                <div class="panel-import-export-row">
+                <div class="panel-buttons">
+                  <button class="btn-add-item" id="btn-add-source">新規追加</button>
                   <button class="btn-panel-action" id="btn-source-import">CSVインポート</button>
                   <button class="btn-panel-action" id="btn-source-export">CSVエクスポート</button>
                 </div>
@@ -241,7 +243,9 @@
                 <div class="panel-header">
                   <span>Material</span>
                 </div>
-                <button class="btn-add-item" id="btn-add-material">新規追加</button>
+                <div class="panel-buttons">
+                  <button class="btn-add-item" id="btn-add-material">新規追加</button>
+                </div>
                 <ul class="material-card-list" id="material-list"></ul>
               </aside>
               <div class="panel-resizer" id="material-resizer"></div>
@@ -254,7 +258,7 @@
           <!-- Rule タブ -->
           <div class="tab-pane" id="tab-rule">
             <div class="two-pane">
-              <aside class="left-panel" id="rule-panel">
+              <!-- <aside class="left-panel" id="rule-panel">
                 <div class="panel-header">
                   <span>Rules</span>
                 </div>
@@ -264,10 +268,21 @@
                   <button class="btn-panel-action" id="btn-rule-export">CSVエクスポート</button>
                 </div>
                 <ul class="rule-tree" id="category-list"></ul>
-              </aside>
+              </aside> -->
               <div class="panel-resizer" id="rule-resizer"></div>
-              <div class="detail-pane" id="rule-detail" style="padding:24px 32px;overflow-y:auto">
-                <div class="rule-all-view" id="rule-all-view"></div>
+              <div class="detail-pane" id="rule-detail">
+                <div class="panel-header">
+                  <span>Rules</span>
+                </div>
+                <div class="settings-container">
+                  <div class="panel-buttons">
+                    <button class="btn-add-item" id="btn-add-rule-from-panel">新規追加</button>
+                    <button class="btn-panel-action" id="btn-rule-import">CSVインポート</button>
+                    <button class="btn-panel-action" id="btn-rule-export">CSVエクスポート</button>
+                  </div>
+                  <div class="rule-all-view" id="rule-all-view"></div>
+                </div>
+                
               </div>
             </div>
           </div>
@@ -276,6 +291,9 @@
           <div class="tab-pane" id="tab-settings">
             <div class="two-pane">
               <div class="detail-pane" id="settings-detail">
+                <div class="panel-header">
+                  <span>Settings</span>
+                </div>
                 <div class="settings-container">
                   <h2>プロジェクト</h2>
                   <form id="project-settings-form" class="settings-form">

@@ -10,78 +10,7 @@ const RuleTab = (() => {
 
   function render(project) {
     _project = project;
-    _renderTree();
     _renderAllSections();
-  }
-
-  // ─── 左パネル: カテゴリツリー ──────────────────────────
-
-  function _renderTree() {
-    const list = document.getElementById('category-list');
-    list.innerHTML = '';
-    const sorted = [..._project.rule_categories].sort((a, b) => a.order - b.order);
-
-    sorted.forEach(cat => {
-      const rules = _project.rules
-        .filter(r => r.category_id === cat.id)
-        .sort((a, b) => a.order - b.order);
-      const isCollapsed = _catCollapsed[cat.id];
-
-      // カテゴリ行
-      const catLi = document.createElement('li');
-      catLi.className = 'rule-tree-category' + (cat.id === _activeCategoryId ? ' active' : '');
-      catLi.innerHTML = `
-        <span class="rule-tree-toggle" data-action="toggle">${isCollapsed ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
-        <span class="item-title">${escHtml(cat.name)}</span>
-      `;
-
-      catLi.querySelector('.rule-tree-toggle').addEventListener('click', (e) => {
-        e.stopPropagation();
-        _catCollapsed[cat.id] = !_catCollapsed[cat.id];
-        _renderTree();
-      });
-
-      catLi.addEventListener('click', () => {
-        _activeCategoryId = cat.id;
-        _renderTree();
-        const block = document.querySelector(`.rule-category-section[data-category-id="${cat.id}"]`);
-        if (block) {
-          // トップバーの高さを考慮して位置調整
-          const topBar = document.querySelector('.top-bar');
-          const topBarHeight = topBar ? topBar.offsetHeight : 0;
-          // scrollIntoViewでまずビュー内に表示
-          block.scrollIntoView({ block: 'start' });
-          // 少し遅延後にトップバーの高さ分を調整
-          requestAnimationFrame(() => {
-            const rect = block.getBoundingClientRect();
-            const scrollTop = window.scrollY + rect.top - topBarHeight;
-            window.scrollTo({ behavior: 'smooth', top: Math.max(0, scrollTop) });
-          });
-        }
-      });
-      // ダブルクリックでカテゴリ名編集
-      catLi.addEventListener('dblclick', (e) => {
-        e.stopPropagation();
-        _editCategory(cat);
-      });
-
-      list.appendChild(catLi);
-
-      // ルール子要素
-      if (!isCollapsed) {
-        rules.forEach(rule => {
-          const ruleLi = document.createElement('li');
-          ruleLi.className = 'rule-tree-rule';
-          const preview = (rule.content || '').substring(0, 30) + ((rule.content || '').length > 30 ? '...' : '');
-          ruleLi.innerHTML = `<span class="outline-toggle-spacer"></span><span class="item-title"> ${escHtml(preview)}</span>`;
-          ruleLi.addEventListener('click', () => {
-            const card = document.querySelector(`.rule-card[data-id="${rule.id}"]`);
-            if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          });
-          list.appendChild(ruleLi);
-        });
-      }
-    });
   }
 
   // ─── 右パネル: カテゴリセクション ──────────────────────
@@ -268,7 +197,6 @@ const RuleTab = (() => {
       await ApiClient.delete(`/api/projects/${project.id}/rules/${rule.id}`);
       project.rules = project.rules.filter(r => r.id !== rule.id);
       _renderAllSections();
-      _renderTree();
     } catch (_) {}
   }
 
@@ -331,7 +259,6 @@ const RuleTab = (() => {
       project.rules.push(rule);
       _activeCategoryId = category_id;
       _renderAllSections();
-      _renderTree();
     } catch (_) {}
   }
 
@@ -349,7 +276,6 @@ const RuleTab = (() => {
       project.rules.push(rule);
       _activeCategoryId = categoryId;
       _renderAllSections();
-      _renderTree();
     } catch (_) {}
   }
 

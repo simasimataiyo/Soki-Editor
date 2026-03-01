@@ -396,7 +396,7 @@ body {
   flex: 1;
   overflow-y: auto;
   background: var(--color-surface);
-  padding: 24px 32px 32px;
+  /* padding: 24px 32px 32px; */
 }
 
 .placeholder-text {
@@ -591,16 +591,22 @@ body {
 
 /* アイコンボタン */
 .btn-icon {
-  padding: 4px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 4px;
   background: none;
+  border: none;
   color: var(--color-text-muted);
-  border: 1px solid var(--color-border);
+  border-radius: 4px;
   cursor: pointer;
+  transition: color 0.15s, background 0.15s;
 }
 
 .btn-icon:hover {
-  background: var(--color-bg);
-  border-color: var(--color-border);
+  background: var(--color-hover);
+  color: var(--color-text);
 }
 
 /* フォーカス状態統一 */
@@ -612,11 +618,27 @@ body {
   box-shadow: 0 0 0 2px var(--color-primary-light);
 }
 
+/* ─── パネルボタングリッド（左パネル共通） ──────────────── */
+.panel-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 0 12px 8px;
+}
+
+/* detail-pane内ではpadding不要（親コンテナが管理） */
+.detail-pane .panel-buttons {
+  padding: 0 0 12px;
+}
+
+/* 新規追加ボタンは常に全幅 */
+.panel-buttons .btn-add-item {
+  grid-column: 1 / -1;
+}
+
 /* ─── 新規追加ボタン（左パネル共通） ────────────────────── */
 .btn-add-item {
   display: block;
-  width: calc(100% - 24px);
-  margin: 0 12px 8px;
   padding: 7px 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -633,14 +655,7 @@ body {
   background: var(--color-bg);
 }
 
-.panel-import-export-row {
-  display: flex;
-  gap: 6px;
-  margin: 0 12px 8px;
-}
-
 .btn-panel-action {
-  flex: 1;
   padding: 5px 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -829,20 +844,6 @@ body {
 .detail-title-bar .btn-icon-edit {
   width: 28px;
   height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--color-text-muted);
-  border-radius: 4px;
-  flex-shrink: 0;
-}
-
-.detail-title-bar .btn-icon-edit:hover {
-  background: var(--color-bg);
-  color: var(--color-text);
 }
 
 /* ─── モーダル ───────────────────────────────────────────── */
@@ -1900,7 +1901,7 @@ body {
 }
 
 .chat-copy-btn:hover {
-  color: var(--color-primary);
+  color: var(--color-text);
   background: var(--color-hover);
 }
 
@@ -2020,20 +2021,8 @@ body {
 }
 
 /* ─── 危険アイコンボタン ─────────────────────────────────── */
-.btn-danger-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  border-radius: 4px;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: color 0.15s, background 0.15s;
-}
-
 .btn-danger-icon:hover {
   color: var(--color-danger);
-  background: var(--color-hover);
 }
 
 /* ─── メッセージメタ情報（セクション・ソース・プロンプト） ─ */
@@ -2080,6 +2069,7 @@ body {
 .source-detail-scroll {
   display: flex;
   flex-direction: column;
+  padding: 24px 32px 32px;
 }
 
 .field-row {
@@ -2366,19 +2356,6 @@ body {
   padding: 2px;
 }
 
-.rule-card .rule-delete {
-  background: none;
-  border: none;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  font-size: 16px;
-  padding: 0 2px;
-  line-height: 1;
-}
-
-.rule-card .rule-delete:hover {
-  color: var(--color-text);
-}
 
 .rule-category-tag {
   display: inline-flex;
@@ -2395,7 +2372,7 @@ body {
 
 /* ─── 設定タブ ───────────────────────────────────────────── */
 .settings-container {
-  max-width: 600px;
+  max-width: 800px;
   margin: 40px auto;
   padding: 0 20px;
 }

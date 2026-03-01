@@ -71,14 +71,6 @@ const ChatBarCommon = (() => {
       return;
     }
 
-    // 危険コマンドの確認
-    if (parsed.command?.isDangerous) {
-      const confirmed = await Modal.confirm(
-        'この操作は既存のセクション構造を破棄します。実行しますか？'
-      );
-      if (!confirmed) return;
-    }
-
     await onSend(parsed);
   }
 
