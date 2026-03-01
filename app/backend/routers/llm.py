@@ -8,7 +8,7 @@ from typing import AsyncGenerator
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response, StreamingResponse
 
-from app.backend.models import ChatMessage, ChatRequest, ReviewRequest, SectionPreview
+from app.backend.models import ChatMessage, ChatRequest, ReviewCommentItem, ReviewRequest, SectionPreview
 from app.backend.routers.projects import get_service
 from app.backend.routers.settings import get_service as get_settings_service
 from app.backend.services.export_service import ExportService
@@ -72,6 +72,7 @@ async def chat_stream(project_id: str, body: ChatRequest) -> StreamingResponse:
             pass
 
         accumulated = []
+        is_review_command = body.command and body.command.startswith("review")
         async for chunk in _llm_service.chat_stream(
             project,
             global_settings,
@@ -86,11 +87,35 @@ async def chat_stream(project_id: str, body: ChatRequest) -> StreamingResponse:
                 try:
                     data = json.loads(chunk[5:].strip())
                     if data.get("type") == "chunk":
-                        if not body.command or body.command.startswith("review"):
+                        if not body.command:
                             accumulated.append(data.get("text", ""))
+                    elif data.get("type") == "review_result":
+                        # Structured Output で生成された review_result を受け取り、履歴に保存する
+                        comments = data.get("comments", [])
+                        comment_items = [
+                            ReviewCommentItem(
+                                section=c.get("section", ""),
+                                problem=c.get("problem", ""),
+                                suggestion=c.get("suggestion", ""),
+                            )
+                            for c in comments
+                        ]
+                        save_content = f"レビュー結果: {len(comments)}件のコメント"
+                        await svc.append_chat_message(
+                            project_id,
+                            body.context_scope,
+                            ChatMessage(
+                                role="assistant",
+                                content=save_content,
+                                timestamp=datetime.now(),
+                                review_comments=comment_items,
+                            ),
+                        )
+                        # レビュー結果は即時ディスク保存（debounce待ちだと再起動時にデータが失われるため）
+                        await svc.flush(project_id)
                     elif data.get("type") == "done":
-                        if (not body.command or body.command.startswith("review")) and accumulated:
-                            # アシスタント応答を done yield 前に保存
+                        if not body.command and accumulated:
+                            # 通常チャット: アシスタント応答を done yield 前に保存
                             await svc.append_chat_message(
                                 project_id,
                                 body.context_scope,
@@ -100,6 +125,7 @@ async def chat_stream(project_id: str, body: ChatRequest) -> StreamingResponse:
                                     timestamp=datetime.now(),
                                 ),
                             )
+                            await svc.flush(project_id)
                 except Exception:
                     pass
             yield chunk

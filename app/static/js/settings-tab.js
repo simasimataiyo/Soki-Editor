@@ -11,6 +11,10 @@ const SettingsTab = (() => {
     document.documentElement.style.setProperty('--history-panel-w', px + 'px');
   }
 
+  function applyOutlinePanelWidth(px) {
+    document.documentElement.style.setProperty('--outline-panel-w', px + 'px');
+  }
+
   async function render(_project) {
     try {
       const s = await ApiClient.get('/api/settings');
@@ -21,6 +25,7 @@ const SettingsTab = (() => {
       document.getElementById('settings-left-panel-width').value = s.left_panel_width ?? 280;
       applyLeftPanelWidth(s.left_panel_width ?? 280);
       applyHistoryPanelWidth(s.history_panel_width ?? 280);
+      applyOutlinePanelWidth(s.outline_panel_width ?? 280);
     } catch (_) {}
   }
 
@@ -47,5 +52,5 @@ const SettingsTab = (() => {
     });
   }
 
-  return { render, bindEvents, applyLeftPanelWidth, applyHistoryPanelWidth };
+  return { render, bindEvents, applyLeftPanelWidth, applyHistoryPanelWidth, applyOutlinePanelWidth };
 })();

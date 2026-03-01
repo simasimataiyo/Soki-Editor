@@ -277,6 +277,35 @@ class LLMService:
         model_lower = model.lower()
         return not any(kw in model_lower for kw in _NO_TOOL_CALLING_MODELS)
 
+    # レビュー結果の JSON スキーマ（Structured Output 用）
+    _REVIEW_RESPONSE_SCHEMA = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "review_result",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "comments": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "section":    {"type": "string"},
+                                "problem":    {"type": "string"},
+                                "suggestion": {"type": "string"},
+                            },
+                            "required": ["section", "problem", "suggestion"],
+                            "additionalProperties": False,
+                        },
+                    }
+                },
+                "required": ["comments"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
     async def chat_stream(
         self,
         project: Project,
@@ -292,6 +321,7 @@ class LLMService:
 
         fetch_sources ツールコールを検出した場合、バックエンドでソース全文を解決し
         再度 LLM API を呼び出す多段フローを実行する（フロントエンドには透過的）。
+        reviewコマンドの場合は Structured Output（非ストリーミング）で呼び出す。
         """
         client = self._make_client(settings)
 
@@ -309,9 +339,16 @@ class LLMService:
             )
 
         start = time.time()
+        is_review_command = command and self._normalize_command(command, command_args or [])["base_command"] == "review"
         try:
             # プロンプト出力（デバッグ用）
             self._debug_print_messages(settings.model, messages)
+
+            # reviewコマンドは Structured Output（非ストリーミング）で呼び出す
+            if is_review_command:
+                async for event in self._review_structured_output(client, settings.model, messages):
+                    yield event
+                return
 
             call_kwargs: dict = {
                 "model": settings.model,
@@ -323,7 +360,7 @@ class LLMService:
                 # デフォルトではすべてのツールを渡す
                 call_kwargs["tools"] = TOOLS
                 call_kwargs["tool_choice"] = "auto"
-                
+
                 # 特定の /structure 系コマンドの場合は、ツールを1つに強制する
                 if command and command.startswith("structure"):
                     command_mode = self._normalize_command(command, command_args or [])
@@ -435,6 +472,38 @@ class LLMService:
             logger.info(
                 "LLM 呼び出し完了: model=%s, elapsed=%.2fs", settings.model, elapsed
             )
+
+    async def _review_structured_output(
+        self,
+        client,
+        model: str,
+        messages: list[dict],
+    ) -> AsyncGenerator[str, None]:
+        """レビューコマンド用: Structured Output で review_result を生成して yield する。
+
+        - ストリーミングなし・JSON スキーマ強制で呼び出す
+        - 成功時: review_result SSE イベントと done イベントを yield
+        - 失敗時: error SSE イベントを yield
+        """
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=messages,
+                response_format=self._REVIEW_RESPONSE_SCHEMA,
+            )
+            content = response.choices[0].message.content or "{}"
+            review_data = json.loads(content)
+            comments = review_data.get("comments", [])
+        except json.JSONDecodeError as e:
+            logger.error("レビュー Structured Output JSON パースエラー: %s", e)
+            comments = []
+        except Exception as e:
+            logger.error("レビュー Structured Output 呼び出しエラー: %s", e)
+            yield self._sse("error", {"message": str(e)})
+            return
+
+        yield self._sse("review_result", {"comments": comments})
+        yield self._sse("done", {})
 
     async def review_stream(
         self,

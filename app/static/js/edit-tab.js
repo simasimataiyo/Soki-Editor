@@ -380,8 +380,6 @@ const EditTab = (() => {
     li.innerHTML = `
       ${toggle}
       <span class="item-title">${escHtml(sec.title)}</span>
-      <button class="btn-icon item-action-btn" data-action="add-child" title="子セクション追加">➕</button>
-      <button class="btn-icon item-action-btn" data-action="edit" title="編集">✏️</button>
       <button class="btn-icon item-delete-btn" title="削除">${SVG_DELETE}</button>
     `;
 
@@ -497,16 +495,6 @@ const EditTab = (() => {
 
     // ダブルクリックでタイトル編集
     li.addEventListener('dblclick', (e) => {
-      e.stopPropagation();
-      _editSectionMeta(sec);
-    });
-
-    li.querySelector('[data-action="add-child"]').addEventListener('click', (e) => {
-      e.stopPropagation();
-      _showAddSectionModal(sec.id);
-    });
-
-    li.querySelector('[data-action="edit"]').addEventListener('click', (e) => {
       e.stopPropagation();
       _editSectionMeta(sec);
     });

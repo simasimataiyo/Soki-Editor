@@ -112,6 +112,9 @@ const ApiClient = (() => {
                 case 'review_comment':
                   handlers.onReviewComment && handlers.onReviewComment(data.section_id, data.comment);
                   break;
+                case 'review_result':
+                  handlers.onReviewResult && handlers.onReviewResult(data.comments);
+                  break;
                 case 'done':
                   handlers.onDone && handlers.onDone();
                   break;

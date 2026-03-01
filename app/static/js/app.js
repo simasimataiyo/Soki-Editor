@@ -125,6 +125,9 @@ const AppShell = (() => {
       if (s.history_panel_width) {
         SettingsTab.applyHistoryPanelWidth(s.history_panel_width);
       }
+      if (s.outline_panel_width) {
+        SettingsTab.applyOutlinePanelWidth(s.outline_panel_width);
+      }
     }).catch(() => {});
 
     // 3カラムパネルリサイズを初期化
@@ -134,6 +137,14 @@ const AppShell = (() => {
     document.getElementById('btn-toggle-history')?.addEventListener('click', () => {
       _toggleHistoryPanel();
     });
+
+    // Sourceパネル インポート/エクスポートボタン
+    document.getElementById('btn-source-import')?.addEventListener('click', () => SourceTab.importCsv());
+    document.getElementById('btn-source-export')?.addEventListener('click', () => SourceTab.exportCsv());
+
+    // Ruleパネル インポート/エクスポートボタン
+    document.getElementById('btn-rule-import')?.addEventListener('click', () => RuleTab.importCsv());
+    document.getElementById('btn-rule-export')?.addEventListener('click', () => RuleTab.exportCsv());
 
     // パブリックなMarkdownエクスポートボタン
     document.getElementById('btn-export-md')?.addEventListener('click', async () => {
@@ -164,9 +175,9 @@ const AppShell = (() => {
           || copyBtn.closest('.chat-history-msg').querySelector('.chat-history-msg-content').textContent;
         const chatInput = document.getElementById('chat-input');
         if (chatInput) {
-          chatInput.value = text;
+          chatInput.value = chatInput.value ? chatInput.value + '\n' + text : text;
           chatInput.dispatchEvent(new Event('input', { bubbles: true }));
-          showToast('チャット入力にコピーしました', 'success');
+          showToast('チャット入力に追加しました', 'success');
         }
       }
     });
@@ -278,15 +289,9 @@ const AppShell = (() => {
 
     const tabDefs = {
       edit: [],
-      source: [
-        { id: 'btn-source-import-top', label: 'インポート', handler: () => SourceTab.importCsv() },
-        { id: 'btn-source-export-top', label: 'エクスポート', handler: () => SourceTab.exportCsv() },
-      ],
+      source: [],
       material: [],
-      rule: [
-        { id: 'btn-rule-import-top', label: 'インポート', handler: () => RuleTab.importCsv() },
-        { id: 'btn-rule-export-top', label: 'エクスポート', handler: () => RuleTab.exportCsv() },
-      ],
+      rule: [],
       settings: [],
     };
 
@@ -511,6 +516,10 @@ const AppShell = (() => {
           const container = document.getElementById('chat-history-panel-messages');
           container.scrollTop = container.scrollHeight;
         },
+        onReviewResult: (comments) => {
+          // レビュー結果をカード形式で表示
+          _streamingAssistantEl = _appendReviewResultToHistoryPanel(comments);
+        },
         onToolCall: async (tool, args) => {
           await _applyToolCall(project, tool, args, _changeLog);
         },
@@ -523,12 +532,13 @@ const AppShell = (() => {
             window.EditTab.clearSectionSelection();
           }
           // コマンド実行: 要約をバックエンドに保存してからパネルをリフレッシュ
-          if (isCommand) {
+          const isReviewCommand = isCommand && parsed.command.name.startsWith('review');
+          if (isCommand && !isReviewCommand) {
             const summaryText = _buildCommandSummaryText(_changeLog);
             _addSummaryToHistory(project, `/${parsed.command.name} 実行: ${summaryText}`)
               .then(() => _refreshHistoryPanel());
           } else {
-            // 通常チャット: バックエンドに保存済みなのでパネルをリフレッシュ
+            // 通常チャットとreviewコマンド: バックエンドに保存済みなのでパネルをリフレッシュ
             _refreshHistoryPanel();
           }
         },
@@ -811,7 +821,12 @@ const AppShell = (() => {
       document.getElementById('outline-resizer'),
       document.getElementById('outline-panel'),
       'right',
-      pxVal('--outline-panel-min-w'), pxVal('--outline-panel-max-w')
+      pxVal('--outline-panel-min-w'), pxVal('--outline-panel-max-w'),
+      false,
+      (px) => {
+        SettingsTab.applyOutlinePanelWidth(px);
+        ApiClient.patch('/api/settings', { outline_panel_width: px }).catch(() => {});
+      }
     );
 
     // エディタ ↔ チャット履歴境界（ドラッグでリサイズ、クリックでトグル）
@@ -983,6 +998,76 @@ const AppShell = (() => {
   }
 
   /**
+   * レビュー結果コメント配列を履歴パネルにカード形式で追加する
+   * @param {Array<{section: string, problem: string, suggestion: string}>} comments
+   * @returns {HTMLElement} 追加されたメッセージ要素
+   */
+  function _appendReviewResultToHistoryPanel(comments) {
+    const container = document.getElementById('chat-history-panel-messages');
+    const placeholder = container.querySelector('.chat-history-placeholder');
+    if (placeholder) placeholder.remove();
+
+    const div = document.createElement('div');
+    div.className = 'chat-history-msg assistant';
+    div.innerHTML = _buildReviewResultHtml(comments);
+
+    const loadingEl = container.querySelector('.chat-history-loading');
+    if (loadingEl) {
+      container.insertBefore(div, loadingEl);
+    } else {
+      container.appendChild(div);
+    }
+    container.scrollTop = container.scrollHeight;
+    return div;
+  }
+
+  /**
+   * レビュー結果HTMLを生成する
+   * @param {Array<{section: string, problem: string, suggestion: string}>} comments
+   * @param {string} [timeStr] - 表示用タイムスタンプ文字列（省略時は現在時刻）
+   */
+  function _buildReviewResultHtml(comments, timeStr) {
+    if (!timeStr) timeStr = new Date().toLocaleString('ja-JP');
+    const headerHtml = `
+      <div class="chat-history-msg-header">
+        <div class="chat-history-msg-role assistant"><span>🤖 AI</span></div>
+      </div>
+      <div class="chat-history-msg-label">レビュー結果</div>
+    `;
+
+    if (!comments || comments.length === 0) {
+      return headerHtml + `
+        <div class="review-result-empty">問題点は見つかりませんでした。</div>
+        <div class="chat-history-msg-time">${timeStr}</div>
+      `;
+    }
+
+    const cardsHtml = comments.map((c) => {
+      const copyText = [
+        c.section ? `【${c.section}】` : '',
+        c.problem ? `問題点: ${c.problem}` : '',
+        c.suggestion ? `改善案: ${c.suggestion}` : '',
+      ].filter(Boolean).join('\n');
+
+      return `
+        <div class="review-comment-card">
+          <div class="review-comment-card-header">
+            ${c.section ? `<span class="review-comment-section">${escHtml(c.section)}</span>` : ''}
+            <button class="btn-icon chat-copy-btn review-copy-btn" title="プロンプト入力にコピー" data-copy-text="${escHtml(copyText)}">${SVG_COPY} <span>プロンプトにコピー</span></button>
+          </div>
+          ${c.problem ? `<div class="review-comment-problem"><span class="review-comment-label">問題点</span>${escHtml(c.problem)}</div>` : ''}
+          ${c.suggestion ? `<div class="review-comment-suggestion"><span class="review-comment-label">改善案</span>${escHtml(c.suggestion)}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+
+    return headerHtml + `
+      <div class="review-result-list">${cardsHtml}</div>
+      <div class="chat-history-msg-time">${timeStr}</div>
+    `;
+  }
+
+  /**
    * メッセージオブジェクトからHTML文字列を生成する
    */
   function _buildHistoryMsgHtml(msg) {
@@ -1012,6 +1097,10 @@ const AppShell = (() => {
         <div class="chat-history-msg-time">${timeStr}</div>
       `;
     } else {
+      // レビュー結果コメントがある場合はカード形式で表示
+      if (msg.review_comments && msg.review_comments.length > 0) {
+        return _buildReviewResultHtml(msg.review_comments, timeStr);
+      }
       return `
         <div class="chat-history-msg-header">
           <div class="chat-history-msg-role assistant"><span>🤖 AI</span></div>

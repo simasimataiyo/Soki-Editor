@@ -157,13 +157,15 @@
               <div class="edit-center" id="edit-center">
                 <div class="doc-view" id="doc-view">
                   <div id="tiptap-toolbar" class="tiptap-toolbar">
+                    <span id="tiptap-toolbar-label" class="tiptap-toolbar-label"></span>
+                    <div id="tiptap-toolbar-divider" class="toolbar-divider"></div>
                     <button class="btn-toolbar" data-action="bold" title="太字 (Ctrl+B)"><b>B</b></button>
                     <button class="btn-toolbar" data-action="italic" title="斜体 (Ctrl+I)"><i>I</i></button>
                     <button class="btn-toolbar" data-action="strike" title="取り消し線 (Ctrl+Shift+X)"><s>S</s></button>
                     <button class="btn-toolbar" data-action="code"
                       title="インラインコード (Ctrl+E)"><code>&lt;/&gt;</code></button>
                     <div id="tiptap-toolbar-divider" class="toolbar-divider"></div>
-                    <span id="tiptap-toolbar-label" class="tiptap-toolbar-label"></span>
+                    
                     <button class="btn btn-sm btn-secondary" data-action="insert-ref">文献挿入</button>
                     <button class="btn btn-sm btn-secondary" data-action="insert-fig">図表挿入</button>
                   </div>
@@ -219,6 +221,10 @@
                   <span>Sources</span>
                 </div>
                 <button class="btn-add-item" id="btn-add-source">新規追加</button>
+                <div class="panel-import-export-row">
+                  <button class="btn-panel-action" id="btn-source-import">CSVインポート</button>
+                  <button class="btn-panel-action" id="btn-source-export">CSVエクスポート</button>
+                </div>
                 <ul class="item-list" id="source-list"></ul>
               </aside>
               <div class="panel-resizer" id="source-resizer"></div>
@@ -253,6 +259,10 @@
                   <span>Rules</span>
                 </div>
                 <button class="btn-add-item" id="btn-add-rule-from-panel">新規追加</button>
+                <div class="panel-import-export-row">
+                  <button class="btn-panel-action" id="btn-rule-import">CSVインポート</button>
+                  <button class="btn-panel-action" id="btn-rule-export">CSVエクスポート</button>
+                </div>
                 <ul class="rule-tree" id="category-list"></ul>
               </aside>
               <div class="panel-resizer" id="rule-resizer"></div>

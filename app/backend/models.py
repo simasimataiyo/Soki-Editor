@@ -17,6 +17,7 @@ class LLMSettings(BaseModel):
     pdf_page_dpi: int = 96  # PDF等倍画像のDPI（設定画面から変更可能）
     left_panel_width: int = 280  # 左パネル標準幅（px）
     history_panel_width: int = 280  # チャット履歴右パネル標準幅（px）
+    outline_panel_width: int = 280  # アウトライン左パネル幅（px）
 
 
 class Bibliography(BaseModel):
@@ -81,6 +82,12 @@ class Section(BaseModel):
     order: int = 0
 
 
+class ReviewCommentItem(BaseModel):
+    section: str = ""
+    problem: str = ""
+    suggestion: str = ""
+
+
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "command"]
     content: str
@@ -92,6 +99,7 @@ class ChatMessage(BaseModel):
     selected_section_title: Optional[str] = None  # 送信時に選択中だったセクションタイトル
     ref_names: list[str] = []              # 明示参照したソース/マテリアルの表示名
     prompt_text: Optional[str] = None      # ユーザーが入力したプロンプトテキスト（コマンドの場合はフリーテキスト部分）
+    review_comments: list[ReviewCommentItem] = []  # レビューコマンドの結果コメント一覧
 
 
 class ReviewComment(BaseModel):
