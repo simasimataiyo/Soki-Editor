@@ -409,10 +409,10 @@ class LLMService:
                         "tool_call", {"tool": tc["tool"], "args": tc["args"]}
                     )
 
-                if not source_fetches:
-                    break  # ソース取得不要 → 完了
+                if not source_fetches and not frontend_tools:
+                    break  # ツールコールなし → 完了
 
-                # 多段: assistant メッセージ + tool 結果を追加して再呼び出し
+                # assistant メッセージ + tool 結果を追加して再呼び出し
                 assistant_tool_calls = [
                     {
                         "id": tc["id"],
@@ -452,16 +452,16 @@ class LLMService:
                             "content": "実行完了",
                         }
                     )
-                
-                # フロントエンドツール呼び出し後も、AIからのメッセージを引き出すために継続する
-                if frontend_tools and not source_fetches:
-                    call_kwargs["messages"] = messages
-                    logger.info("フロントエンドツール実行完了、AIへの返答を要求するための追加呼び出し (%d / %d)", round_num + 1, max_rounds)
-                    continue
+
                 call_kwargs["messages"] = messages
-                logger.info(
-                    "fetch_sources ラウンド %d 完了、再呼び出し", round_num + 1
-                )
+                if source_fetches:
+                    logger.info(
+                        "fetch_sources ラウンド %d 完了、再呼び出し", round_num + 1
+                    )
+                else:
+                    # フロントエンドツールのみ: 次ラウンドはサマリ生成専用なのでツール禁止
+                    call_kwargs["tool_choice"] = "none"
+                    logger.info("フロントエンドツール実行完了、サマリ生成のための追加呼び出し (%d / %d)", round_num + 1, max_rounds)
 
             yield self._sse("done", {})
 
@@ -584,7 +584,7 @@ class LLMService:
                 messages=[
                     {
                         "role": "system",
-                        "content": "以下のテキストを300字以内で要約してください。",
+                        "content": "ユーザーがテキストを300字で要約してください。要約文章は以下の構造で説明してください。見出しと番号は不要です。1.何についての情報・データ・文章なのか一言でまとめる。2.テキストに書かれている内容を要約する",
                     },
                     {"role": "user", "content": full_text[:8000]},
                 ],

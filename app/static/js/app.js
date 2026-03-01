@@ -485,6 +485,7 @@ const AppShell = (() => {
 
     const isCommand = !!parsed.command;
     const _changeLog = [];
+    const _commandLlmChunks = [];  // コマンド実行時のLLMテキストを蓄積
 
     function _buildCommandSummaryText(changeLog) {
       if (!changeLog || changeLog.length === 0) return '完了';
@@ -505,6 +506,11 @@ const AppShell = (() => {
       body,
       {
         onChunk: (text) => {
+          if (isCommand) {
+            // コマンド時: テキストを蓄積するがリアルタイム表示はしない
+            _commandLlmChunks.push(text);
+            return;
+          }
           if (!_streamingAssistantEl) {
             // 初回チャンク: アシスタントメッセージ要素を作成
             _streamingAssistantEl = _appendMessageToHistoryPanel({
@@ -536,8 +542,9 @@ const AppShell = (() => {
           // コマンド実行: 要約をバックエンドに保存してからパネルをリフレッシュ
           const isReviewCommand = isCommand && parsed.command.name.startsWith('review');
           if (isCommand && !isReviewCommand) {
-            const summaryText = _buildCommandSummaryText(_changeLog);
-            _addSummaryToHistory(project, `/${parsed.command.name} 実行: ${summaryText}`)
+            const llmText = _commandLlmChunks.join('').trim();
+            const summaryText = llmText || _buildCommandSummaryText(_changeLog);
+            _addSummaryToHistory(project, summaryText)
               .then(() => _refreshHistoryPanel());
           } else {
             // 通常チャットとreviewコマンド: バックエンドに保存済みなのでパネルをリフレッシュ
@@ -1134,15 +1141,14 @@ const AppShell = (() => {
   /**
    * コマンド実行後の要約メッセージをチャット履歴に追加する
    * @param {object} project
-   * @param {string} summaryText - 追加するメッセージ（200文字以内に切り詰め）
+   * @param {string} summaryText - 追加するメッセージ
    */
   async function _addSummaryToHistory(project, summaryText) {
     try {
-      const truncated = summaryText.length > 200 ? summaryText.slice(0, 200) + '…' : summaryText;
       await ApiClient.post(`/api/projects/${project.id}/chat-history/add-message`, {
         scope: 'all',
         role: 'assistant',
-        content: truncated,
+        content: summaryText,
       });
     } catch (_) { }
   }
