@@ -12,8 +12,10 @@ import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import CharacterCount from '@tiptap/extension-character-count';
 import StarterKit from '@tiptap/starter-kit';
-import BubbleMenu from '@tiptap/extension-bubble-menu';
 import Placeholder from '@tiptap/extension-placeholder';
+import UniqueID from '@tiptap/extension-unique-id';
+import DragHandle from '@tiptap/extension-drag-handle';
+import TableOfContents from '@tiptap/extension-table-of-contents';
 import { marked } from 'marked';
 
 // marked の設定: GFMオン、改行保持
@@ -362,10 +364,7 @@ function _initEditor() {
   const mountEl = document.getElementById('tiptap-editor-mount');
   if (!mountEl) return;
 
-  const bubbleMenuEl = document.getElementById('tiptap-bubble-menu');
-  if (bubbleMenuEl) {
-    bubbleMenuEl.style.display = ''; // tippyに管理を移す前に初期表示リセット
-  }
+  const toolbarEl = document.getElementById('tiptap-toolbar');
 
   editor = new Editor({
     element: mountEl,
@@ -377,18 +376,33 @@ function _initEditor() {
       TabHandler,
       ReferenceNode,
       FigureNode,
+      UniqueID.configure({
+        types: ['sectionHeading'],
+        attributeName: 'sectionId',
+      }),
+      DragHandle.configure({
+        nested: true, // Allow nesting if needed, or false to just drag top level nodes
+        render: () => {
+          const element = document.createElement('div');
+          element.className = 'custom-drag-handle';
+          element.innerHTML = '⋮⋮';
+          return element;
+        },
+      }),
+      TableOfContents.configure({
+        anchorTypes: ['sectionHeading'],
+        onUpdate: (data) => {
+          if (window.TiptapEditor && window.TiptapEditor._onTOCUpdate) {
+            window.TiptapEditor._onTOCUpdate(data);
+          }
+        },
+      }),
       CharacterCount.configure({ limit: null }),
       ReferenceListExtension,
       TooltipExtension,
       Placeholder.configure({
         placeholder: '本文を入力...',
       }),
-      ...(bubbleMenuEl ? [
-        BubbleMenu.configure({
-          element: bubbleMenuEl,
-          tippyOptions: { duration: 100 },
-        })
-      ] : []),
     ],
     content: '',
     editorProps: {
@@ -398,15 +412,22 @@ function _initEditor() {
     },
   });
 
-  if (bubbleMenuEl) {
-    const btnBold = bubbleMenuEl.querySelector('[data-action="bold"]');
-    const btnItalic = bubbleMenuEl.querySelector('[data-action="italic"]');
-    const btnStrike = bubbleMenuEl.querySelector('[data-action="strike"]');
-    const btnCode = bubbleMenuEl.querySelector('[data-action="code"]');
+  if (toolbarEl) {
+    const btnBold = toolbarEl.querySelector('[data-action="bold"]');
+    const btnItalic = toolbarEl.querySelector('[data-action="italic"]');
+    const btnStrike = toolbarEl.querySelector('[data-action="strike"]');
+    const btnCode = toolbarEl.querySelector('[data-action="code"]');
 
+    if (btnBold) btnBold.addEventListener('mousedown', e => e.preventDefault());
     if (btnBold) btnBold.addEventListener('click', () => editor.chain().focus().toggleBold().run());
+
+    if (btnItalic) btnItalic.addEventListener('mousedown', e => e.preventDefault());
     if (btnItalic) btnItalic.addEventListener('click', () => editor.chain().focus().toggleItalic().run());
+
+    if (btnStrike) btnStrike.addEventListener('mousedown', e => e.preventDefault());
     if (btnStrike) btnStrike.addEventListener('click', () => editor.chain().focus().toggleStrike().run());
+
+    if (btnCode) btnCode.addEventListener('mousedown', e => e.preventDefault());
     if (btnCode) btnCode.addEventListener('click', () => editor.chain().focus().toggleCode().run());
 
     editor.on('selectionUpdate', () => {
@@ -881,6 +902,7 @@ window.TiptapEditor = {
   _referencesEnabled: false,
   _sourcesData: [],
   _materialsData: [],
+  _onTOCUpdate: null,
 
   setProjectData(enabled, sources, materials) {
     this._referencesEnabled = enabled;

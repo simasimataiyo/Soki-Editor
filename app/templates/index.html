@@ -5,7 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Soki Editor</title>
-  <link rel="stylesheet" href="/static/css/main.css" />
+  <link rel="stylesheet" href="/static/css/main.css?v=2" />
   <link rel="icon" href="data:," />
 </head>
 
@@ -147,18 +147,16 @@
               </aside>
               <!-- 右メインエリア: ドキュメントビュー -->
               <div class="doc-view" id="doc-view">
-                <div id="tiptap-section-toolbar" class="tiptap-section-toolbar" style="display:none">
+                <div id="tiptap-toolbar" class="tiptap-toolbar">
+                  <button class="btn-toolbar" data-action="bold" title="太字 (Ctrl+B)"><b>B</b></button>
+                  <button class="btn-toolbar" data-action="italic" title="斜体 (Ctrl+I)"><i>I</i></button>
+                  <button class="btn-toolbar" data-action="strike" title="取り消し線 (Ctrl+Shift+X)"><s>S</s></button>
+                  <button class="btn-toolbar" data-action="code"
+                    title="インラインコード (Ctrl+E)"><code>&lt;/&gt;</code></button>
+                  <div id="tiptap-toolbar-divider" class="toolbar-divider"></div>
                   <span id="tiptap-toolbar-label" class="tiptap-toolbar-label"></span>
                   <button class="btn btn-sm btn-secondary" data-action="insert-ref">文献挿入</button>
                   <button class="btn btn-sm btn-secondary" data-action="insert-fig">図表挿入</button>
-                </div>
-                <!-- Bubble Menu Container -->
-                <div id="tiptap-bubble-menu" class="tiptap-bubble-menu" style="display:none">
-                  <button class="btn-bubble" data-action="bold" title="太字 (Ctrl+B)"><b>B</b></button>
-                  <button class="btn-bubble" data-action="italic" title="斜体 (Ctrl+I)"><i>I</i></button>
-                  <button class="btn-bubble" data-action="strike" title="取り消し線 (Ctrl+Shift+X)"><s>S</s></button>
-                  <button class="btn-bubble" data-action="code"
-                    title="インラインコード (Ctrl+E)"><code>&lt;/&gt;</code></button>
                 </div>
                 <div id="tiptap-editor-mount"></div>
               </div>
@@ -338,8 +336,8 @@
   <script src="/static/js/undo-redo-manager.js"></script>
   <script src="/static/js/modal.js"></script>
   <script src="/static/js/project-selector.js"></script>
-  <script type="module" src="/static/js/tiptap-bundle.js"></script>
-  <script src="/static/js/edit-tab.js"></script>
+  <script type="module" src="/static/js/tiptap-bundle.js?v=3"></script>
+  <script src="/static/js/edit-tab.js?v=3"></script>
   <script src="/static/js/source-tab.js"></script>
   <script src="/static/js/material-tab.js"></script>
   <script src="/static/js/rule-tab.js"></script>

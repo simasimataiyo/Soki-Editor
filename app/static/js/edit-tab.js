@@ -14,9 +14,6 @@ const EditTab = (() => {
   // セクション削除API呼び出し中フラグ（二重実行防止）
   let _deletionPending = false;
 
-  // 新規見出し登録API呼び出し中フラグ（二重実行防止）
-  let _headingDetectionPending = false;
-
   // ツールチップ DOM
   let _tooltip = null;
 
@@ -150,11 +147,10 @@ const EditTab = (() => {
   function _onTiptapUpdate() {
     const tiptapSections = window.TiptapEditor.parseSectionsFromDoc();
 
-    // 1. アウトライン同期（undo復元・タイトル変化を含む）
+    // 1. アウトライン同期（undo復元・タイトル変化・階層変化を含む）
     _syncOutlineFromTiptap(tiptapSections);
 
-    // 2. IDなし見出しを検知（新規セクション）
-    _detectAndHandleNewHeadings();
+    // 2. 削除されたセクションを検知
 
     // 3. 削除されたセクションを検知
     _detectDeletedSections(tiptapSections);
@@ -167,34 +163,71 @@ const EditTab = (() => {
     _tiptapUpdateTimer = setTimeout(() => _syncContentToBackend(), 2000);
   }
 
-  /**
-   * Tiptapノード配列からproject.sectionsを更新しアウトラインを再描画する
-   * undo復元されたノードの追加、タイトル・summary変化の同期を行う
-   * @param {{ id, title, summary, parentId, sectionOrder }[]} tiptapSections
-   */
   function _syncOutlineFromTiptap(tiptapSections) {
     if (!_project) return;
     let changed = false;
 
+    // 1. Recalculate Hierarchy based on Tiptap reading order
+    const stack = [];
+    const counts = {};
+    tiptapSections.forEach(ts => {
+      while (stack.length > 0 && stack[stack.length - 1].level >= ts.level) {
+        stack.pop();
+      }
+      ts.calculatedParentId = stack.length > 0 ? stack[stack.length - 1].id : null;
+
+      const pid = ts.calculatedParentId || '__root__';
+      if (!(pid in counts)) counts[pid] = 0;
+      ts.calculatedOrder = counts[pid]++;
+
+      stack.push(ts);
+    });
+
     for (const ts of tiptapSections) {
       const existing = _project.sections.find(s => s.id === ts.id);
       if (!existing) {
-        // undoで復元されたノード → project.sectionsに追加
+        // undoで復元されたノード または 新規追加されたノード
         _project.sections.push({
           id: ts.id,
           title: ts.title,
           summary: ts.summary || '',
-          parent_id: ts.parentId || null,
-          order: ts.sectionOrder ?? 0,
+          parent_id: ts.calculatedParentId,
+          order: ts.calculatedOrder,
         });
         changed = true;
+        // POST to backend
+        ApiClient.post(`/api/projects/${_project.id}/sections`, {
+          id: ts.id,
+          title: ts.title,
+          summary: ts.summary || '',
+          parent_id: ts.calculatedParentId,
+          order: ts.calculatedOrder,
+        }).catch(e => { /* Ignore 409 if exists */ });
       } else {
-        // タイトル・summary変化を同期
-        if (existing.title !== ts.title || existing.summary !== ts.summary) {
+        // タイトル・summary・構造（D&D等による）変化を同期
+        const structuralChange = existing.parent_id !== ts.calculatedParentId || existing.order !== ts.calculatedOrder;
+        if (existing.title !== ts.title || existing.summary !== ts.summary || structuralChange) {
           existing.title = ts.title;
           existing.summary = ts.summary;
+          existing.parent_id = ts.calculatedParentId;
+          existing.order = ts.calculatedOrder;
           changed = true;
+
+          ApiClient.put(`/api/projects/${_project.id}/sections/${ts.id}`, {
+            title: ts.title,
+            summary: ts.summary || '',
+            parent_id: ts.calculatedParentId,
+            order: ts.calculatedOrder,
+          }).catch(e => { console.error(e); });
         }
+      }
+
+      // Ensure the tiptap node has the correct attributes
+      if (ts.parentId !== ts.calculatedParentId || ts.sectionOrder !== ts.calculatedOrder) {
+        window.TiptapEditor.updateSectionMetaById(ts.id, {
+          parentId: ts.calculatedParentId,
+          sectionOrder: ts.calculatedOrder
+        });
       }
     }
 
@@ -264,134 +297,8 @@ const EditTab = (() => {
   }
 
   /**
-   * IDなし見出しを検知し、新規セクションとしてバックエンドに登録してIDを付与する
+   * (Removed `_detectAndHandleNewHeadings` and `_inferHierarchyAndOrder` because UniqueID extension generates IDs automatically, and structure is derived natively from document order instead.)
    */
-  async function _detectAndHandleNewHeadings() {
-    if (_headingDetectionPending) return;
-    if (!window.TiptapEditor.getHeadingsWithoutSectionId) return;
-    const editor = window.TiptapEditor.getEditor();
-    if (!editor) return;
-    // IME変換中はスキップ（composition中にdispatchするとテキストが重複する）
-    if (editor.view.composing) return;
-    const headings = window.TiptapEditor.getHeadingsWithoutSectionId();
-    if (!headings || headings.length === 0) return;
-
-    const project = window.appState.getProject();
-    if (!project) return;
-
-    _headingDetectionPending = true;
-    try {
-      for (const h of headings) {
-        // タイトルが空または2文字未満の場合は入力途中とみなしてスキップ（ゴーストセクション防止）
-        if (!h.title || h.title.trim().length < 2) continue;
-
-        // 前方から直近の既存見出しを探し、親と挿入順序を推定する
-        const { parentId, order, orderUpdates } = _inferHierarchyAndOrder(h, project, editor);
-
-        try {
-          const sec = await ApiClient.post(`/api/projects/${project.id}/sections`, {
-            title: h.title,
-            summary: '',
-            parent_id: parentId,
-            order: order,
-          });
-          project.sections.push(sec);
-
-          // ローカルの後続の兄弟セクションのorderを更新
-          if (orderUpdates.length > 0) {
-            orderUpdates.forEach(u => {
-              const s = project.sections.find(sx => sx.id === u.section_id);
-              if (s) s.order = u.order;
-            });
-            // APIで一括リオーダー
-            await ApiClient.post(`/api/projects/${project.id}/sections/reorder`, [
-              { section_id: sec.id, parent_id: parentId, order: sec.order },
-              ...orderUpdates
-            ]);
-          }
-
-          // TiptapノードにsectionIdと階層メタデータを付与
-          // h.posはawait後に古くなっている可能性があるためタイトルで再検索
-          window.TiptapEditor.assignSectionMetaByTitle(h.title, {
-            sectionId: sec.id,
-            summary: '',
-            parentId: parentId || null,
-            sectionOrder: order,
-          });
-          _renderOutline();
-        } catch (e) { console.error(e); }
-      }
-    } finally {
-      _headingDetectionPending = false;
-    }
-  }
-
-  /**
-   * 見出しの位置から親セクションと挿入位置（order）を推定し、
-   * シフトすべき後続の兄弟セクションへの再計算リストを返す
-   * @param {object} heading 
-   * @param {object} project 
-   * @param {object} editor 
-   * @returns {{parentId: string|null, order: number, orderUpdates: object[]}}
-   */
-  function _inferHierarchyAndOrder(heading, project, editor) {
-    let parentId = null;
-    let prevSiblingId = null;
-
-    // Tiptapドキュメント上で、この見出しより前にあるID付き見出しを列挙
-    const prevHeadings = [];
-    editor.state.doc.nodesBetween(0, heading.pos, (node, pos) => {
-      if (node.type.name === 'sectionHeading' && node.attrs.sectionId) {
-        prevHeadings.push({ id: node.attrs.sectionId, level: node.attrs.level });
-      }
-    });
-
-    // 親を探す: 逆順に見て、h.level より小さいレベルの見出しが親
-    for (let i = prevHeadings.length - 1; i >= 0; i--) {
-      const ph = prevHeadings[i];
-      if (ph.level < heading.level) {
-        parentId = ph.id;
-        break;
-      }
-    }
-
-    // 挿入すべき order を決定するため、同じ親を持つ直前の兄弟要素を探す
-    for (let i = prevHeadings.length - 1; i >= 0; i--) {
-      const ph = prevHeadings[i];
-      if (ph.level < heading.level) break; // 親に到達したら探索終了
-      const pSec = project.sections.find(s => s.id === ph.id);
-      if (pSec && pSec.parent_id === parentId) {
-        prevSiblingId = ph.id;
-        break;
-      }
-    }
-
-    const siblings = project.sections
-      .filter(s => s.parent_id === parentId)
-      .sort((a, b) => a.order - b.order);
-
-    let insertIndex = 0;
-    if (prevSiblingId) {
-      const idx = siblings.findIndex(s => s.id === prevSiblingId);
-      if (idx !== -1) insertIndex = idx + 1;
-      else insertIndex = siblings.length;
-    }
-
-    const orderUpdates = [];
-    for (let i = insertIndex; i < siblings.length; i++) {
-      orderUpdates.push({
-        section_id: siblings[i].id,
-        parent_id: parentId,
-        order: i + 1
-      });
-    }
-
-    return {
-      parentId,
-      order: insertIndex,
-      orderUpdates
-    };
-  }
 
 
   /**
@@ -914,9 +821,11 @@ const EditTab = (() => {
       editor.chain().focus().insertContentAt(_savedTiptapPos, text).run();
     } else {
       // フォールバック: セクションのコンテンツ末尾に挿入
-      const endPos = window.TiptapEditor.getSectionContentEnd(sectionId);
+      const endPos = sectionId ? window.TiptapEditor.getSectionContentEnd(sectionId) : null;
       if (endPos !== null) {
         editor.chain().focus().insertContentAt(endPos, text).run();
+      } else {
+        editor.chain().focus().insertContent(text).run();
       }
     }
     _savedTiptapPos = null;
@@ -1223,35 +1132,47 @@ const EditTab = (() => {
     });
 
     // セクションツールバー（文献挿入・図表挿入）の表示/非表示
-    const toolbar = document.getElementById('tiptap-section-toolbar');
+    const toolbar = document.getElementById('tiptap-toolbar');
     const toolbarLabel = document.getElementById('tiptap-toolbar-label');
-    if (toolbar) {
-      if (selectedId) {
-        const sec = _project && _project.sections.find(s => s.id === selectedId);
-        if (toolbarLabel) toolbarLabel.textContent = sec ? sec.title : '';
-        toolbar.style.display = '';
+    const toolbarDivider = document.getElementById('tiptap-toolbar-divider');
+    const refBtn = toolbar ? toolbar.querySelector('[data-action="insert-ref"]') : null;
+    const figBtn = toolbar ? toolbar.querySelector('[data-action="insert-fig"]') : null;
 
-        // ボタンのイベントを再バインド（cloneして重複防止）
-        const refBtn = toolbar.querySelector('[data-action="insert-ref"]');
-        const figBtn = toolbar.querySelector('[data-action="insert-fig"]');
-        if (refBtn) {
-          const newRefBtn = refBtn.cloneNode(true);
-          refBtn.parentNode.replaceChild(newRefBtn, refBtn);
-          newRefBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            _showInsertRefDialog(selectedId);
-          });
+    if (toolbar) {
+      if (toolbarLabel) {
+        if (selectedId) {
+          const sec = _project && _project.sections.find(s => s.id === selectedId);
+          toolbarLabel.textContent = sec ? sec.title : '';
+        } else {
+          toolbarLabel.textContent = '全セクション';
         }
-        if (figBtn) {
-          const newFigBtn = figBtn.cloneNode(true);
-          figBtn.parentNode.replaceChild(newFigBtn, figBtn);
-          newFigBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            _showInsertFigDialog(selectedId);
-          });
-        }
-      } else {
-        toolbar.style.display = 'none';
+        toolbarLabel.style.display = '';
+      }
+      if (toolbarDivider) toolbarDivider.style.display = '';
+      if (refBtn) refBtn.style.display = '';
+      if (figBtn) figBtn.style.display = '';
+
+      // ボタンのイベントを再バインド（cloneして重複防止）
+      if (refBtn) {
+        const newRefBtn = refBtn.cloneNode(true);
+        refBtn.parentNode.replaceChild(newRefBtn, refBtn);
+        newRefBtn.addEventListener('mousedown', e => e.preventDefault());
+        newRefBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          _showInsertRefDialog(selectedId);
+        });
+      }
+      if (figBtn) {
+        const newFigBtn = figBtn.cloneNode(true);
+        figBtn.parentNode.replaceChild(newFigBtn, figBtn);
+        newFigBtn.addEventListener('mousedown', e => e.preventDefault());
+        newFigBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          _showInsertFigDialog(selectedId);
+        });
+      }
+
+      if (!selectedId) {
         // 全セクション非選択時はスコープを「全セクション(骨子)」に戻す
         AppShell.setCurrentScope('all');
       }
