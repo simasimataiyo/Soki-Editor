@@ -522,15 +522,11 @@ const AppShell = (() => {
           if (window.EditTab && window.EditTab.clearSectionSelection) {
             window.EditTab.clearSectionSelection();
           }
-          // コマンド実行: 変更がある場合のみ要約をバックエンドに保存してからパネルをリフレッシュ
+          // コマンド実行: 要約をバックエンドに保存してからパネルをリフレッシュ
           if (isCommand) {
-            if (_changeLog.length > 0) {
-              const summaryText = _buildCommandSummaryText(_changeLog);
-              _addSummaryToHistory(project, `/${parsed.command.name} 実行: ${summaryText}`)
-                .then(() => _refreshHistoryPanel());
-            } else {
-              _refreshHistoryPanel();
-            }
+            const summaryText = _buildCommandSummaryText(_changeLog);
+            _addSummaryToHistory(project, `/${parsed.command.name} 実行: ${summaryText}`)
+              .then(() => _refreshHistoryPanel());
           } else {
             // 通常チャット: バックエンドに保存済みなのでパネルをリフレッシュ
             _refreshHistoryPanel();
@@ -827,13 +823,13 @@ const AppShell = (() => {
       /* isHistory */ true,
       (px) => {
         SettingsTab.applyHistoryPanelWidth(px);
-        ApiClient.put('/api/settings', { history_panel_width: px }).catch(() => {});
+        ApiClient.patch('/api/settings', { history_panel_width: px }).catch(() => {});
       }
     );
 
     const saveLeftPanelWidth = (px) => {
       SettingsTab.applyLeftPanelWidth(px);
-      ApiClient.put('/api/settings', { left_panel_width: px }).catch(() => {});
+      ApiClient.patch('/api/settings', { left_panel_width: px }).catch(() => {});
     };
 
     // Source タブ左パネル

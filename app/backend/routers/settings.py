@@ -1,6 +1,8 @@
 """グローバル設定 API ルーター"""
 from __future__ import annotations
 
+from typing import Any, Dict
+
 from fastapi import APIRouter
 
 from app.backend.models import LLMSettings
@@ -25,3 +27,12 @@ def get_settings() -> LLMSettings:
 @router.put("/settings", response_model=LLMSettings)
 def update_settings(body: LLMSettings) -> LLMSettings:
     return get_service().save(body)
+
+
+@router.patch("/settings", response_model=LLMSettings)
+def patch_settings(body: Dict[str, Any]) -> LLMSettings:
+    """指定フィールドのみ更新する（他フィールドは現在値を維持）。"""
+    svc = get_service()
+    current = svc.get()
+    merged = current.model_copy(update=body)
+    return svc.save(merged)

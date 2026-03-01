@@ -18,15 +18,17 @@
 | レイヤー | 使用技術 |
 |----------|----------|
 | バックエンド | FastAPI + Uvicorn |
-| デスクトップUI | pywebview |   
+| デスクトップUI | pywebview |
+| フロントエンド | Vanilla JavaScript + Jinja2テンプレート |
 | LLM連携 | OpenAI互換API（OpenAI / Azure OpenAI / Ollama等） |
+| RAG | LangChain + Chroma |
 | ファイル解析 | MarkItDown / PyMuPDF / Pillow |
 | データ保存 | ローカルJSONファイル |
 
 ## 動作環境
 
 - Python 3.11 以上 3.13 以下
-- node.js
+- Node.js
 
 ## インストール
 
@@ -44,7 +46,6 @@ npm install
 
 # Tiptapのバンドル
 npx esbuild app/static/js/tiptap-editor.js --bundle --outfile=app/static/js/tiptap-bundle.js --format=esm
-
 ```
 
 ## 起動
@@ -76,7 +77,7 @@ pytest
 
 ## コマンド
 
-チャット入力欄と レビュー指示欄で `/コマンド` 構文が使えます。
+チャット入力欄とレビュー指示欄で `/コマンド` 構文が使えます。
 詳細な指示はコマンドの後ろにフリーテキストで記述します。
 
 ### エディットタブ コマンド
@@ -98,7 +99,6 @@ pytest
 | `/review` | フォーカスなしで総合的にレビュー |
 | `/prompt save [名前]` | レビュー指示欄の現在のテキストを名前付きで保存 |
 | `/prompt load [名前]` | 保存済みのプロンプトをレビュー指示欄に読み込む |
-
 
 コマンドの後ろに追加指示を書けます。例:
 
@@ -135,6 +135,14 @@ pytest
 ## LLM設定
 
 APIキー・エンドポイントURL・モデル名はプロジェクトごとに設定します。OpenAI互換APIであればローカルLLM（Ollama等）も利用できます。
+
+## キーボードショートカット
+
+| ショートカット | 動作 |
+|--------------|------|
+| Ctrl+S | 手動保存 |
+| Ctrl+Z | Undo |
+| Ctrl+Shift+Z | Redo |
 
 ## ライセンス
 
