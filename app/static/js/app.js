@@ -111,6 +111,13 @@ const AppShell = (() => {
       window.initResizeHandle('chat-resize-handle', 'chat-input');
     }
 
+    // グローバル設定を読み込んでCSS変数を反映
+    ApiClient.get('/api/settings').then(s => {
+      if (s.left_panel_width) {
+        SettingsTab.applyLeftPanelWidth(s.left_panel_width);
+      }
+    }).catch(() => {});
+
     // 3カラムパネルリサイズを初期化
     _initPanelResizers();
 
@@ -212,6 +219,7 @@ const AppShell = (() => {
     document.getElementById('project-name-display').textContent = project.name || '';
     _showScreen('editor-screen');
     switchTab('edit');
+    _refreshHistoryPanel();
   }
 
   function setCurrentScope(scope) {
@@ -725,12 +733,15 @@ const AppShell = (() => {
    * アウトライン ↔ エディタ、エディタ ↔ チャット履歴のドラッグリサイズを初期化する
    */
   function _initPanelResizers() {
+    const style = getComputedStyle(document.documentElement);
+    const pxVal = (v) => parseInt(style.getPropertyValue(v)) || undefined;
+
     // アウトライン ↔ エディタ境界
     _setupHorizResizer(
       document.getElementById('outline-resizer'),
       document.getElementById('outline-panel'),
       'right',
-      120, 500
+      pxVal('--outline-panel-min-w'), pxVal('--outline-panel-max-w')
     );
 
     // エディタ ↔ チャット履歴境界（ドラッグでリサイズ、クリックでトグル）
@@ -738,8 +749,32 @@ const AppShell = (() => {
       document.getElementById('history-resizer'),
       document.getElementById('chat-history-side'),
       'left',
-      160, 600,
+      pxVal('--history-panel-min-w'), pxVal('--history-panel-max-w'),
       /* isHistory */ true
+    );
+
+    // Source タブ左パネル
+    _setupHorizResizer(
+      document.getElementById('source-resizer'),
+      document.getElementById('source-panel'),
+      'right',
+      pxVal('--left-panel-min-w'), pxVal('--left-panel-max-w')
+    );
+
+    // Material タブ左パネル
+    _setupHorizResizer(
+      document.getElementById('material-resizer'),
+      document.getElementById('material-panel'),
+      'right',
+      pxVal('--left-panel-min-w'), pxVal('--left-panel-max-w')
+    );
+
+    // Rule タブ左パネル
+    _setupHorizResizer(
+      document.getElementById('rule-resizer'),
+      document.getElementById('rule-panel'),
+      'right',
+      pxVal('--left-panel-min-w'), pxVal('--left-panel-max-w')
     );
   }
 
@@ -813,7 +848,7 @@ const AppShell = (() => {
 
   // ─── チャット履歴右パネル ─────────────────────
 
-  let _historyPanelOpen = false;
+  let _historyPanelOpen = true;
 
   /**
    * 履歴パネルにメッセージ要素を直接追加して DOM 要素を返す

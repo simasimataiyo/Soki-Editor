@@ -15,6 +15,7 @@ class LLMSettings(BaseModel):
     endpoint_url: Optional[str] = None
     model: str = "gpt-4o"
     pdf_page_dpi: int = 96  # PDF等倍画像のDPI（設定画面から変更可能）
+    left_panel_width: int = 280  # 左パネル標準幅（px）
 
 
 class Bibliography(BaseModel):

@@ -146,7 +146,8 @@
                 </div>
               </aside>
               <!-- パネルリサイザー: アウトライン ↔ エディタ -->
-              <div class="panel-resizer" id="outline-resizer"></div>
+              <div class="panel-resizer" id="outline-resizer">
+              </div>
               <!-- 中央: ドキュメントビュー + チャットバー -->
               <div class="edit-center" id="edit-center">
                 <div class="doc-view" id="doc-view">
@@ -165,9 +166,10 @@
                 </div>
               </div>
               <!-- パネルリサイザー: エディタ ↔ チャット履歴 -->
-              <div class="panel-resizer history-resizer collapsed-indicator" id="history-resizer" title="クリックで展開/格納"></div>
+              <div class="panel-resizer history-resizer history-open" id="history-resizer" title="クリックで展開/格納">
+              </div>
               <!-- 右パネル: チャット履歴 -->
-              <div class="chat-history-side collapsed" id="chat-history-side">
+              <div class="chat-history-side" id="chat-history-side">
                 <div class="chat-history-panel" id="chat-history-panel">
                   <div class="chat-history-panel-tabs" id="chat-history-panel-tabs"></div>
                   <div class="chat-history-panel-messages" id="chat-history-panel-messages">
@@ -208,6 +210,7 @@
                 <button class="btn-add-item" id="btn-add-source">新規追加</button>
                 <ul class="item-list" id="source-list"></ul>
               </aside>
+              <div class="panel-resizer" id="source-resizer"></div>
               <div class="detail-pane" id="source-detail">
                 <p class="placeholder-text">ソースを選択してください</p>
               </div>
@@ -224,6 +227,7 @@
                 <button class="btn-add-item" id="btn-add-material">新規追加</button>
                 <ul class="material-card-list" id="material-list"></ul>
               </aside>
+              <div class="panel-resizer" id="material-resizer"></div>
               <div class="detail-pane" id="material-detail">
                 <p class="placeholder-text">マテリアルを選択してください</p>
               </div>
@@ -240,6 +244,7 @@
                 <button class="btn-add-item" id="btn-add-rule-from-panel">新規追加</button>
                 <ul class="rule-tree" id="category-list"></ul>
               </aside>
+              <div class="panel-resizer" id="rule-resizer"></div>
               <div class="detail-pane" id="rule-detail" style="padding:24px 32px;overflow-y:auto">
                 <div class="rule-all-view" id="rule-all-view"></div>
               </div>
@@ -249,11 +254,6 @@
           <!-- Settings タブ -->
           <div class="tab-pane" id="tab-settings">
             <div class="two-pane">
-              <aside class="left-panel" id="settings-panel">
-                <div class="panel-header">
-                  <span>Settings</span>
-                </div>
-              </aside>
               <div class="detail-pane" id="settings-detail">
                 <div class="settings-container">
                   <h2>LLM 設定</h2>
@@ -275,6 +275,11 @@
                       <label for="settings-pdf-dpi">PDF 等倍画像 DPI</label>
                       <input type="number" id="settings-pdf-dpi" class="form-control" placeholder="96" min="72"
                         max="300" style="max-width:120px" />
+                    </div>
+                    <div class="form-group">
+                      <label for="settings-left-panel-width">左パネル標準幅 (px)</label>
+                      <input type="number" id="settings-left-panel-width" class="form-control" placeholder="280" min="120"
+                        max="600" style="max-width:120px" />
                     </div>
                     <button type="submit" class="btn btn-primary">保存</button>
                   </form>
