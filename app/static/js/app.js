@@ -91,6 +91,7 @@ const AppShell = (() => {
 
   let _currentSseCtrl = null;
   let _currentScope = 'all';
+  let _chatSelectionPreview = null; // チャット入力フォーカス前にキャプチャした選択テキスト
 
   function init() {
     // タブ切り替え
@@ -128,6 +129,23 @@ const AppShell = (() => {
     // チャット入力欄のリサイズハンドルを初期化
     if (window.initResizeHandle) {
       window.initResizeHandle('chat-resize-handle', 'chat-input');
+    }
+
+    // チャット入力欄にフォーカスする前にエディタ内選択テキストをキャプチャしてインジケーター表示
+    const _chatInput = document.getElementById('chat-input');
+    if (_chatInput) {
+      _chatInput.addEventListener('mousedown', () => {
+        const sel = window.getSelection();
+        const anchor = sel?.anchorNode?.parentElement;
+        const inEditor = anchor?.closest('#tiptap-editor-mount .ProseMirror, [data-field="content"], [data-field="summary"]');
+        const txt = (inEditor && sel.toString().trim()) ? sel.toString().trim() : null;
+        _chatSelectionPreview = txt;
+        _updateChatSelectionBadge();
+      });
+      _chatInput.addEventListener('blur', () => {
+        _chatSelectionPreview = null;
+        _updateChatSelectionBadge();
+      });
     }
 
     // グローバル設定を読み込んでCSS変数を反映
@@ -318,6 +336,18 @@ const AppShell = (() => {
   }
 
   // ─── チャット機能 ──────────────────────────────────────
+
+  function _updateChatSelectionBadge() {
+    const badge = document.getElementById('chat-selection-badge');
+    if (!badge) return;
+    if (_chatSelectionPreview) {
+      const charCount = _chatSelectionPreview.replace(/\s/g, '').length;
+      badge.textContent = '選択中: ' + charCount.toLocaleString() + ' 文字をコンテキストに含む';
+      badge.style.display = '';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
 
   async function _sendChat(parsed) {
     const project = window.appState.getProject();

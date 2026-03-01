@@ -16,6 +16,7 @@ window.BubblePrompt = (function () {
     _el.id = 'bubble-prompt';
     _el.innerHTML = [
       '<div class="bubble-prompt-body">',
+      '  <div id="bubble-prompt-selection-badge" class="bubble-prompt-selection-badge" style="display:none"></div>',
       '  <textarea id="bubble-prompt-input" class="bubble-prompt-textarea"',
       '    placeholder="AIプロンプトを入力（/ でコマンド、@ で参照）" rows="2"></textarea>',
       '  <div class="bubble-prompt-actions">',
@@ -112,6 +113,18 @@ window.BubblePrompt = (function () {
   function show(rect, capturedText) {
     var el = _ensureEl();
     _capturedSelectedText = capturedText || '';
+
+    // 選択バッジの表示更新
+    var badge = el.querySelector('#bubble-prompt-selection-badge');
+    if (badge) {
+      if (_capturedSelectedText) {
+        var charCount = _capturedSelectedText.replace(/\s/g, '').length;
+        badge.textContent = '選択中: ' + charCount.toLocaleString() + ' 文字をコンテキストに含む';
+        badge.style.display = '';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
 
     el.style.visibility = 'hidden';
     el.style.display = 'block';

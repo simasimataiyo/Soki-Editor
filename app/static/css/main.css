@@ -2895,6 +2895,22 @@ body {
   flex: 1;
 }
 
+.bubble-prompt-selection-badge,
+.chat-selection-badge {
+  font-size: 11px;
+  color: var(--color-primary, #4a90d9);
+  background: var(--color-primary-pale, rgba(74, 144, 217, 0.1));
+  border: 1px solid var(--color-primary, #4a90d9);
+  border-radius: 4px;
+  padding: 2px 8px;
+  margin-bottom: 4px;
+  display: inline-block;
+}
+
+.chat-selection-badge {
+  margin-bottom: 6px;
+}
+
 /* ================================================================
    11. レスポンシブ
 ================================================================ */
