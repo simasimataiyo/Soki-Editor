@@ -2746,6 +2746,58 @@ body {
   font-size: 12px;
 }
 
+/* ─── バブルプロンプト ───────────────────────── */
+.bubble-prompt {
+  position: fixed;
+  z-index: 1200;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.16);
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  padding: 8px;
+  display: none;
+}
+
+.bubble-prompt-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bubble-prompt-textarea {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: none;
+  outline: none;
+  line-height: 1.5;
+  min-height: 56px;
+  background: var(--color-primary-pale);
+  color: var(--color-text);
+  box-sizing: border-box;
+}
+
+.bubble-prompt-textarea:focus {
+  border-color: var(--color-text);
+}
+
+.bubble-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+}
+
+.bubble-prompt-hint {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  flex: 1;
+}
 
 /* ================================================================
    11. レスポンシブ

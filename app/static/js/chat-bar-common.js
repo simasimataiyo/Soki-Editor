@@ -25,12 +25,16 @@ const ChatBarCommon = (() => {
 
     _configByInputId.set(inputId, { ...config, tab, input, sendBtn });
 
+    // オートコンプリートを先にアタッチ（keydownハンドラの登録順を優先させるため）
+    if (window.AutocompletePopup) {
+      AutocompletePopup.attachAll([inputId]);
+    }
+
     // Enterキーで送信 (Shift+Enterは改行)
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
-        // オートコンプリートポップアップ表示中はEnter送信を抑止
-        const acPopup = document.querySelector('.autocomplete-popup');
-        if (acPopup && acPopup.style.display !== 'none') return;
+        // オートコンプリートポップアップ表示中はEnter送信を抑止（候補確定のみ）
+        if (window.AutocompletePopup && AutocompletePopup.isOpen()) return;
 
         let shouldSend = true;
         if (config.onEnter) {
@@ -45,11 +49,6 @@ const ChatBarCommon = (() => {
 
     // 送信ボタンクリック
     sendBtn.addEventListener('click', () => _handleSend(inputId));
-
-    // オートコンプリートポップアップをアタッチ（既存のAutocompletePopupを使用）
-    if (window.AutocompletePopup) {
-      AutocompletePopup.attachAll([inputId]);
-    }
   }
 
   /**

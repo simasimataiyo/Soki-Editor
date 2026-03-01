@@ -409,6 +409,21 @@ function _initEditor() {
       attributes: {
         class: 'tiptap-prosemirror',
       },
+      handleKeyDown: (view, event) => {
+        if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
+          event.preventDefault();
+          if (!window.BubblePrompt) return false;
+          const { selection } = view.state;
+          const coords = view.coordsAtPos(selection.head);
+          const rect = { top: coords.top, bottom: coords.bottom, left: coords.left };
+          const selectedText = selection.empty
+            ? ''
+            : view.state.doc.textBetween(selection.from, selection.to, ' ');
+          window.BubblePrompt.toggle(rect, selectedText);
+          return true;
+        }
+        return false;
+      },
     },
   });
 

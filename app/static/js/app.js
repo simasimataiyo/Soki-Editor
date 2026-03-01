@@ -112,6 +112,16 @@ const AppShell = (() => {
       onSend: _sendChat,
     });
 
+    // バブルプロンプトからの送信
+    document.addEventListener('bubble-prompt-send', (e) => {
+      _sendChat(e.detail);
+    });
+
+    // バブルプロンプトのエラー通知
+    document.addEventListener('bubble-prompt-error', (e) => {
+      showToast(e.detail, 'error');
+    });
+
     // チャット入力欄のリサイズハンドルを初期化
     if (window.initResizeHandle) {
       window.initResizeHandle('chat-resize-handle', 'chat-input');
@@ -320,11 +330,15 @@ const AppShell = (() => {
       return;
     }
 
-    // 選択テキストをキャプチャ（フォーカス変化前に取得）
+    // 選択テキストをキャプチャ（バブルプロンプトからは事前キャプチャ済みの値を使う）
+    const _preCapture = parsed._capturedSelectedText;
+    delete parsed._capturedSelectedText;
     const _sel = window.getSelection();
     const _selAnchor = _sel?.anchorNode?.parentElement;
     const _isInEditor = _selAnchor?.closest('#tiptap-editor-mount .ProseMirror, [data-field="content"], [data-field="summary"]');
-    const _selectedText = (_isInEditor && _sel.toString().trim()) ? _sel.toString().trim() : null;
+    const _selectedText = _preCapture !== undefined
+      ? (_preCapture || null)
+      : ((_isInEditor && _sel.toString().trim()) ? _sel.toString().trim() : null);
 
     // /clear コマンド: LLM を呼ばずに新スコープを作成して終了
     if (parsed.command && parsed.command.name === 'clear') {

@@ -96,11 +96,10 @@ const AutocompletePopup = (() => {
       _selectedIndex = Math.max(_selectedIndex - 1, 0);
       _renderItems();
     } else if (e.key === 'Tab' || (e.key === 'Enter' && _filteredItems.length > 0)) {
-      // Enter はコマンドヒントの場合のみ補完（通常チャット送信と競合防止）
-      if (e.key === 'Tab' || _mode === 'command') {
-        e.preventDefault();
-        _confirmSelection(_selectedIndex);
-      }
+      // Tab または Enter で補完確定（送信との競合防止のため他のハンドラも止める）
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      _confirmSelection(_selectedIndex);
     } else if (e.key === 'Escape') {
       e.preventDefault();
       _hide();
@@ -259,5 +258,9 @@ const AutocompletePopup = (() => {
     _textarea.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
-  return { attachAll };
+  function isOpen() {
+    return !!(_popup && _popup.style.display !== 'none');
+  }
+
+  return { attachAll, isOpen };
 })();
