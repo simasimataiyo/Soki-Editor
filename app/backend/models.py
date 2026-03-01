@@ -18,6 +18,7 @@ class LLMSettings(BaseModel):
     left_panel_width: int = 280  # 左パネル標準幅（px）
     history_panel_width: int = 280  # チャット履歴右パネル標準幅（px）
     outline_panel_width: int = 280  # アウトライン左パネル幅（px）
+    review_max_comments: int = 0    # レビューコメントの最大件数（0=無制限）
 
 
 class Bibliography(BaseModel):

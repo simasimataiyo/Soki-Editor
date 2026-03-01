@@ -23,6 +23,7 @@ const SettingsTab = (() => {
       document.getElementById('settings-model').value = s.model || 'gpt-4o';
       document.getElementById('settings-pdf-dpi').value = s.pdf_page_dpi ?? 96;
       document.getElementById('settings-left-panel-width').value = s.left_panel_width ?? 280;
+      document.getElementById('settings-review-max-comments').value = s.review_max_comments ?? 0;
       applyLeftPanelWidth(s.left_panel_width ?? 280);
       applyHistoryPanelWidth(s.history_panel_width ?? 280);
       applyOutlinePanelWidth(s.outline_panel_width ?? 280);
@@ -40,6 +41,7 @@ const SettingsTab = (() => {
         model: document.getElementById('settings-model').value.trim() || 'gpt-4o',
         pdf_page_dpi: parseInt(document.getElementById('settings-pdf-dpi').value, 10) || 96,
         left_panel_width: leftPanelWidth,
+        review_max_comments: parseInt(document.getElementById('settings-review-max-comments').value, 10) || 0,
       };
 
       try {

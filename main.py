@@ -1,6 +1,7 @@
 """Soki Editor — アプリケーション起動スクリプト"""
 from __future__ import annotations
 
+import asyncio
 import os
 import socket
 import threading
@@ -13,6 +14,10 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# Uvicorn が使用しているイベントループを保持する（終了時の保存用）
+_uvicorn_loop: asyncio.AbstractEventLoop | None = None
+_exit_called = False
 
 
 def _find_free_port(start: int = 8080, end: int = 8099) -> int:
@@ -42,19 +47,43 @@ def _wait_for_port(host: str, port: int, timeout: float = 15.0) -> bool:
 
 def _start_uvicorn(port: int) -> None:
     """Uvicorn を daemon スレッドで起動する。"""
+    global _uvicorn_loop
     import uvicorn
     from app.backend.main import app
 
-    uvicorn.run(
-        app,
-        host="127.0.0.1",
-        port=port,
-        log_level="info",
-        access_log=False,
-    )
+    async def _run() -> None:
+        global _uvicorn_loop
+        _uvicorn_loop = asyncio.get_running_loop()
+        config = uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=port,
+            log_level="info",
+            access_log=False,
+        )
+        server = uvicorn.Server(config)
+        await server.serve()
 
-def _destroy(window):
-    window.destroy()
+    asyncio.run(_run())
+
+
+def _save_all_and_exit() -> None:
+    """ダーティなプロジェクトをすべて保存してから終了する。"""
+    global _uvicorn_loop, _exit_called
+    if _exit_called:
+        return
+    _exit_called = True
+    if _uvicorn_loop and _uvicorn_loop.is_running():
+        from app.backend.routers.projects import get_service
+        svc = get_service()
+        future = asyncio.run_coroutine_threadsafe(svc.flush_all_dirty(), _uvicorn_loop)
+        try:
+            future.result(timeout=10.0)
+            logger.info("終了前保存完了")
+        except Exception as e:
+            logger.error("終了前保存中にエラー: %s", e)
+    os._exit(0)
+
 
 def main() -> None:
     port = _find_free_port()
@@ -89,11 +118,11 @@ def main() -> None:
             min_size=(900, 600),
             resizable=True,
         )
-        window.events.closed += lambda: os._exit(0)
+        window.events.closed += _save_all_and_exit
         try:
             webview.start(debug=True)
         finally:
-            os._exit(0)
+            _save_all_and_exit()
     except ImportError:
         logger.warning("pywebview が見つかりません。ブラウザでアクセスしてください: http://127.0.0.1:%d/", port)
         # pywebview なし → スレッドが終了しないように待機

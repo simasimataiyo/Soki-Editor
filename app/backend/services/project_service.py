@@ -3,11 +3,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from app.backend.models import (
     ChatMessage,
@@ -184,6 +187,19 @@ class ProjectService:
         project = await self.get_project(project_id)
         await self._save_to_disk(project)
         self._dirty[project_id] = False
+
+    async def flush_all_dirty(self) -> None:
+        """ダーティなすべてのプロジェクトを即時保存する（シャットダウン時用）。"""
+        for project_id, dirty in list(self._dirty.items()):
+            if dirty:
+                project = self._projects.get(project_id)
+                if project:
+                    try:
+                        await self._save_to_disk(project)
+                        self._dirty[project_id] = False
+                        logger.info("シャットダウン保存完了: %s", project_id)
+                    except Exception as e:
+                        logger.error("シャットダウン保存失敗: %s — %s", project_id, e)
 
     async def list_recent_projects(self) -> list[ProjectMeta]:
         registry = self._load_registry()

@@ -346,7 +346,8 @@ class LLMService:
 
             # reviewコマンドは Structured Output（非ストリーミング）で呼び出す
             if is_review_command:
-                async for event in self._review_structured_output(client, settings.model, messages):
+                max_comments = settings.review_max_comments if settings.review_max_comments > 0 else None
+                async for event in self._review_structured_output(client, settings.model, messages, max_comments=max_comments):
                     yield event
                 return
 
@@ -478,12 +479,14 @@ class LLMService:
         client,
         model: str,
         messages: list[dict],
+        max_comments: int | None = None,
     ) -> AsyncGenerator[str, None]:
         """レビューコマンド用: Structured Output で review_result を生成して yield する。
 
         - ストリーミングなし・JSON スキーマ強制で呼び出す
         - 成功時: review_result SSE イベントと done イベントを yield
         - 失敗時: error SSE イベントを yield
+        - max_comments: コメント数の上限（None=無制限）
         """
         try:
             response = await client.chat.completions.create(
@@ -494,6 +497,8 @@ class LLMService:
             content = response.choices[0].message.content or "{}"
             review_data = json.loads(content)
             comments = review_data.get("comments", [])
+            if max_comments is not None:
+                comments = comments[:max_comments]
         except json.JSONDecodeError as e:
             logger.error("レビュー Structured Output JSON パースエラー: %s", e)
             comments = []
