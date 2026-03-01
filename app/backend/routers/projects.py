@@ -180,6 +180,19 @@ async def patch_section_in_content(
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.put("/projects/{project_id}/name")
+async def update_project_name(project_id: str, body: dict) -> dict:
+    svc = get_service()
+    new_name = body.get("name", "").strip()
+    if not new_name:
+        raise HTTPException(status_code=422, detail="name が必要です")
+    try:
+        await svc.update_name(project_id, new_name)
+        return {"status": "ok", "name": new_name}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="プロジェクトが見つかりません")
+
+
 @router.put("/projects/{project_id}/data-dir")
 async def update_data_dir(project_id: str, body: DataDirUpdate) -> dict:
     svc = get_service()

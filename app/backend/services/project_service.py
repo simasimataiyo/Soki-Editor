@@ -234,6 +234,11 @@ class ProjectService:
                         pass
         return sorted(metas, key=lambda m: m.updated_at, reverse=True)
 
+    async def update_name(self, project_id: str, new_name: str) -> None:
+        project = await self.get_project(project_id)
+        project.name = new_name
+        self._mark_dirty(project_id)
+
     async def update_data_dir(self, project_id: str, new_data_dir: str) -> None:
         project = await self.get_project(project_id)
         project.data_dir = new_data_dir

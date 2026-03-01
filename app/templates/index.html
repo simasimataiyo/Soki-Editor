@@ -277,8 +277,18 @@
             <div class="two-pane">
               <div class="detail-pane" id="settings-detail">
                 <div class="settings-container">
-                  <h2>LLM 設定</h2>
+                  <h2>プロジェクト</h2>
+                  <form id="project-settings-form" class="settings-form">
+                    <div class="form-group">
+                      <label for="settings-project-name">プロジェクト名</label>
+                      <input type="text" id="settings-project-name" class="form-control" placeholder="プロジェクト名" />
+                    </div>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                  </form>
+                  <hr style="margin: 24px 0; border: none; border-top: 1px solid var(--border-color, #e0e0e0);" />
+                  <h2>グローバル設定</h2>
                   <form id="settings-form" class="settings-form">
+                    <h3>LLM</h3>
                     <div class="form-group">
                       <label for="settings-api-key">API キー</label>
                       <input type="password" id="settings-api-key" class="form-control" placeholder="sk-..." />
@@ -292,21 +302,20 @@
                       <label for="settings-model">モデル名</label>
                       <input type="text" id="settings-model" class="form-control" placeholder="gpt-4o" />
                     </div>
-                    <div class="form-group">
-                      <label for="settings-pdf-dpi">PDF 等倍画像 DPI</label>
-                      <input type="number" id="settings-pdf-dpi" class="form-control" placeholder="96" min="72"
-                        max="300" style="max-width:120px" />
-                    </div>
-                    <div class="form-group">
-                      <label for="settings-left-panel-width">左パネル標準幅 (px)</label>
-                      <input type="number" id="settings-left-panel-width" class="form-control" placeholder="280" min="120"
-                        max="600" style="max-width:120px" />
-                    </div>
+
+                    <h3>エディタ</h3>
                     <div class="form-group">
                       <label for="settings-review-max-comments">レビューコメント最大件数</label>
                       <input type="number" id="settings-review-max-comments" class="form-control" placeholder="0" min="0"
                         max="50" style="max-width:120px" />
                       <small class="form-text text-muted">0 = 無制限</small>
+                    </div>
+
+                    <h3>ソース情報</h3>
+                    <div class="form-group">
+                      <label for="settings-pdf-dpi">PDF 等倍画像 DPI</label>
+                      <input type="number" id="settings-pdf-dpi" class="form-control" placeholder="96" min="72"
+                        max="300" style="max-width:120px" />
                     </div>
                     <button type="submit" class="btn btn-primary">保存</button>
                   </form>

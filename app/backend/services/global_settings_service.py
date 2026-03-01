@@ -6,16 +6,32 @@ from pathlib import Path
 
 from app.backend.models import LLMSettings
 
-# main.py と同階層 (プロジェクトルート) に配置
-_GLOBAL_SETTINGS_PATH = Path(__file__).parent.parent.parent.parent / "global_settings.json"
+_APPDATA_DIR = Path.home() / "AppData" / "Roaming" / "SokiEditor"
+_SETTINGS_PATH = _APPDATA_DIR / "global_settings.json"
+
+# 旧パス（プロジェクトルート）— マイグレーション用
+_LEGACY_SETTINGS_PATH = Path(__file__).parent.parent.parent.parent / "global_settings.json"
 
 
 class GlobalSettingsService:
     """グローバル設定 (global_settings.json) の読み書きを担う。"""
 
     def __init__(self, settings_path: Path | None = None) -> None:
-        self._path = settings_path or _GLOBAL_SETTINGS_PATH
+        self._path = settings_path or _SETTINGS_PATH
         self._cached: LLMSettings | None = None
+        self._migrate_legacy()
+
+    def _migrate_legacy(self) -> None:
+        """旧パス (プロジェクトルート/global_settings.json) が存在し、
+        新パスがまだ存在しない場合に設定ファイルを移行する。"""
+        if self._path.exists() or not _LEGACY_SETTINGS_PATH.exists():
+            return
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            data = _LEGACY_SETTINGS_PATH.read_text(encoding="utf-8")
+            self._path.write_text(data, encoding="utf-8")
+        except Exception:
+            pass
 
     def get(self) -> LLMSettings:
         """グローバル設定を返す。ファイルが存在しない場合はデフォルト値を返す。"""

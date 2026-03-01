@@ -15,7 +15,13 @@ const SettingsTab = (() => {
     document.documentElement.style.setProperty('--outline-panel-w', px + 'px');
   }
 
-  async function render(_project) {
+  async function render(project) {
+    // プロジェクト名フィールドの更新
+    const nameEl = document.getElementById('settings-project-name');
+    if (nameEl) {
+      nameEl.value = project ? (project.name || '') : '';
+    }
+
     try {
       const s = await ApiClient.get('/api/settings');
       document.getElementById('settings-api-key').value = s.api_key || '';
@@ -31,6 +37,32 @@ const SettingsTab = (() => {
   }
 
   function bindEvents() {
+    // プロジェクト名フォーム
+    document.getElementById('project-settings-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const project = StateManager.getProject();
+      if (!project) {
+        showToast('プロジェクトが開かれていません', 'error');
+        return;
+      }
+      const newName = document.getElementById('settings-project-name').value.trim();
+      if (!newName) {
+        showToast('プロジェクト名を入力してください', 'error');
+        return;
+      }
+      try {
+        await ApiClient.put(`/api/projects/${project.id}/name`, { name: newName });
+        project.name = newName;
+        // トップバーの表示名を更新
+        const display = document.getElementById('project-name-display');
+        if (display) display.textContent = newName;
+        showToast('プロジェクト名を保存しました', 'success');
+      } catch (_) {
+        showToast('プロジェクト名の保存に失敗しました', 'error');
+      }
+    });
+
+    // LLM設定フォーム
     document.getElementById('settings-form').addEventListener('submit', async (e) => {
       e.preventDefault();
 
