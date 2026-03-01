@@ -10,6 +10,13 @@ from pydantic import BaseModel, Field
 # ─── ドメインモデル ─────────────────────────────────────────────
 
 
+class WindowState(BaseModel):
+    width: int = 1400
+    height: int = 900
+    x: Optional[int] = None
+    y: Optional[int] = None
+
+
 class LLMSettings(BaseModel):
     api_key: str = ""
     endpoint_url: Optional[str] = None
@@ -19,6 +26,7 @@ class LLMSettings(BaseModel):
     history_panel_width: int = 280  # チャット履歴右パネル標準幅（px）
     outline_panel_width: int = 280  # アウトライン左パネル幅（px）
     review_max_comments: int = 0    # レビューコメントの最大件数（0=無制限）
+    window_state: WindowState = Field(default_factory=WindowState)
 
 
 class Bibliography(BaseModel):
