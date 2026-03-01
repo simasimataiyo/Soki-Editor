@@ -347,6 +347,12 @@ class ProjectService:
     async def delete_source(self, project_id: str, source_id: str) -> None:
         project = await self.get_project(project_id)
         project.sources = [s for s in project.sources if s.id != source_id]
+        # content 内の [^ref-xxx] 参照を削除
+        project.content = re.sub(
+            r'\s*\[\^' + re.escape(source_id) + r'\]',
+            '',
+            project.content,
+        )
         self._mark_dirty(project_id)
 
     # ------------------------------------------------------------------
@@ -381,6 +387,12 @@ class ProjectService:
     async def delete_material(self, project_id: str, mat_id: str) -> None:
         project = await self.get_project(project_id)
         project.materials = [m for m in project.materials if m.id != mat_id]
+        # content 内の ![alt]("fig-xxx") 参照を削除
+        project.content = re.sub(
+            r'!\[[^\]]*\]\([^)]*"' + re.escape(mat_id) + r'"[^)]*\)',
+            '',
+            project.content,
+        )
         self._mark_dirty(project_id)
 
     # ------------------------------------------------------------------

@@ -355,6 +355,72 @@ const TooltipExtension = Extension.create({
   }
 });
 
+// ─── SearchAndReplace Extension ──────────────────────────────
+
+const searchPluginKey = new PluginKey('searchReplace');
+
+const SearchAndReplaceExtension = Extension.create({
+  name: 'searchAndReplace',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: searchPluginKey,
+        state: {
+          init() {
+            return { query: '', caseSensitive: false, decorations: DecorationSet.empty, results: [], current: -1 };
+          },
+          apply(tr, prev) {
+            const meta = tr.getMeta(searchPluginKey);
+            if (meta) {
+              return _buildSearchState(tr.doc, meta.query ?? prev.query, meta.caseSensitive ?? prev.caseSensitive, meta.current ?? -1);
+            }
+            if (tr.docChanged && prev.query) {
+              return _buildSearchState(tr.doc, prev.query, prev.caseSensitive, prev.current);
+            }
+            if (tr.docChanged) {
+              return { ...prev, decorations: DecorationSet.empty, results: [] };
+            }
+            return prev;
+          },
+        },
+        props: {
+          decorations(state) {
+            return this.getState(state).decorations;
+          },
+        },
+      }),
+    ];
+  },
+});
+
+function _buildSearchState(doc, query, caseSensitive, currentIdx) {
+  if (!query) return { query, caseSensitive, decorations: DecorationSet.empty, results: [], current: -1 };
+
+  const results = [];
+  const flags = caseSensitive ? 'g' : 'gi';
+  let re;
+  try { re = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags); } catch (_) {
+    return { query, caseSensitive, decorations: DecorationSet.empty, results: [], current: -1 };
+  }
+
+  doc.descendants((node, pos) => {
+    if (!node.isText) return;
+    let m;
+    while ((m = re.exec(node.text)) !== null) {
+      results.push({ from: pos + m.index, to: pos + m.index + m[0].length });
+    }
+  });
+
+  const safeIdx = results.length === 0 ? -1 : ((currentIdx % results.length) + results.length) % results.length;
+
+  const decos = results.map((r, i) => {
+    const cls = i === safeIdx ? 'search-highlight-current' : 'search-highlight';
+    return Decoration.inline(r.from, r.to, { class: cls });
+  });
+
+  return { query, caseSensitive, decorations: DecorationSet.create(doc, decos), results, current: safeIdx };
+}
+
 // ─── Tiptap Editor インスタンス ──────────────────────────────
 
 let editor = null;
@@ -403,6 +469,7 @@ function _initEditor() {
       Placeholder.configure({
         placeholder: '本文を入力...',
       }),
+      SearchAndReplaceExtension,
     ],
     content: '',
     editorProps: {
@@ -420,6 +487,11 @@ function _initEditor() {
             ? ''
             : view.state.doc.textBetween(selection.from, selection.to, ' ');
           window.BubblePrompt.toggle(rect, selectedText);
+          return true;
+        }
+        if ((event.ctrlKey || event.metaKey) && event.key === 'h') {
+          event.preventDefault();
+          _toggleSearchBar();
           return true;
         }
         return false;
@@ -451,7 +523,156 @@ function _initEditor() {
       if (btnStrike) btnStrike.classList.toggle('is-active', editor.isActive('strike'));
       if (btnCode) btnCode.classList.toggle('is-active', editor.isActive('code'));
     });
+
+    // 検索ボタン
+    const btnSearchToggle = document.getElementById('btn-search-toggle');
+    if (btnSearchToggle) {
+      btnSearchToggle.addEventListener('mousedown', e => e.preventDefault());
+      btnSearchToggle.addEventListener('click', () => _toggleSearchBar());
+    }
   }
+
+  _initSearchBar();
+}
+
+// ─── 検索・置換バーロジック ───────────────────────────────────
+
+function _toggleSearchBar() {
+  const bar = document.getElementById('search-replace-bar');
+  if (!bar) return;
+  const isVisible = bar.style.display !== 'none';
+  if (isVisible) {
+    bar.style.display = 'none';
+    document.getElementById('btn-search-toggle')?.classList.remove('is-active');
+    _clearSearch();
+    editor && editor.commands.focus();
+  } else {
+    bar.style.display = '';
+    document.getElementById('btn-search-toggle')?.classList.add('is-active');
+    const searchInput = document.getElementById('search-input');
+    if (searchInput) {
+      searchInput.focus();
+      searchInput.select();
+    }
+  }
+}
+
+function _clearSearch() {
+  if (!editor) return;
+  editor.view.dispatch(editor.state.tr.setMeta(searchPluginKey, { query: '', caseSensitive: false, current: -1 }));
+  const countEl = document.getElementById('search-match-count');
+  if (countEl) countEl.textContent = '';
+  const searchInput = document.getElementById('search-input');
+  if (searchInput) searchInput.classList.remove('search-no-match');
+}
+
+function _applySearch(moveTo) {
+  if (!editor) return;
+  const query = document.getElementById('search-input')?.value || '';
+  const caseSensitive = document.getElementById('search-case-sensitive')?.checked || false;
+
+  const prevState = searchPluginKey.getState(editor.state);
+  let current = prevState?.current ?? -1;
+
+  if (moveTo === 'next') current = current < 0 ? 0 : current + 1;
+  else if (moveTo === 'prev') current = current <= 0 ? -1 : current - 1;
+  else current = query !== prevState?.query ? 0 : current;
+
+  editor.view.dispatch(editor.state.tr.setMeta(searchPluginKey, { query, caseSensitive, current }));
+
+  // 結果数表示 & カレント位置スクロール
+  requestAnimationFrame(() => {
+    const st = searchPluginKey.getState(editor.state);
+    const countEl = document.getElementById('search-match-count');
+    const searchInput = document.getElementById('search-input');
+    if (!st) return;
+    if (query === '') {
+      if (countEl) countEl.textContent = '';
+      if (searchInput) searchInput.classList.remove('search-no-match');
+      return;
+    }
+    const total = st.results.length;
+    const cur = st.current;
+    if (countEl) countEl.textContent = total === 0 ? '0件' : `${cur + 1}/${total}`;
+    if (searchInput) searchInput.classList.toggle('search-no-match', total === 0);
+    // カレントハイライトにスクロール
+    if (total > 0 && cur >= 0 && cur < st.results.length) {
+      const pos = st.results[cur].from;
+      const coords = editor.view.coordsAtPos(pos);
+      const editorDom = editor.view.dom;
+      const container = editorDom.closest('#tiptap-editor-mount') || editorDom.parentElement;
+      if (container) {
+        const containerRect = container.getBoundingClientRect();
+        const offset = coords.top - containerRect.top + container.scrollTop - container.clientHeight / 2;
+        container.scrollTop = offset;
+      }
+    }
+  });
+}
+
+function _replaceOne() {
+  if (!editor) return;
+  const query = document.getElementById('search-input')?.value || '';
+  const replacement = document.getElementById('replace-input')?.value || '';
+  if (!query) return;
+
+  const st = searchPluginKey.getState(editor.state);
+  if (!st || st.results.length === 0 || st.current < 0) {
+    _applySearch();
+    return;
+  }
+  const { from, to } = st.results[st.current];
+  editor.chain().focus().deleteRange({ from, to }).insertContentAt(from, replacement).run();
+  _applySearch();
+}
+
+function _replaceAll() {
+  if (!editor) return;
+  const query = document.getElementById('search-input')?.value || '';
+  const replacement = document.getElementById('replace-input')?.value || '';
+  const caseSensitive = document.getElementById('search-case-sensitive')?.checked || false;
+  if (!query) return;
+
+  // 最新の状態で全件取得
+  editor.view.dispatch(editor.state.tr.setMeta(searchPluginKey, { query, caseSensitive, current: 0 }));
+
+  const st = searchPluginKey.getState(editor.state);
+  if (!st || st.results.length === 0) return;
+
+  // 後ろから順に置換（位置ズレ防止）
+  let { tr } = editor.state;
+  const results = [...st.results].reverse();
+  for (const { from, to } of results) {
+    tr = tr.replaceWith(from, to, editor.schema.text(replacement));
+  }
+  editor.view.dispatch(tr);
+  showToast(`${st.results.length}件を置換しました`, 'success');
+  _applySearch();
+}
+
+function _initSearchBar() {
+  const searchInput = document.getElementById('search-input');
+  const replaceInput = document.getElementById('replace-input');
+  const caseCheck = document.getElementById('search-case-sensitive');
+
+  if (searchInput) {
+    searchInput.addEventListener('input', () => _applySearch());
+    searchInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); _applySearch(e.shiftKey ? 'prev' : 'next'); }
+      if (e.key === 'Escape') { e.preventDefault(); _toggleSearchBar(); }
+    });
+  }
+  if (replaceInput) {
+    replaceInput.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { e.preventDefault(); _toggleSearchBar(); }
+    });
+  }
+  if (caseCheck) caseCheck.addEventListener('change', () => _applySearch());
+
+  document.getElementById('btn-search-prev')?.addEventListener('click', () => _applySearch('prev'));
+  document.getElementById('btn-search-next')?.addEventListener('click', () => _applySearch('next'));
+  document.getElementById('btn-replace-one')?.addEventListener('click', () => _replaceOne());
+  document.getElementById('btn-replace-all')?.addEventListener('click', () => _replaceAll());
 }
 
 // ─── Markdown → HTML 変換 ────────────────────────────────────

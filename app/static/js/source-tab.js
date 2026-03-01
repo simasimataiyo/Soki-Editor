@@ -575,6 +575,12 @@ const SourceTab = (() => {
       project.sources = project.sources.filter(s => s.id !== src.id);
       _activeId = null;
       render(project);
+      // バックエンドで更新された content を取得してTiptapに反映
+      try {
+        const result = await ApiClient.get(`/api/projects/${project.id}/content`);
+        project.content = result.content;
+        if (window.TiptapEditor) window.TiptapEditor.setContentFromMarkdown(project.content);
+      } catch (_) {}
       return true;
     } catch (_) {
       return false;

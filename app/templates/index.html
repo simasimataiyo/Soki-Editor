@@ -170,6 +170,30 @@
                     
                     <button class="btn btn-sm btn-secondary" data-action="insert-ref">文献挿入</button>
                     <button class="btn btn-sm btn-secondary" data-action="insert-fig">図表挿入</button>
+                    <div class="toolbar-divider"></div>
+                    <button class="btn-toolbar" id="btn-search-toggle" title="検索・置換 (Ctrl+H)">
+                      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.5" cy="6.5" r="4"/><line x1="10" y1="10" x2="14" y2="14"/></svg>
+                    </button>
+                  </div>
+                  <div id="search-replace-bar" class="search-replace-bar" style="display:none;">
+                    <div class="search-replace-row">
+                      <input type="text" id="search-input" class="search-replace-input" placeholder="検索..." autocomplete="off" spellcheck="false" />
+                      <div class="search-replace-controls">
+                        <span id="search-match-count" class="search-match-count"></span>
+                        <button class="btn-toolbar search-nav-btn" id="btn-search-prev" title="前へ (Shift+Enter)">&#8593;</button>
+                        <button class="btn-toolbar search-nav-btn" id="btn-search-next" title="次へ (Enter)">&#8595;</button>
+                        <label class="search-case-label" title="大文字・小文字を区別">
+                          <input type="checkbox" id="search-case-sensitive" /> Aa
+                        </label>
+                      </div>
+                    </div>
+                    <div class="search-replace-row">
+                      <input type="text" id="replace-input" class="search-replace-input" placeholder="置換..." autocomplete="off" spellcheck="false" />
+                      <div class="search-replace-controls">
+                        <button class="btn btn-sm btn-secondary" id="btn-replace-one">置換</button>
+                        <button class="btn btn-sm btn-secondary" id="btn-replace-all">すべて置換</button>
+                      </div>
+                    </div>
                   </div>
                   <div id="tiptap-editor-mount"></div>
                 </div>
@@ -399,8 +423,8 @@
   <script src="/static/js/undo-redo-manager.js"></script>
   <script src="/static/js/modal.js"></script>
   <script src="/static/js/project-selector.js"></script>
-  <script type="module" src="/static/js/tiptap-bundle.js?v=5"></script>
-  <script src="/static/js/edit-tab.js?v=5"></script>
+  <script type="module" src="/static/js/tiptap-bundle.js?v=6"></script>
+  <script src="/static/js/edit-tab.js?v=6"></script>
   <script src="/static/js/source-tab.js"></script>
   <script src="/static/js/material-tab.js"></script>
   <script src="/static/js/rule-tab.js"></script>

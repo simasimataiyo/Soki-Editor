@@ -107,6 +107,9 @@ const AppShell = (() => {
       ProjectSelector.init();
     });
 
+    // オートコンプリートを先にアタッチ（Enterキーハンドラより先に登録して stopImmediatePropagation が効くようにする）
+    AutocompletePopup.attachAll(['chat-input']);
+
     // チャット送信（Edit タブ）- 共通モジュールを使用
     ChatBarCommon.init('chat-input', 'btn-chat-send', 'edit', {
       onSend: _sendChat,
@@ -218,9 +221,6 @@ const AppShell = (() => {
     document.getElementById('btn-add-rule-from-panel').addEventListener('click', () => {
       RuleTab.addRuleFromPanel();
     });
-
-    // @ オートコンプリートポップアップの初期化
-    AutocompletePopup.attachAll(['chat-input']);
 
     // statechange 購読
     document.addEventListener('statechange', (e) => {

@@ -299,6 +299,12 @@ const MaterialTab = (() => {
       project.materials = project.materials.filter(m => m.id !== mat.id);
       _activeId = null;
       render(project);
+      // バックエンドで更新された content を取得してTiptapに反映
+      try {
+        const result = await ApiClient.get(`/api/projects/${project.id}/content`);
+        project.content = result.content;
+        if (window.TiptapEditor) window.TiptapEditor.setContentFromMarkdown(project.content);
+      } catch (_) {}
     } catch (_) {}
   }
 

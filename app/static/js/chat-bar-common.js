@@ -25,11 +25,6 @@ const ChatBarCommon = (() => {
 
     _configByInputId.set(inputId, { ...config, tab, input, sendBtn });
 
-    // オートコンプリートを先にアタッチ（keydownハンドラの登録順を優先させるため）
-    if (window.AutocompletePopup) {
-      AutocompletePopup.attachAll([inputId]);
-    }
-
     // Enterキーで送信 (Shift+Enterは改行)
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {

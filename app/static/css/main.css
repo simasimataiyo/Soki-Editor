@@ -907,12 +907,19 @@ body {
 /* ─── トースト ───────────────────────────────────────────── */
 .toast-container {
   position: fixed;
-  bottom: 20px;
-  right: 20px;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 8px;
   z-index: 2000;
+  pointer-events: none;
+}
+
+.toast-container .toast {
+  pointer-events: auto;
 }
 
 .toast {
@@ -935,11 +942,11 @@ body {
 
 @keyframes slide-in {
   from {
-    transform: translateX(100%);
+    transform: translateY(16px);
     opacity: 0;
   }
   to {
-    transform: translateX(0);
+    transform: translateY(0);
     opacity: 1;
   }
 }
@@ -1380,6 +1387,95 @@ body {
 .btn-toolbar.is-active {
   background: var(--color-primary-pale);
   font-weight: bold;
+}
+
+/* ─── 検索・置換バー ─────────────────────────────────────── */
+.search-replace-bar {
+  margin: -16px -32px 0 -32px;
+  padding: 6px 32px;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.search-replace-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.search-replace-input {
+  flex: 1;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 12px;
+  font-family: inherit;
+  min-width: 0;
+}
+
+.search-replace-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.search-replace-input.search-no-match {
+  border-color: #e05555;
+  background: #fff0f0;
+}
+
+.search-replace-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  width: 160px;
+}
+
+.search-match-count {
+  font-size: 11px;
+  color: var(--color-text-light);
+  white-space: nowrap;
+  min-width: 48px;
+  text-align: center;
+}
+
+.search-nav-btn {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.search-case-label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--color-text-light);
+  cursor: pointer;
+  user-select: none;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.search-case-label input {
+  cursor: pointer;
+  margin: 0;
+}
+
+/* 検索ハイライト */
+.search-highlight {
+  background: #ffec6e;
+  border-radius: 2px;
+}
+
+.search-highlight-current {
+  background: #ff9d2e;
+  border-radius: 2px;
 }
 
 /* Tiptap エディタ本体 */
