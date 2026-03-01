@@ -64,9 +64,12 @@ const UndoRedoManager = (() => {
       const project = window.appState.getProject();
       if (project) {
         try {
+          if (window.EditTab && window.EditTab.forceSync) {
+            await window.EditTab.forceSync();
+          }
           await ApiClient.put(`/api/projects/${project.id}/save`);
           showToast('保存しました', 'success');
-        } catch (_) {}
+        } catch (_) { }
       }
     }
   });

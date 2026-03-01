@@ -1418,5 +1418,7 @@ const EditTab = (() => {
     insertFig: _showInsertFigDialog,
     addChapter: _addChapter,
     reset,
+    forceSync: _syncContentToBackend,
   };
 })();
+window.EditTab = EditTab;

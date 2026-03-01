@@ -510,7 +510,7 @@ function _markdownWithMarkersToHtml(markdownContent) {
       const escSummary = (seg.summary || '').replace(/"/g, '&quot;');
       const escParentId = seg.parentId || '';
       segHtml = segHtml.replace(
-        /^(<h[1-6])(\s|>)/,
+        /(<h[1-6])(\s|>)/,
         (_, tag, rest) => {
           let attrs = ` data-section-id="${seg.sectionId}"`;
           if (escSummary) attrs += ` data-summary="${escSummary}"`;
