@@ -1333,21 +1333,52 @@ const EditTab = (() => {
       _showAddSectionModal();
     });
 
-    // Tiptapのテキスト選択時の文字数表示（tiptap-ready後に登録）
+    // Tiptapのテキスト選択時の文字数表示とセクション同期（tiptap-ready後に登録）
     function _bindTiptapSelectionUpdate() {
       const editor = window.TiptapEditor && window.TiptapEditor.getEditor();
       if (!editor) return;
       editor.on('selectionUpdate', ({ editor: ed }) => {
-        const display = document.getElementById('char-count-display');
-        if (!display || window.appState.getState().activeTab !== 'edit') return;
+        if (window.appState.getState().activeTab !== 'edit') return;
+
         const { from, to } = ed.state.selection;
-        if (from !== to) {
-          const selText = ed.state.doc.textBetween(from, to, ' ');
-          const count = selText.replace(/\s/g, '').length;
-          display.textContent = `選択: ${count.toLocaleString()} 文字`;
-          display.style.display = '';
-        } else {
-          _updateCharCount();
+
+        // --- 1. カーソル位置に対応するセクションを特定してアウトラインと同期 ---
+        let currentSectionId = null;
+        let lastSectionId = null;
+
+        ed.state.doc.forEach((node, pos) => {
+          if (node.type.name === 'sectionHeading' && node.attrs.sectionId) {
+            // 見出しの開始位置がカーソル以前なら記憶
+            // 見出し内のテキストにカーソルがある場合も考慮して <= とする
+            if (pos <= from) {
+              lastSectionId = node.attrs.sectionId;
+            }
+          }
+        });
+
+        currentSectionId = lastSectionId;
+
+        // 選択状態が変わった場合のみ更新（無限ループや不要な再描画を防ぐ）
+        if (currentSectionId && currentSectionId !== window.appState.getSelectedSectionId()) {
+          window.appState.setSelectedSectionId(currentSectionId);
+          _updateDocViewEditMode();
+        } else if (!currentSectionId && window.appState.getSelectedSectionId()) {
+          // 本文冒頭（最初の見出しより前）にカーソルがある場合はセクション非選択状態
+          window.appState.setSelectedSectionId(null);
+          _updateDocViewEditMode();
+        }
+
+        // --- 2. 文字数表示の更新 ---
+        const display = document.getElementById('char-count-display');
+        if (display) {
+          if (from !== to) {
+            const selText = ed.state.doc.textBetween(from, to, ' ');
+            const count = selText.replace(/\s/g, '').length;
+            display.textContent = `選択: ${count.toLocaleString()} 文字`;
+            display.style.display = '';
+          } else {
+            _updateCharCount();
+          }
         }
       });
     }
