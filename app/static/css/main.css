@@ -1819,6 +1819,124 @@ body {
   text-align: right;
 }
 
+/* ─── チャット履歴パネルヘッダ ───────────────────────────── */
+.chat-history-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px 6px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.chat-history-panel-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  letter-spacing: 0.03em;
+}
+
+/* ─── メッセージヘッダ（ロール + コピーボタン） ──────────── */
+.chat-history-msg-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+/* ─── コピーボタン（アイコンのみ） ──────────────────────── */
+.chat-copy-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border-radius: 4px;
+  color: var(--color-text-muted);
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.chat-history-msg:hover .chat-copy-btn {
+  opacity: 1;
+}
+
+.chat-copy-btn:hover {
+  color: var(--color-primary);
+  background: var(--color-hover);
+}
+
+.chat-history-msg.user .chat-copy-btn {
+  color: rgba(255,255,255,0.6);
+}
+
+.chat-history-msg.user .chat-copy-btn:hover {
+  color: white;
+  background: rgba(255,255,255,0.15);
+}
+
+.chat-history-msg.command .chat-copy-btn {
+  color: #f57c00;
+  opacity: 0;
+}
+
+.chat-history-msg.command:hover .chat-copy-btn {
+  opacity: 1;
+}
+
+/* ─── 危険アイコンボタン ─────────────────────────────────── */
+.btn-danger-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 4px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.btn-danger-icon:hover {
+  color: var(--color-danger);
+  background: var(--color-hover);
+}
+
+/* ─── メッセージメタ情報（セクション・ソース・プロンプト） ─ */
+.chat-history-msg-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.chat-history-msg-meta-item {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(0,0,0,0.08);
+  color: var(--color-text-muted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-history-msg.user .chat-history-msg-meta-item {
+  background: rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.85);
+}
+
+.chat-history-msg.command .chat-history-msg-meta-item {
+  background: rgba(245,124,0,0.1);
+  color: #f57c00;
+}
+
+.chat-history-msg-meta-prompt {
+  font-style: italic;
+  max-width: 200px;
+}
+
 
 /* ================================================================
    9. タブ別コンテンツ

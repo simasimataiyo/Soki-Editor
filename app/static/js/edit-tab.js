@@ -1390,6 +1390,22 @@ const EditTab = (() => {
     } else {
       document.addEventListener('tiptap-ready', _bindTiptapSelectionUpdate, { once: true });
     }
+
+    // ESCキー: 本文編集中に押下で全セクション選択解除
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      if (window.appState.getState().activeTab !== 'edit') return;
+      // モーダルが開いている場合は処理しない
+      if (document.querySelector('.modal-overlay')) return;
+      // エディタ内またはアウトライン内にフォーカスがある場合に解除
+      const tiptapMount = document.getElementById('tiptap-editor-mount');
+      const isInEditor = tiptapMount && tiptapMount.contains(document.activeElement);
+      const outlineList = document.getElementById('outline-list');
+      const isInOutline = outlineList && outlineList.contains(document.activeElement);
+      if (isInEditor || isInOutline || window.appState.getSelectedSectionId()) {
+        clearSectionSelection();
+      }
+    });
   }
 
   /**
@@ -1413,6 +1429,19 @@ const EditTab = (() => {
     _tiptapUpdateHandler = null;
   }
 
+  /**
+   * 全セクションの選択を解除する（外部から呼び出し可能）
+   */
+  function clearSectionSelection() {
+    window.appState.setSelectedSectionId(null);
+    document.querySelectorAll('.outline-item').forEach(el => {
+      el.classList.remove('selected');
+      el.classList.remove('active');
+    });
+    _updateDocViewEditMode();
+    AppShell.setCurrentScope('all');
+  }
+
   return {
     render,
     bindEvents,
@@ -1421,6 +1450,7 @@ const EditTab = (() => {
     addChapter: _addChapter,
     reset,
     forceSync: _syncContentToBackend,
+    clearSectionSelection,
   };
 })();
 window.EditTab = EditTab;

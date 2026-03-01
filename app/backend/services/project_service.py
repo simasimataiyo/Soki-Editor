@@ -646,6 +646,10 @@ class ProjectService:
     async def append_command_message(
         self, project_id: str, scope: str, command_name: str, command_args: list[str],
         user_message: str | None = None,
+        selected_section_id: str | None = None,
+        selected_section_title: str | None = None,
+        explicit_refs: list[str] | None = None,
+        ref_names: list[str] | None = None,
     ) -> None:
         """コマンド実行を履歴に追加する。"""
         project = await self.get_project(project_id)
@@ -655,12 +659,22 @@ class ProjectService:
         if user_message and user_message.strip() and user_message.strip() != f"/{command_name}":
             base_content = f"/{command_name} {user_message.strip()}"
 
+        # フリーテキスト部分（コマンド名を除いた部分）
+        free_text = None
+        if user_message and user_message.strip() and user_message.strip() != f"/{command_name}":
+            free_text = user_message.strip()
+
         message = ChatMessage(
             role="command",
             content=base_content,
             timestamp=datetime.now(),
             command_name=command_name,
             command_args=command_args,
+            selected_section_id=selected_section_id,
+            selected_section_title=selected_section_title,
+            explicit_refs=explicit_refs or [],
+            ref_names=ref_names or [],
+            prompt_text=free_text,
         )
         project.chat_history.append(message)
         self._mark_dirty(project_id)

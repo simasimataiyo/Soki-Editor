@@ -84,9 +84,13 @@ class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "command"]
     content: str
     timestamp: datetime
-    command_name: Optional[str] = None  # コマンド名（role="command"の場合）
-    command_args: list[str] = []        # コマンド引数
-    explicit_refs: list[str] = []       # このメッセージで明示参照したソース/マテリアルID
+    command_name: Optional[str] = None      # コマンド名（role="command"の場合）
+    command_args: list[str] = []            # コマンド引数
+    explicit_refs: list[str] = []          # このメッセージで明示参照したソース/マテリアルID
+    selected_section_id: Optional[str] = None   # 送信時に選択中だったセクションID
+    selected_section_title: Optional[str] = None  # 送信時に選択中だったセクションタイトル
+    ref_names: list[str] = []              # 明示参照したソース/マテリアルの表示名
+    prompt_text: Optional[str] = None      # ユーザーが入力したプロンプトテキスト（コマンドの場合はフリーテキスト部分）
 
 
 class ReviewComment(BaseModel):
@@ -140,6 +144,9 @@ class ChatRequest(BaseModel):
     command_args: list[str] = []           # ["replace"], ["500"], etc.
     explicit_refs: list[str] = []          # ["ref-abc123", "fig-def456"]
     selected_text: Optional[str] = None   # ユーザーが選択中のテキスト（文脈として使用）
+    selected_section_id: Optional[str] = None    # 送信時に選択中だったセクションID
+    selected_section_title: Optional[str] = None  # 送信時に選択中だったセクションタイトル
+    ref_names: list[str] = []              # 明示参照のソース/マテリアル名
 
 
 class ReviewRequest(BaseModel):

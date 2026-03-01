@@ -68,6 +68,12 @@ const SVG_DOCUMENT = `<svg class="item-icon" viewBox="0 0 24 24" fill="none" str
 const SVG_SEND = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="13" x2="8" y2="3"/><polyline points="4,7 8,3 12,7"/></svg>`;
 const SVG_STOP = `<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><rect x="4" y="4" width="8" height="8" rx="1"/></svg>`;
 
+// チャット履歴コピーアイコン（14×14）
+const SVG_COPY = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M3 11V3a1 1 0 011-1h8"/></svg>`;
+
+// チャット履歴削除アイコン（14×14）
+const SVG_TRASH = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,4 14,4"/><path d="M5,4V3h6v1"/><path d="M3,4l1,9h8l1-9"/></svg>`;
+
 // 画像プレースホルダアイコン
 const SVG_IMAGE_SM = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`;
 const SVG_IMAGE_LG = `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`;
@@ -149,16 +155,32 @@ const AppShell = (() => {
 
     // チャット履歴パネルのトグルは _initPanelResizers 内で設定済み
 
-    // チャットコピーボタンのイベントデリゲーション
+    // チャットコピーボタンのイベントデリゲーション（SVG子要素クリック対応でclosestを使用）
     document.getElementById('chat-history-panel-messages')?.addEventListener('click', (e) => {
-      if (e.target.classList.contains('chat-copy-btn')) {
-        const text = e.target.closest('.chat-history-msg').querySelector('.chat-history-msg-content').textContent;
+      const copyBtn = e.target.closest('.chat-copy-btn');
+      if (copyBtn) {
+        const text = copyBtn.closest('.chat-history-msg').querySelector('.chat-history-msg-content').textContent;
         const chatInput = document.getElementById('chat-input');
         if (chatInput) {
           chatInput.value = text;
           chatInput.dispatchEvent(new Event('input', { bubbles: true }));
           showToast('チャット入力にコピーしました', 'success');
         }
+      }
+    });
+
+    // チャット履歴削除ボタン
+    document.getElementById('btn-clear-history')?.addEventListener('click', async () => {
+      const project = window.appState.getProject();
+      if (!project) return;
+      const confirmed = await Modal.confirm('チャット履歴をすべて削除しますか？', { danger: true, confirmText: '削除' });
+      if (!confirmed) return;
+      try {
+        await ApiClient.post(`/api/projects/${project.id}/chat-history/new-scope`);
+        showToast('チャット履歴を削除しました', 'success');
+        _refreshHistoryPanel();
+      } catch (_) {
+        showToast('履歴の削除に失敗しました', 'error');
       }
     });
 
@@ -344,6 +366,16 @@ const AppShell = (() => {
       }
     }
 
+    // 選択セクション情報を取得
+    const _selectedSectionId = window.appState.getSelectedSectionId();
+    const _selectedSectionTitle = (() => {
+      if (!_selectedSectionId) return null;
+      const proj = window.appState.getProject();
+      if (!proj) return null;
+      const sec = proj.sections.find(s => s.id === _selectedSectionId);
+      return sec ? sec.title : null;
+    })();
+
     // リクエストボディ構築
     const body = {
       context_scope: contextScope,
@@ -359,10 +391,28 @@ const AppShell = (() => {
 
     if (parsed.refs.length > 0) {
       body.explicit_refs = parsed.refs.map(r => r.id);
+      // ソース/マテリアル名を解決する
+      const _proj = window.appState.getProject();
+      body.ref_names = parsed.refs.map(r => {
+        if (!_proj) return r.id;
+        if (r.type === 'source') {
+          const src = (_proj.sources || []).find(s => s.id === r.id);
+          return src ? src.name : r.id;
+        } else if (r.type === 'material') {
+          const mat = (_proj.materials || []).find(m => m.id === r.id);
+          return mat ? mat.name : r.id;
+        }
+        return r.id;
+      });
     }
 
     if (_selectedText) {
       body.selected_text = _selectedText;
+    }
+
+    if (_selectedSectionId) {
+      body.selected_section_id = _selectedSectionId;
+      body.selected_section_title = _selectedSectionTitle;
     }
 
     // ユーザーメッセージ（またはコマンド）を履歴パネルに即時表示
@@ -373,6 +423,12 @@ const AppShell = (() => {
       role: parsed.command ? 'command' : 'user',
       content: userDisplayContent,
       timestamp: new Date().toISOString(),
+      selected_section_id: _selectedSectionId,
+      selected_section_title: _selectedSectionTitle,
+      explicit_refs: body.explicit_refs || [],
+      ref_names: body.ref_names || [],
+      prompt_text: parsed.freeText || null,
+      command_name: parsed.command ? parsed.command.name : null,
     });
 
     // ローディングスピナーを表示
@@ -460,6 +516,10 @@ const AppShell = (() => {
           _restoreEditability();
           _hideHistoryPanelLoading();
           resetSendMode();
+          // LLM実行後にセクション選択を解除する
+          if (window.EditTab && window.EditTab.clearSectionSelection) {
+            window.EditTab.clearSectionSelection();
+          }
           // コマンド実行: 変更がある場合のみ要約をバックエンドに保存してからパネルをリフレッシュ
           if (isCommand) {
             if (_changeLog.length > 0) {
@@ -863,6 +923,27 @@ const AppShell = (() => {
   let _historyPanelOpen = true;
 
   /**
+   * メッセージのメタ情報HTML（セクション・ソース・プロンプト）を生成する
+   */
+  function _buildMsgMetaHtml(msg) {
+    const parts = [];
+    if (msg.selected_section_title) {
+      parts.push(`<span class="chat-history-msg-meta-item">📄 ${escHtml(msg.selected_section_title)}</span>`);
+    } else if (msg.selected_section_id) {
+      parts.push(`<span class="chat-history-msg-meta-item">📄 ${escHtml(msg.selected_section_id)}</span>`);
+    }
+    const refs = msg.ref_names || msg.explicit_refs || [];
+    if (refs.length > 0) {
+      parts.push(`<span class="chat-history-msg-meta-item">🔗 ${refs.map(n => escHtml(n)).join('、')}</span>`);
+    }
+    if (msg.prompt_text) {
+      parts.push(`<span class="chat-history-msg-meta-item chat-history-msg-meta-prompt">${escHtml(msg.prompt_text)}</span>`);
+    }
+    if (parts.length === 0) return '';
+    return `<div class="chat-history-msg-meta">${parts.join('')}</div>`;
+  }
+
+  /**
    * 履歴パネルにメッセージ要素を直接追加して DOM 要素を返す
    * @param {{role: string, content: string, timestamp: string}} msg
    * @returns {HTMLElement} 追加されたメッセージ要素
@@ -875,24 +956,8 @@ const AppShell = (() => {
 
     const div = document.createElement('div');
     div.className = `chat-history-msg ${msg.role}`;
+    div.innerHTML = _buildHistoryMsgHtml(msg);
 
-    if (msg.role === 'command') {
-      div.innerHTML = `
-        <div class="chat-history-msg-role command"><span>⚡ コマンド</span></div>
-        <div class="chat-history-msg-content">${escHtml(msg.content)}</div>
-        <div class="chat-history-msg-time">${new Date(msg.timestamp).toLocaleString('ja-JP')}</div>
-      `;
-    } else {
-      const roleLabel = msg.role === 'user' ? 'あなた' : 'AI';
-      const roleIcon = msg.role === 'user' ? '👤' : '🤖';
-      const copyBtn = msg.role === 'assistant' ? `<button class="btn btn-sm btn-secondary chat-copy-btn" style="margin-top: 5px; font-size: 0.8em;">チャット入力にコピー</button>` : '';
-      div.innerHTML = `
-        <div class="chat-history-msg-role ${msg.role}"><span>${roleIcon} ${roleLabel}</span></div>
-        <div class="chat-history-msg-content">${escHtml(msg.content)}</div>
-        <div class="chat-history-msg-time">${new Date(msg.timestamp).toLocaleString('ja-JP')}</div>
-        ${copyBtn}
-      `;
-    }
     // ローディングスピナーがあればその前に挿入、なければ末尾に追加
     const loadingEl = container.querySelector('.chat-history-loading');
     if (loadingEl) {
@@ -902,6 +967,46 @@ const AppShell = (() => {
     }
     container.scrollTop = container.scrollHeight;
     return div;
+  }
+
+  /**
+   * メッセージオブジェクトからHTML文字列を生成する
+   */
+  function _buildHistoryMsgHtml(msg) {
+    const copyBtn = `<button class="btn-icon chat-copy-btn" title="チャット入力にコピー">${SVG_COPY}</button>`;
+    const timeStr = new Date(msg.timestamp).toLocaleString('ja-JP');
+    const metaHtml = _buildMsgMetaHtml(msg);
+
+    if (msg.role === 'command') {
+      return `
+        <div class="chat-history-msg-header">
+          <div class="chat-history-msg-role command"><span>⚡ コマンド</span></div>
+          ${copyBtn}
+        </div>
+        <div class="chat-history-msg-content">${escHtml(msg.content)}</div>
+        ${metaHtml}
+        <div class="chat-history-msg-time">${timeStr}</div>
+      `;
+    } else if (msg.role === 'user') {
+      return `
+        <div class="chat-history-msg-header">
+          <div class="chat-history-msg-role user"><span>👤 あなた</span></div>
+          ${copyBtn}
+        </div>
+        <div class="chat-history-msg-content">${escHtml(msg.content)}</div>
+        ${metaHtml}
+        <div class="chat-history-msg-time">${timeStr}</div>
+      `;
+    } else {
+      return `
+        <div class="chat-history-msg-header">
+          <div class="chat-history-msg-role assistant"><span>🤖 AI</span></div>
+          ${copyBtn}
+        </div>
+        <div class="chat-history-msg-content">${escHtml(msg.content)}</div>
+        <div class="chat-history-msg-time">${timeStr}</div>
+      `;
+    }
   }
 
   /** 履歴パネルのローディングスピナーを表示する */
@@ -990,24 +1095,7 @@ const AppShell = (() => {
     msgs.forEach(msg => {
       const div = document.createElement('div');
       div.className = `chat-history-msg ${msg.role}`;
-
-      if (msg.role === 'command') {
-        div.innerHTML = `
-          <div class="chat-history-msg-role command"><span>⚡ コマンド</span></div>
-          <div class="chat-history-msg-content">${escHtml(msg.content)}</div>
-          <div class="chat-history-msg-time">${new Date(msg.timestamp).toLocaleString('ja-JP')}</div>
-        `;
-      } else {
-        const roleLabel = msg.role === 'user' ? 'あなた' : 'AI';
-        const roleIcon = msg.role === 'user' ? '👤' : '🤖';
-        const copyBtn = msg.role === 'assistant' ? `<button class="btn btn-sm btn-secondary chat-copy-btn" style="margin-top: 5px; font-size: 0.8em;">チャット入力にコピー</button>` : '';
-        div.innerHTML = `
-          <div class="chat-history-msg-role ${msg.role}"><span>${roleIcon} ${roleLabel}</span></div>
-          <div class="chat-history-msg-content">${escHtml(msg.content)}</div>
-          <div class="chat-history-msg-time">${new Date(msg.timestamp).toLocaleString('ja-JP')}</div>
-          ${copyBtn}
-        `;
-      }
+      div.innerHTML = _buildHistoryMsgHtml(msg);
       container.appendChild(div);
     });
 

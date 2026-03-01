@@ -47,6 +47,10 @@ async def chat_stream(project_id: str, body: ChatRequest) -> StreamingResponse:
                     body.command,
                     body.command_args or [],
                     user_message=body.user_message,
+                    selected_section_id=body.selected_section_id,
+                    selected_section_title=body.selected_section_title,
+                    explicit_refs=body.explicit_refs or [],
+                    ref_names=body.ref_names or [],
                 )
             else:
                 # 通常チャット: ユーザーメッセージを先に保存
@@ -58,6 +62,10 @@ async def chat_stream(project_id: str, body: ChatRequest) -> StreamingResponse:
                         content=body.user_message,
                         timestamp=datetime.now(),
                         explicit_refs=body.explicit_refs or [],
+                        selected_section_id=body.selected_section_id,
+                        selected_section_title=body.selected_section_title,
+                        ref_names=body.ref_names or [],
+                        prompt_text=body.user_message,
                     ),
                 )
         except Exception:
