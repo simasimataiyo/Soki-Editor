@@ -260,6 +260,8 @@ const AppShell = (() => {
     _currentScope = 'all';
     // プロジェクト切り替え時にアンドゥ/リドゥスタックをリセット（別プロジェクトの履歴が混入するバグ修正）
     UndoRedoManager.clear();
+    // 前のプロジェクトの FileHandle をクリア
+    if (typeof ProjectSelector !== 'undefined') ProjectSelector.clearOpenFileHandle();
     window.appState.setProject(project);
     document.getElementById('project-name-display').textContent = project.name || '';
     _showScreen('editor-screen');

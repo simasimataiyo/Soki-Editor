@@ -3,6 +3,8 @@
  */
 
 const MaterialTab = (() => {
+  const DEFAULT_MATERIAL_NAME = '新しいマテリアル';
+
   let _project = null;
   let _activeId = null;
   let _sectionCollapsed = {};
@@ -173,7 +175,18 @@ const MaterialTab = (() => {
           method: 'POST', body: formData,
         });
         if (!res.ok) { showToast('アップロード失敗', 'error'); return; }
-        const updated = await res.json();
+        let updated = await res.json();
+        if (updated.name === DEFAULT_MATERIAL_NAME) {
+          const newName = file.name.replace(/\.[^.]+$/, '');
+          if (newName) {
+            try {
+              updated = await ApiClient.put(
+                `/api/projects/${project.id}/materials/${updated.id}`,
+                { name: newName }
+              );
+            } catch (_) {}
+          }
+        }
         const idx = project.materials.findIndex(m => m.id === mat.id);
         if (idx >= 0) project.materials[idx] = updated;
         _renderList();
@@ -343,7 +356,18 @@ const MaterialTab = (() => {
         const res = await fetch(`/api/projects/${project.id}/materials/${mat.id}/upload`, {
           method: 'POST', body: formData,
         });
-        const updated = await res.json();
+        let updated = await res.json();
+        if (updated.name === DEFAULT_MATERIAL_NAME) {
+          const newName = file.name.replace(/\.[^.]+$/, '');
+          if (newName) {
+            try {
+              updated = await ApiClient.put(
+                `/api/projects/${project.id}/materials/${updated.id}`,
+                { name: newName }
+              );
+            } catch (_) {}
+          }
+        }
         const idx = project.materials.findIndex(m => m.id === mat.id);
         if (idx >= 0) project.materials[idx] = updated;
         _renderList();

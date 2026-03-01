@@ -10,6 +10,9 @@ const ProjectSelector = (() => {
   // ブラウザモードの FileHandle（showSaveFilePicker 用）
   let _pendingSaveHandle = null;
 
+  // showOpenFilePicker で開いたファイルの FileHandle（上書き保存用）
+  let _openFileHandle = null;
+
   async function init() {
     await _loadRecentProjects();
     _bindEvents();
@@ -244,6 +247,41 @@ const ProjectSelector = (() => {
   }
 
   async function _openProjectFromFile() {
+    // 1. pywebview ネイティブダイアログを試行（元のパスで直接開ける）
+    try {
+      const result = await ApiClient.openFileDialog([['Soki Project', '*.json'], ['JSON ファイル', '*.json']]);
+      if (result && result.path) {
+        const project = await ApiClient.post('/api/projects/open', { json_file_path: result.path });
+        AppShell.enterEditor(project);
+        return;
+      }
+    } catch (_) {
+      // ネイティブダイアログが使えない場合はフォールバック
+    }
+
+    // 2. File System Access API（showOpenFilePicker）を試行
+    if (window.showOpenFilePicker) {
+      try {
+        const [handle] = await window.showOpenFilePicker({
+          types: [{ description: 'Soki Project (.json)', accept: { 'application/json': ['.json'] } }],
+          multiple: false,
+        });
+        const file = await handle.getFile();
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await fetch('/api/projects/open-upload', { method: 'POST', body: formData });
+        if (!res.ok) { const d = await res.json(); showToast(d.detail || 'エラー', 'error'); return; }
+        const project = await res.json();
+        // 保存時に元のファイルへ書き戻せるよう FileHandle を保持
+        _openFileHandle = handle;
+        AppShell.enterEditor(project);
+        return;
+      } catch (e) {
+        if (e.name === 'AbortError') return; // ユーザーがキャンセル
+      }
+    }
+
+    // 3. フォールバック: 通常の input[type=file]（元パスへの書き戻し不可）
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
@@ -264,5 +302,11 @@ const ProjectSelector = (() => {
     input.click();
   }
 
-  return { init };
+  /** showOpenFilePicker で開いたファイルの FileHandle を返す（Ctrl+S 書き戻し用）。 */
+  function getOpenFileHandle() { return _openFileHandle; }
+
+  /** プロジェクト切り替え時に FileHandle をクリアする。 */
+  function clearOpenFileHandle() { _openFileHandle = null; }
+
+  return { init, getOpenFileHandle, clearOpenFileHandle };
 })();
