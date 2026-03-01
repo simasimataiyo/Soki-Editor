@@ -277,6 +277,35 @@ class LLMService:
         model_lower = model.lower()
         return not any(kw in model_lower for kw in _NO_TOOL_CALLING_MODELS)
 
+    # レビュー結果の JSON スキーマ（Structured Output 用）
+    _REVIEW_RESPONSE_SCHEMA = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "review_result",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "comments": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "section":    {"type": "string"},
+                                "problem":    {"type": "string"},
+                                "suggestion": {"type": "string"},
+                            },
+                            "required": ["section", "problem", "suggestion"],
+                            "additionalProperties": False,
+                        },
+                    }
+                },
+                "required": ["comments"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
     async def chat_stream(
         self,
         project: Project,
@@ -292,6 +321,7 @@ class LLMService:
 
         fetch_sources ツールコールを検出した場合、バックエンドでソース全文を解決し
         再度 LLM API を呼び出す多段フローを実行する（フロントエンドには透過的）。
+        reviewコマンドの場合は Structured Output（非ストリーミング）で呼び出す。
         """
         client = self._make_client(settings)
 
@@ -309,9 +339,17 @@ class LLMService:
             )
 
         start = time.time()
+        is_review_command = command and self._normalize_command(command, command_args or [])["base_command"] == "review"
         try:
             # プロンプト出力（デバッグ用）
             self._debug_print_messages(settings.model, messages)
+
+            # reviewコマンドは Structured Output（非ストリーミング）で呼び出す
+            if is_review_command:
+                max_comments = settings.review_max_comments if settings.review_max_comments > 0 else None
+                async for event in self._review_structured_output(client, settings.model, messages, max_comments=max_comments):
+                    yield event
+                return
 
             call_kwargs: dict = {
                 "model": settings.model,
@@ -323,7 +361,7 @@ class LLMService:
                 # デフォルトではすべてのツールを渡す
                 call_kwargs["tools"] = TOOLS
                 call_kwargs["tool_choice"] = "auto"
-                
+
                 # 特定の /structure 系コマンドの場合は、ツールを1つに強制する
                 if command and command.startswith("structure"):
                     command_mode = self._normalize_command(command, command_args or [])
@@ -371,10 +409,10 @@ class LLMService:
                         "tool_call", {"tool": tc["tool"], "args": tc["args"]}
                     )
 
-                if not source_fetches:
-                    break  # ソース取得不要 → 完了
+                if not source_fetches and not frontend_tools:
+                    break  # ツールコールなし → 完了
 
-                # 多段: assistant メッセージ + tool 結果を追加して再呼び出し
+                # assistant メッセージ + tool 結果を追加して再呼び出し
                 assistant_tool_calls = [
                     {
                         "id": tc["id"],
@@ -414,16 +452,16 @@ class LLMService:
                             "content": "実行完了",
                         }
                     )
-                
-                # フロントエンドツール呼び出し後も、AIからのメッセージを引き出すために継続する
-                if frontend_tools and not source_fetches:
-                    call_kwargs["messages"] = messages
-                    logger.info("フロントエンドツール実行完了、AIへの返答を要求するための追加呼び出し (%d / %d)", round_num + 1, max_rounds)
-                    continue
+
                 call_kwargs["messages"] = messages
-                logger.info(
-                    "fetch_sources ラウンド %d 完了、再呼び出し", round_num + 1
-                )
+                if source_fetches:
+                    logger.info(
+                        "fetch_sources ラウンド %d 完了、再呼び出し", round_num + 1
+                    )
+                else:
+                    # フロントエンドツールのみ: 次ラウンドはサマリ生成専用なのでツール禁止
+                    call_kwargs["tool_choice"] = "none"
+                    logger.info("フロントエンドツール実行完了、サマリ生成のための追加呼び出し (%d / %d)", round_num + 1, max_rounds)
 
             yield self._sse("done", {})
 
@@ -435,6 +473,42 @@ class LLMService:
             logger.info(
                 "LLM 呼び出し完了: model=%s, elapsed=%.2fs", settings.model, elapsed
             )
+
+    async def _review_structured_output(
+        self,
+        client,
+        model: str,
+        messages: list[dict],
+        max_comments: int | None = None,
+    ) -> AsyncGenerator[str, None]:
+        """レビューコマンド用: Structured Output で review_result を生成して yield する。
+
+        - ストリーミングなし・JSON スキーマ強制で呼び出す
+        - 成功時: review_result SSE イベントと done イベントを yield
+        - 失敗時: error SSE イベントを yield
+        - max_comments: コメント数の上限（None=無制限）
+        """
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=messages,
+                response_format=self._REVIEW_RESPONSE_SCHEMA,
+            )
+            content = response.choices[0].message.content or "{}"
+            review_data = json.loads(content)
+            comments = review_data.get("comments", [])
+            if max_comments is not None:
+                comments = comments[:max_comments]
+        except json.JSONDecodeError as e:
+            logger.error("レビュー Structured Output JSON パースエラー: %s", e)
+            comments = []
+        except Exception as e:
+            logger.error("レビュー Structured Output 呼び出しエラー: %s", e)
+            yield self._sse("error", {"message": str(e)})
+            return
+
+        yield self._sse("review_result", {"comments": comments})
+        yield self._sse("done", {})
 
     async def review_stream(
         self,
@@ -472,7 +546,8 @@ class LLMService:
                 )
 
         for sec in sorted_sections:
-            section_context = f"# {sec.title}\n{sec.summary}\n\n{sec.content}"
+            sec_body = self._extract_section_body(project.content, sec.id)
+            section_context = f"# {sec.title}\n{sec.summary}\n\n{sec_body}"
             review_system = rendered_system_prompt + explicit_source_context
             messages = [
                 {"role": "system", "content": review_system},
@@ -509,7 +584,7 @@ class LLMService:
                 messages=[
                     {
                         "role": "system",
-                        "content": "以下のテキストを300字以内で要約してください。",
+                        "content": "ユーザーがテキストを300字で要約してください。要約文章は以下の構造で説明してください。見出しと番号は不要です。1.何についての情報・データ・文章なのか一言でまとめる。2.テキストに書かれている内容を要約する",
                     },
                     {"role": "user", "content": full_text[:8000]},
                 ],
@@ -727,6 +802,29 @@ class LLMService:
 
         return [system_msg, *kept, last_msg]
 
+    @staticmethod
+    def _extract_section_body(project_content: str, section_id: str) -> str:
+        """project.content から特定セクションのボディテキスト（見出し行除く）を抽出する。
+
+        新形式: <!-- soki-section:{"id": "uuid", ...} -->
+        旧形式: <!-- soki-section:uuid -->
+        """
+        import re
+        # 新形式（JSON内の"id"フィールドでマッチ）と旧形式（UUID直接）の両方に対応
+        escaped_id = re.escape(section_id)
+        pattern = re.compile(
+            r'<!-- soki-section:(?:'
+            + r'\{[^}]*"id"\s*:\s*"' + escaped_id + r'"[^}]*\}'
+            + r'|'
+            + escaped_id
+            + r') -->\n'
+            r'#{1,6} [^\n]+\n'
+            r'(.*?)(?=<!-- soki-section:|$)',
+            re.DOTALL
+        )
+        m = pattern.search(project_content)
+        return m.group(1).strip() if m else ''
+
     def _build_command_messages(
         self,
         project: Project,
@@ -783,6 +881,20 @@ class LLMService:
         # コマンド名の正規化（ハイフン区切り形式を内部形式に変換）
         command_mode = self._normalize_command(command, command_args)
 
+        # セクション本文の取得（project.content から抽出）
+        target_section_body = None
+        if target_section:
+            target_section_body = self._extract_section_body(
+                project.content, target_section.id
+            )
+        # review/rewrite コマンドで全セクションの本文も必要な場合
+        section_bodies_by_id = {}
+        if command_mode["base_command"] in ("rewrite", "review"):
+            for sec in sorted_sections:
+                section_bodies_by_id[sec.id] = self._extract_section_body(
+                    project.content, sec.id
+                )
+
         system_content = template.render(
             command=command_mode["base_command"],
             command_mode=command_mode["mode"],
@@ -790,6 +902,8 @@ class LLMService:
             sections=sorted_sections,
             context_scope=context_scope_value,
             target_section=target_section,
+            target_section_body=target_section_body,
+            section_bodies_by_id=section_bodies_by_id,
             source_summaries=source_summaries,
             explicit_sources=explicit_sources,
             explicit_materials=explicit_materials,
@@ -888,12 +1002,20 @@ class LLMService:
         history_sources = [src_by_id[rid] for rid in history_ref_ids if rid in src_by_id]
         history_materials = [mat_by_id[rid] for rid in history_ref_ids if rid in mat_by_id]
 
+        # セクション本文の取得（project.content から抽出）
+        target_section_body = None
+        if target_section:
+            target_section_body = self._extract_section_body(
+                project.content, target_section.id
+            )
+
         # システムプロンプトの生成
         system_content = template.render(
             enabled_rules=enabled_rules,
             sections=sorted_sections,
             context_scope=context_scope_value,
             target_section=target_section,
+            target_section_body=target_section_body,
             source_summaries=source_summaries,
             explicit_sources=explicit_sources,
             explicit_materials=explicit_materials,

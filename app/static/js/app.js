@@ -68,6 +68,12 @@ const SVG_DOCUMENT = `<svg class="item-icon" viewBox="0 0 24 24" fill="none" str
 const SVG_SEND = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="13" x2="8" y2="3"/><polyline points="4,7 8,3 12,7"/></svg>`;
 const SVG_STOP = `<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><rect x="4" y="4" width="8" height="8" rx="1"/></svg>`;
 
+// チャット履歴コピーアイコン（14×14）
+const SVG_COPY = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M3 11V3a1 1 0 011-1h8"/></svg>`;
+
+// チャット履歴削除アイコン（14×14）
+const SVG_TRASH = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,4 14,4"/><path d="M5,4V3h6v1"/><path d="M3,4l1,9h8l1-9"/></svg>`;
+
 // 画像プレースホルダアイコン
 const SVG_IMAGE_SM = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`;
 const SVG_IMAGE_LG = `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`;
@@ -80,12 +86,12 @@ const AppShell = (() => {
     source: SourceTab,
     material: MaterialTab,
     rule: RuleTab,
-    review: ReviewTab,
     settings: SettingsTab,
   };
 
   let _currentSseCtrl = null;
   let _currentScope = 'all';
+  let _chatSelectionPreview = null; // チャット入力フォーカス前にキャプチャした選択テキスト
 
   function init() {
     // タブ切り替え
@@ -102,31 +108,123 @@ const AppShell = (() => {
       ProjectSelector.init();
     });
 
+    // オートコンプリートを先にアタッチ（Enterキーハンドラより先に登録して stopImmediatePropagation が効くようにする）
+    AutocompletePopup.attachAll(['chat-input']);
+
     // チャット送信（Edit タブ）- 共通モジュールを使用
     ChatBarCommon.init('chat-input', 'btn-chat-send', 'edit', {
       onSend: _sendChat,
     });
 
-    // チャット入力欄とレビュー入力欄のリサイズハンドルを初期化
+    // バブルプロンプトからの送信
+    document.addEventListener('bubble-prompt-send', (e) => {
+      _sendChat(e.detail);
+    });
+
+    // バブルプロンプトのエラー通知
+    document.addEventListener('bubble-prompt-error', (e) => {
+      showToast(e.detail, 'error');
+    });
+
+    // チャット入力欄のリサイズハンドルを初期化
     if (window.initResizeHandle) {
       window.initResizeHandle('chat-resize-handle', 'chat-input');
-      window.initResizeHandle('review-resize-handle', 'review-prompt');
     }
 
-    // チャット履歴パネルのトグル
-    document.getElementById('chat-resize-handle').addEventListener('dblclick', _toggleHistoryPanel);
-    // document.getElementById('btn-chat-history').addEventListener('dblclick', _toggleHistoryPanel);
+    // チャット入力欄にフォーカスする前にエディタ内選択テキストをキャプチャしてインジケーター表示
+    const _chatInput = document.getElementById('chat-input');
+    if (_chatInput) {
+      _chatInput.addEventListener('mousedown', () => {
+        const sel = window.getSelection();
+        const anchor = sel?.anchorNode?.parentElement;
+        const inEditor = anchor?.closest('#tiptap-editor-mount .ProseMirror, [data-field="content"], [data-field="summary"]');
+        const txt = (inEditor && sel.toString().trim()) ? sel.toString().trim() : null;
+        _chatSelectionPreview = txt;
+        _updateChatSelectionBadge();
+      });
+      _chatInput.addEventListener('blur', () => {
+        _chatSelectionPreview = null;
+        _updateChatSelectionBadge();
+      });
+    }
 
-    // チャットコピーボタンのイベントデリゲーション
+    // グローバル設定を読み込んでCSS変数を反映
+    ApiClient.get('/api/settings').then(s => {
+      if (s.left_panel_width) {
+        SettingsTab.applyLeftPanelWidth(s.left_panel_width);
+      }
+      if (s.history_panel_width) {
+        SettingsTab.applyHistoryPanelWidth(s.history_panel_width);
+      }
+      if (s.outline_panel_width) {
+        SettingsTab.applyOutlinePanelWidth(s.outline_panel_width);
+      }
+    }).catch(() => {});
+
+    // 3カラムパネルリサイズを初期化
+    _initPanelResizers();
+
+    // 履歴パネルトグルボタン（トップバー）
+    document.getElementById('btn-toggle-history')?.addEventListener('click', () => {
+      _toggleHistoryPanel();
+    });
+
+    // Sourceパネル インポート/エクスポートボタン
+    document.getElementById('btn-source-import')?.addEventListener('click', () => SourceTab.importCsv());
+    document.getElementById('btn-source-export')?.addEventListener('click', () => SourceTab.exportCsv());
+
+    // Ruleパネル インポート/エクスポートボタン
+    document.getElementById('btn-rule-import')?.addEventListener('click', () => RuleTab.importCsv());
+    document.getElementById('btn-rule-export')?.addEventListener('click', () => RuleTab.exportCsv());
+
+    // パブリックなMarkdownエクスポートボタン
+    document.getElementById('btn-export-md')?.addEventListener('click', async () => {
+      const project = window.appState.getProject();
+      if (!project) return;
+      try {
+        const res = await fetch(`/api/projects/${project.id}/export`);
+        if (!res.ok) { showToast('エクスポートに失敗しました', 'error'); return; }
+        const mdText = await res.text();
+        const dialog = await ApiClient.saveFileDialog(`${project.name}.md`);
+        if (!dialog || !dialog.path) return;
+        const writeResult = await ApiClient.writeFile(dialog.path, mdText);
+        if (writeResult.ok) {
+          showToast('エクスポート完了', 'success');
+        } else {
+          showToast('ファイル保存に失敗しました', 'error');
+        }
+      } catch (e) {
+        showToast('エクスポートに失敗しました', 'error');
+      }
+    });
+
+    // チャットコピーボタンのイベントデリゲーション（SVG子要素クリック対応でclosestを使用）
     document.getElementById('chat-history-panel-messages')?.addEventListener('click', (e) => {
-      if (e.target.classList.contains('chat-copy-btn')) {
-        const text = e.target.closest('.chat-history-msg').querySelector('.chat-history-msg-content').textContent;
+      const copyBtn = e.target.closest('.chat-copy-btn');
+      if (copyBtn) {
+        const text = copyBtn.dataset.copyText
+          || copyBtn.closest('.chat-history-msg').querySelector('.chat-history-msg-content').textContent;
         const chatInput = document.getElementById('chat-input');
         if (chatInput) {
-          chatInput.value = text;
+          chatInput.value = chatInput.value ? chatInput.value + '\n' + text : text;
           chatInput.dispatchEvent(new Event('input', { bubbles: true }));
-          showToast('チャット入力にコピーしました', 'success');
+          showToast('チャット入力に追加しました', 'success');
         }
+      }
+    });
+
+    // チャット履歴削除ボタン
+    document.getElementById('btn-clear-history')?.addEventListener('click', async () => {
+      const project = window.appState.getProject();
+      if (!project) return;
+      const confirmed = await Modal.confirm('チャット履歴をすべて削除しますか？', { danger: true, confirmText: '削除' });
+      if (!confirmed) return;
+      try {
+        await ApiClient.post(`/api/projects/${project.id}/chat-history/new-scope`);
+        showToast('チャット履歴を削除しました', 'success');
+        _refreshHistoryPanel();
+      } catch (_) {
+        showToast('履歴の削除に失敗しました', 'error');
       }
     });
 
@@ -135,16 +233,12 @@ const AppShell = (() => {
     SourceTab.bindEvents();
     MaterialTab.bindEvents();
     RuleTab.bindEvents();
-    ReviewTab.bindEvents();
     SettingsTab.bindEvents();
 
     // ルール左パネルの新規追加ボタン
     document.getElementById('btn-add-rule-from-panel').addEventListener('click', () => {
       RuleTab.addRuleFromPanel();
     });
-
-    // @ オートコンプリートポップアップの初期化
-    AutocompletePopup.attachAll(['chat-input', 'review-prompt']);
 
     // statechange 購読
     document.addEventListener('statechange', (e) => {
@@ -171,9 +265,14 @@ const AppShell = (() => {
 
     _renderTopBarActions(tab);
 
-    // Editタブ以外では文字数表示を非表示
+    // Editタブ以外では文字数表示・履歴トグルボタンを非表示
     const charCountEl = document.getElementById('char-count-display');
     if (charCountEl && tab !== 'edit') charCountEl.style.display = 'none';
+    const historyToggleBtn = document.getElementById('btn-toggle-history');
+    if (historyToggleBtn) {
+      historyToggleBtn.style.display = tab === 'edit' ? '' : 'none';
+      if (tab === 'edit') historyToggleBtn.classList.toggle('active', _historyPanelOpen);
+    }
   }
 
   function _resetAllTabs() {
@@ -182,7 +281,6 @@ const AppShell = (() => {
     SourceTab.reset();
     MaterialTab.reset();
     RuleTab.reset();
-    ReviewTab.reset();
   }
 
   function enterEditor(project) {
@@ -190,10 +288,13 @@ const AppShell = (() => {
     _currentScope = 'all';
     // プロジェクト切り替え時にアンドゥ/リドゥスタックをリセット（別プロジェクトの履歴が混入するバグ修正）
     UndoRedoManager.clear();
+    // 前のプロジェクトの FileHandle をクリア
+    if (typeof ProjectSelector !== 'undefined') ProjectSelector.clearOpenFileHandle();
     window.appState.setProject(project);
     document.getElementById('project-name-display').textContent = project.name || '';
     _showScreen('editor-screen');
     switchTab('edit');
+    _refreshHistoryPanel();
   }
 
   function setCurrentScope(scope) {
@@ -218,37 +319,9 @@ const AppShell = (() => {
 
     const tabDefs = {
       edit: [],
-      source: [
-        { id: 'btn-source-import-top', label: 'インポート', handler: () => SourceTab.importCsv() },
-        { id: 'btn-source-export-top', label: 'エクスポート', handler: () => SourceTab.exportCsv() },
-      ],
+      source: [],
       material: [],
-      rule: [
-        { id: 'btn-rule-import-top', label: 'インポート', handler: () => RuleTab.importCsv() },
-        { id: 'btn-rule-export-top', label: 'エクスポート', handler: () => RuleTab.exportCsv() },
-      ],
-      review: [
-        {
-          id: 'btn-export-top', label: 'エクスポート', handler: async () => {
-            if (!project) return;
-            try {
-              const res = await fetch(`/api/projects/${project.id}/export`);
-              if (!res.ok) { showToast('エクスポートに失敗しました', 'error'); return; }
-              const mdText = await res.text();
-              const dialog = await ApiClient.saveFileDialog(`${project.name}.md`);
-              if (!dialog || !dialog.path) return;
-              const writeResult = await ApiClient.writeFile(dialog.path, mdText);
-              if (writeResult.ok) {
-                showToast('エクスポート完了', 'success');
-              } else {
-                showToast('ファイル保存に失敗しました', 'error');
-              }
-            } catch (e) {
-              showToast('エクスポートに失敗しました', 'error');
-            }
-          }
-        },
-      ],
+      rule: [],
       settings: [],
     };
 
@@ -264,6 +337,18 @@ const AppShell = (() => {
 
   // ─── チャット機能 ──────────────────────────────────────
 
+  function _updateChatSelectionBadge() {
+    const badge = document.getElementById('chat-selection-badge');
+    if (!badge) return;
+    if (_chatSelectionPreview) {
+      const charCount = _chatSelectionPreview.replace(/\s/g, '').length;
+      badge.textContent = '選択中: ' + charCount.toLocaleString() + ' 文字をコンテキストに含む';
+      badge.style.display = '';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
   async function _sendChat(parsed) {
     const project = window.appState.getProject();
     if (!project) return;
@@ -275,11 +360,15 @@ const AppShell = (() => {
       return;
     }
 
-    // 選択テキストをキャプチャ（フォーカス変化前に取得）
+    // 選択テキストをキャプチャ（バブルプロンプトからは事前キャプチャ済みの値を使う）
+    const _preCapture = parsed._capturedSelectedText;
+    delete parsed._capturedSelectedText;
     const _sel = window.getSelection();
     const _selAnchor = _sel?.anchorNode?.parentElement;
-    const _isInEditor = _selAnchor?.closest('[data-field="content"], [data-field="summary"]');
-    const _selectedText = (_isInEditor && _sel.toString().trim()) ? _sel.toString().trim() : null;
+    const _isInEditor = _selAnchor?.closest('#tiptap-editor-mount .ProseMirror, [data-field="content"], [data-field="summary"]');
+    const _selectedText = _preCapture !== undefined
+      ? (_preCapture || null)
+      : ((_isInEditor && _sel.toString().trim()) ? _sel.toString().trim() : null);
 
     // /clear コマンド: LLM を呼ばずに新スコープを作成して終了
     if (parsed.command && parsed.command.name === 'clear') {
@@ -313,7 +402,12 @@ const AppShell = (() => {
     // 送信時にチャット履歴パネルを自動オープン
     if (!_historyPanelOpen) {
       _historyPanelOpen = true;
-      document.getElementById('chat-history-panel').style.display = '';
+      const sidePanel = document.getElementById('chat-history-side');
+      const resizer = document.getElementById('history-resizer');
+      if (sidePanel) sidePanel.classList.remove('collapsed');
+      if (resizer) { resizer.classList.remove('collapsed-indicator'); resizer.classList.add('history-open'); }
+      const topBtn = document.getElementById('btn-toggle-history');
+      if (topBtn) topBtn.classList.add('active');
     }
 
     // /structure-section コマンドの場合、選択中のセクションを対象にする
@@ -324,6 +418,16 @@ const AppShell = (() => {
         contextScope = selectedSectionId;
       }
     }
+
+    // 選択セクション情報を取得
+    const _selectedSectionId = window.appState.getSelectedSectionId();
+    const _selectedSectionTitle = (() => {
+      if (!_selectedSectionId) return null;
+      const proj = window.appState.getProject();
+      if (!proj) return null;
+      const sec = proj.sections.find(s => s.id === _selectedSectionId);
+      return sec ? sec.title : null;
+    })();
 
     // リクエストボディ構築
     const body = {
@@ -340,10 +444,28 @@ const AppShell = (() => {
 
     if (parsed.refs.length > 0) {
       body.explicit_refs = parsed.refs.map(r => r.id);
+      // ソース/マテリアル名を解決する
+      const _proj = window.appState.getProject();
+      body.ref_names = parsed.refs.map(r => {
+        if (!_proj) return r.id;
+        if (r.type === 'source') {
+          const src = (_proj.sources || []).find(s => s.id === r.id);
+          return src ? src.name : r.id;
+        } else if (r.type === 'material') {
+          const mat = (_proj.materials || []).find(m => m.id === r.id);
+          return mat ? mat.name : r.id;
+        }
+        return r.id;
+      });
     }
 
     if (_selectedText) {
       body.selected_text = _selectedText;
+    }
+
+    if (_selectedSectionId) {
+      body.selected_section_id = _selectedSectionId;
+      body.selected_section_title = _selectedSectionTitle;
     }
 
     // ユーザーメッセージ（またはコマンド）を履歴パネルに即時表示
@@ -354,6 +476,12 @@ const AppShell = (() => {
       role: parsed.command ? 'command' : 'user',
       content: userDisplayContent,
       timestamp: new Date().toISOString(),
+      selected_section_id: _selectedSectionId,
+      selected_section_title: _selectedSectionTitle,
+      explicit_refs: body.explicit_refs || [],
+      ref_names: body.ref_names || [],
+      prompt_text: userDisplayContent || null,
+      command_name: parsed.command ? parsed.command.name : null,
     });
 
     // ローディングスピナーを表示
@@ -390,32 +518,18 @@ const AppShell = (() => {
 
     setStopMode();
 
-    // コマンド実行時: 編集対象セクションの contenteditable を非活性化
-    const _disabledContentEls = [];
+    // コマンド実行時: Tiptapエディタをロックして編集を無効化
     if (parsed.command) {
-      const targetEls = contextScope === 'all'
-        ? document.querySelectorAll('[data-field="content"], [data-field="summary"]')
-        : document.querySelectorAll(`[data-field="content"][data-sec-id="${contextScope}"], [data-field="summary"][data-sec-id="${contextScope}"]`);
-
-      targetEls.forEach(el => {
-        if (el.getAttribute('contenteditable') === 'true') {
-          el.setAttribute('contenteditable', 'false');
-          el.dataset.disabledByLlm = 'true';
-          _disabledContentEls.push(el);
-        }
-      });
+      if (window.TiptapEditor) window.TiptapEditor.setEditable(false);
     }
 
     function _restoreEditability() {
-      _disabledContentEls.forEach(el => {
-        el.setAttribute('contenteditable', 'true');
-        delete el.dataset.disabledByLlm;
-      });
-      _disabledContentEls.length = 0;
+      if (window.TiptapEditor) window.TiptapEditor.setEditable(true);
     }
 
     const isCommand = !!parsed.command;
     const _changeLog = [];
+    const _commandLlmChunks = [];  // コマンド実行時のLLMテキストを蓄積
 
     function _buildCommandSummaryText(changeLog) {
       if (!changeLog || changeLog.length === 0) return '完了';
@@ -436,6 +550,11 @@ const AppShell = (() => {
       body,
       {
         onChunk: (text) => {
+          if (isCommand) {
+            // コマンド時: テキストを蓄積するがリアルタイム表示はしない
+            _commandLlmChunks.push(text);
+            return;
+          }
           if (!_streamingAssistantEl) {
             // 初回チャンク: アシスタントメッセージ要素を作成
             _streamingAssistantEl = _appendMessageToHistoryPanel({
@@ -449,6 +568,10 @@ const AppShell = (() => {
           const container = document.getElementById('chat-history-panel-messages');
           container.scrollTop = container.scrollHeight;
         },
+        onReviewResult: (comments) => {
+          // レビュー結果をカード形式で表示
+          _streamingAssistantEl = _appendReviewResultToHistoryPanel(comments);
+        },
         onToolCall: async (tool, args) => {
           await _applyToolCall(project, tool, args, _changeLog);
         },
@@ -456,17 +579,19 @@ const AppShell = (() => {
           _restoreEditability();
           _hideHistoryPanelLoading();
           resetSendMode();
-          // コマンド実行: 変更がある場合のみ要約をバックエンドに保存してからパネルをリフレッシュ
-          if (isCommand) {
-            if (_changeLog.length > 0) {
-              const summaryText = _buildCommandSummaryText(_changeLog);
-              _addSummaryToHistory(project, `/${parsed.command.name} 実行: ${summaryText}`)
-                .then(() => _refreshHistoryPanel());
-            } else {
-              _refreshHistoryPanel();
-            }
+          // LLM実行後にセクション選択を解除する
+          if (window.EditTab && window.EditTab.clearSectionSelection) {
+            window.EditTab.clearSectionSelection();
+          }
+          // コマンド実行: 要約をバックエンドに保存してからパネルをリフレッシュ
+          const isReviewCommand = isCommand && parsed.command.name.startsWith('review');
+          if (isCommand && !isReviewCommand) {
+            const llmText = _commandLlmChunks.join('').trim();
+            const summaryText = llmText || _buildCommandSummaryText(_changeLog);
+            _addSummaryToHistory(project, summaryText)
+              .then(() => _refreshHistoryPanel());
           } else {
-            // 通常チャット: バックエンドに保存済みなのでパネルをリフレッシュ
+            // 通常チャットとreviewコマンド: バックエンドに保存済みなのでパネルをリフレッシュ
             _refreshHistoryPanel();
           }
         },
@@ -508,6 +633,17 @@ const AppShell = (() => {
     return fixed;
   }
 
+  /**
+   * project.contentをバックエンドから再取得してローカルを更新し、EditTabを再描画する
+   */
+  async function _refreshProjectContent(project) {
+    try {
+      const result = await ApiClient.get(`/api/projects/${project.id}/content`);
+      project.content = result.content;
+    } catch (_) { }
+    EditTab.render(project);
+  }
+
   async function _applyToolCall(project, tool, args, changeLog = null) {
     try {
       if (tool === 'update_section') {
@@ -515,29 +651,15 @@ const AppShell = (() => {
         const sec = project.sections.find(s => s.id === section_id);
         if (!sec) return;
 
-        const oldContent = sec.content;
         if (changeLog) changeLog.push({ type: 'updated', title: sec.title });
-        await ApiClient.put(
-          `/api/projects/${project.id}/sections/${section_id}`,
+
+        // 新アーキテクチャ: PATCH /content/sections/{id} でproject.content内の本文を更新
+        const result = await ApiClient.patch(
+          `/api/projects/${project.id}/content/sections/${section_id}`,
           { content }
         );
-        sec.content = content;
-
-        const contentEl = document.querySelector(`[data-sec-id="${section_id}"][data-field="content"]`);
-        if (contentEl) contentEl.innerText = content;
-
-        UndoRedoManager.push({
-          do: async () => {
-            await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { content });
-            sec.content = content;
-            if (contentEl) contentEl.innerText = content;
-          },
-          undo: async () => {
-            await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { content: oldContent });
-            sec.content = oldContent;
-            if (contentEl) contentEl.innerText = oldContent;
-          },
-        });
+        project.content = result.content;
+        if (window.TiptapEditor) window.TiptapEditor.setContentFromMarkdown(project.content);
 
       } else if (tool === 'update_multiple_sections') {
         const { updates } = args;
@@ -546,46 +668,32 @@ const AppShell = (() => {
           const sec = project.sections.find(s => s.id === section_id);
           if (!sec) continue;
 
-          const oldContent = sec.content;
           if (changeLog) changeLog.push({ type: 'updated', title: sec.title });
-          await ApiClient.put(
-            `/api/projects/${project.id}/sections/${section_id}`,
+          const result = await ApiClient.patch(
+            `/api/projects/${project.id}/content/sections/${section_id}`,
             { content }
           );
-          sec.content = content;
-
-          const contentEl = document.querySelector(`[data-sec-id="${section_id}"][data-field="content"]`);
-          if (contentEl) contentEl.innerText = content;
-
-          UndoRedoManager.push({
-            do: async () => {
-              await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { content });
-              sec.content = content;
-              if (contentEl) contentEl.innerText = content;
-            },
-            undo: async () => {
-              await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { content: oldContent });
-              sec.content = oldContent;
-              if (contentEl) contentEl.innerText = oldContent;
-            },
-          });
+          project.content = result.content;
         }
+        // 全更新後に一度だけTiptapを更新
+        if (window.TiptapEditor) window.TiptapEditor.setContentFromMarkdown(project.content);
 
       } else if (tool === 'create_section') {
-        const { title, summary = '', content = '', parent_id = null } = args;
+        const { title, summary = '', parent_id = null } = args;
         const sec = await ApiClient.post(`/api/projects/${project.id}/sections`, {
-          title, summary, content, parent_id,
+          title, summary, parent_id,
         });
         project.sections.push(sec);
         if (changeLog) changeLog.push({ type: 'created', title: sec.title });
-        EditTab.render(project);
+        // バックエンドがproject.contentにスケルトンを追記するため再取得
+        await _refreshProjectContent(project);
 
         UndoRedoManager.push({
           do: async () => { },
           undo: async () => {
             await ApiClient.delete(`/api/projects/${project.id}/sections/${sec.id}`);
             project.sections = project.sections.filter(s => s.id !== sec.id);
-            EditTab.render(project);
+            await _refreshProjectContent(project);
           },
         });
 
@@ -595,8 +703,7 @@ const AppShell = (() => {
         if (!sec) return;
         await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { summary });
         sec.summary = summary;
-        const summaryEl = document.querySelector(`[data-sec-id="${section_id}"][data-field="summary"]`);
-        if (summaryEl) summaryEl.innerText = summary;
+        // summaryはTiptap内に表示しないため、DOM更新不要
 
       } else if (tool === 'delete_section') {
         const { section_id } = args;
@@ -604,7 +711,8 @@ const AppShell = (() => {
         if (changeLog && secToDelete) changeLog.push({ type: 'deleted', title: secToDelete.title });
         await ApiClient.delete(`/api/projects/${project.id}/sections/${section_id}`);
         project.sections = project.sections.filter(s => s.id !== section_id);
-        EditTab.render(project);
+        // バックエンドがproject.contentからブロックを除去するため再取得
+        await _refreshProjectContent(project);
 
       } else if (tool === 'update_section_title') {
         const { section_id, title } = args;
@@ -614,18 +722,19 @@ const AppShell = (() => {
         if (changeLog) changeLog.push({ type: 'title_changed', oldTitle, newTitle: title });
         await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { title });
         sec.title = title;
-        EditTab.render(project);
+        // バックエンドがproject.content内の見出しタイトルを更新するため再取得
+        await _refreshProjectContent(project);
 
         UndoRedoManager.push({
           do: async () => {
             await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { title });
             sec.title = title;
-            EditTab.render(project);
+            await _refreshProjectContent(project);
           },
           undo: async () => {
             await ApiClient.put(`/api/projects/${project.id}/sections/${section_id}`, { title: oldTitle });
             sec.title = oldTitle;
-            EditTab.render(project);
+            await _refreshProjectContent(project);
           },
         });
 
@@ -687,7 +796,6 @@ const AppShell = (() => {
           const created = await ApiClient.post(`/api/projects/${project.id}/sections`, {
             title: item.title,
             summary: item.summary ?? '',
-            content: '',
             parent_id: resolvedParentId,
             order: item.parent_key ? (item.order ?? 0) : (baseOrder + (item.order ?? 0)),
           });
@@ -696,7 +804,8 @@ const AppShell = (() => {
           if (changeLog) changeLog.push({ type: 'created', title: created.title });
         }
 
-        EditTab.render(project);
+        // バックエンドがproject.contentにスケルトンを追記するため再取得
+        await _refreshProjectContent(project);
 
       } else if (tool === 'set_document_structure' || tool === 'create_document_structure') {
         const { sections: newSections } = args;
@@ -735,7 +844,6 @@ const AppShell = (() => {
           const created = await ApiClient.post(`/api/projects/${project.id}/sections`, {
             title: item.title,
             summary: item.summary ?? '',
-            content: '',
             parent_id: parentId,
             order: item.order ?? 0,
           });
@@ -744,16 +852,177 @@ const AppShell = (() => {
           if (changeLog) changeLog.push({ type: 'created', title: created.title });
         }
 
-        EditTab.render(project);
+        // バックエンドがproject.contentを構築するため再取得
+        await _refreshProjectContent(project);
       }
     } catch (e) {
       showToast(`ツールコール適用エラー: ${e.message}`, 'error');
     }
   }
 
-  // ─── チャット履歴インラインパネル ─────────────────────
+  // ─── 3カラムパネルリサイズ ─────────────────────
 
-  let _historyPanelOpen = false;
+  /**
+   * アウトライン ↔ エディタ、エディタ ↔ チャット履歴のドラッグリサイズを初期化する
+   */
+  function _initPanelResizers() {
+    const style = getComputedStyle(document.documentElement);
+    const pxVal = (v) => parseInt(style.getPropertyValue(v)) || undefined;
+
+    // アウトライン ↔ エディタ境界
+    _setupHorizResizer(
+      document.getElementById('outline-resizer'),
+      document.getElementById('outline-panel'),
+      'right',
+      pxVal('--outline-panel-min-w'), pxVal('--outline-panel-max-w'),
+      false,
+      (px) => {
+        SettingsTab.applyOutlinePanelWidth(px);
+        ApiClient.patch('/api/settings', { outline_panel_width: px }).catch(() => {});
+      }
+    );
+
+    // エディタ ↔ チャット履歴境界（ドラッグでリサイズ、クリックでトグル）
+    _setupHorizResizer(
+      document.getElementById('history-resizer'),
+      document.getElementById('chat-history-side'),
+      'left',
+      pxVal('--history-panel-min-w'), pxVal('--history-panel-max-w'),
+      /* isHistory */ true,
+      (px) => {
+        SettingsTab.applyHistoryPanelWidth(px);
+        ApiClient.patch('/api/settings', { history_panel_width: px }).catch(() => {});
+      }
+    );
+
+    const saveLeftPanelWidth = (px) => {
+      SettingsTab.applyLeftPanelWidth(px);
+      ApiClient.patch('/api/settings', { left_panel_width: px }).catch(() => {});
+    };
+
+    // Source タブ左パネル
+    _setupHorizResizer(
+      document.getElementById('source-resizer'),
+      document.getElementById('source-panel'),
+      'right',
+      pxVal('--left-panel-min-w'), pxVal('--left-panel-max-w'),
+      false, saveLeftPanelWidth
+    );
+
+    // Material タブ左パネル
+    _setupHorizResizer(
+      document.getElementById('material-resizer'),
+      document.getElementById('material-panel'),
+      'right',
+      pxVal('--left-panel-min-w'), pxVal('--left-panel-max-w'),
+      false, saveLeftPanelWidth
+    );
+
+    // Rule タブ左パネル
+    _setupHorizResizer(
+      document.getElementById('rule-resizer'),
+      document.getElementById('rule-panel'),
+      'right',
+      pxVal('--left-panel-min-w'), pxVal('--left-panel-max-w'),
+      false, saveLeftPanelWidth
+    );
+  }
+
+  /**
+   * 水平リサイザーをセットアップする
+   * @param {HTMLElement} resizer - ドラッグハンドル要素
+   * @param {HTMLElement} panel - リサイズ対象パネル
+   * @param {'right'|'left'} side - どちら側のパネルか
+   * @param {number} minW - 最小幅
+   * @param {number} maxW - 最大幅
+   * @param {boolean} isHistory - チャット履歴パネル（折りたたみ対応）
+   * @param {function(number):void} [onSaveWidth] - ドラッグ完了時に幅(px)を受け取るコールバック
+   */
+  function _setupHorizResizer(resizer, panel, side, minW, maxW, isHistory = false, onSaveWidth = null) {
+    if (!resizer || !panel) return;
+
+    let startX = 0;
+    let startW = 0;
+    let isDragging = false;
+    let clickThreshold = 5; // ドラッグと判定するピクセル数
+
+    resizer.addEventListener('mousedown', (e) => {
+      startX = e.clientX;
+      startW = panel.getBoundingClientRect().width;
+      isDragging = false;
+
+      const onMove = (e) => {
+        const dx = e.clientX - startX;
+        if (!isDragging && Math.abs(dx) > clickThreshold) {
+          isDragging = true;
+          resizer.classList.add('dragging');
+          document.body.style.userSelect = 'none';
+          document.body.style.cursor = 'col-resize';
+        }
+        if (!isDragging) return;
+
+        let newW;
+        if (side === 'right') {
+          newW = startW + dx;
+        } else {
+          newW = startW - dx;
+        }
+        newW = Math.max(minW, Math.min(maxW, newW));
+
+        // 折りたたみ状態を解除してリサイズ
+        if (isHistory && panel.classList.contains('collapsed')) {
+          panel.classList.remove('collapsed');
+          resizer.classList.add('history-open');
+          _historyPanelOpen = true;
+        }
+        panel.style.width = newW + 'px';
+      };
+
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        resizer.classList.remove('dragging');
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+
+        // ドラッグ完了時に幅を保存
+        if (isDragging && onSaveWidth) {
+          onSaveWidth(parseInt(panel.style.width, 10));
+        }
+
+        // クリック（ドラッグなし）ならトグル
+        if (!isDragging && isHistory) {
+          _toggleHistoryPanel();
+        }
+      };
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+      e.preventDefault();
+    });
+  }
+
+  // ─── チャット履歴右パネル ─────────────────────
+
+  let _historyPanelOpen = true;
+
+  /**
+   * メッセージのメタ情報HTML（セクション・ソース・プロンプト）を生成する
+   */
+  function _buildMsgMetaHtml(msg) {
+    const parts = [];
+    if (msg.selected_section_title) {
+      parts.push(`<span class="chat-history-msg-meta-item">📄 ${escHtml(msg.selected_section_title)}</span>`);
+    } else if (msg.selected_section_id) {
+      parts.push(`<span class="chat-history-msg-meta-item">📄 ${escHtml(msg.selected_section_id)}</span>`);
+    }
+    const refs = msg.ref_names || msg.explicit_refs || [];
+    if (refs.length > 0) {
+      parts.push(`<span class="chat-history-msg-meta-item">🔗 ${refs.map(n => escHtml(n)).join('、')}</span>`);
+    }
+    if (parts.length === 0) return '';
+    return `<div class="chat-history-msg-meta">${parts.join('')}</div>`;
+  }
 
   /**
    * 履歴パネルにメッセージ要素を直接追加して DOM 要素を返す
@@ -768,24 +1037,8 @@ const AppShell = (() => {
 
     const div = document.createElement('div');
     div.className = `chat-history-msg ${msg.role}`;
+    div.innerHTML = _buildHistoryMsgHtml(msg);
 
-    if (msg.role === 'command') {
-      div.innerHTML = `
-        <div class="chat-history-msg-role command"><span>⚡ コマンド</span></div>
-        <div class="chat-history-msg-content">${escHtml(msg.content)}</div>
-        <div class="chat-history-msg-time">${new Date(msg.timestamp).toLocaleString('ja-JP')}</div>
-      `;
-    } else {
-      const roleLabel = msg.role === 'user' ? 'あなた' : 'AI';
-      const roleIcon = msg.role === 'user' ? '👤' : '🤖';
-      const copyBtn = msg.role === 'assistant' ? `<button class="btn btn-sm btn-secondary chat-copy-btn" style="margin-top: 5px; font-size: 0.8em;">チャット入力にコピー</button>` : '';
-      div.innerHTML = `
-        <div class="chat-history-msg-role ${msg.role}"><span>${roleIcon} ${roleLabel}</span></div>
-        <div class="chat-history-msg-content">${escHtml(msg.content)}</div>
-        <div class="chat-history-msg-time">${new Date(msg.timestamp).toLocaleString('ja-JP')}</div>
-        ${copyBtn}
-      `;
-    }
     // ローディングスピナーがあればその前に挿入、なければ末尾に追加
     const loadingEl = container.querySelector('.chat-history-loading');
     if (loadingEl) {
@@ -795,6 +1048,121 @@ const AppShell = (() => {
     }
     container.scrollTop = container.scrollHeight;
     return div;
+  }
+
+  /**
+   * レビュー結果コメント配列を履歴パネルにカード形式で追加する
+   * @param {Array<{section: string, problem: string, suggestion: string}>} comments
+   * @returns {HTMLElement} 追加されたメッセージ要素
+   */
+  function _appendReviewResultToHistoryPanel(comments) {
+    const container = document.getElementById('chat-history-panel-messages');
+    const placeholder = container.querySelector('.chat-history-placeholder');
+    if (placeholder) placeholder.remove();
+
+    const div = document.createElement('div');
+    div.className = 'chat-history-msg assistant';
+    div.innerHTML = _buildReviewResultHtml(comments);
+
+    const loadingEl = container.querySelector('.chat-history-loading');
+    if (loadingEl) {
+      container.insertBefore(div, loadingEl);
+    } else {
+      container.appendChild(div);
+    }
+    container.scrollTop = container.scrollHeight;
+    return div;
+  }
+
+  /**
+   * レビュー結果HTMLを生成する
+   * @param {Array<{section: string, problem: string, suggestion: string}>} comments
+   * @param {string} [timeStr] - 表示用タイムスタンプ文字列（省略時は現在時刻）
+   */
+  function _buildReviewResultHtml(comments, timeStr) {
+    if (!timeStr) timeStr = new Date().toLocaleString('ja-JP');
+    const headerHtml = `
+      <div class="chat-history-msg-header">
+        <div class="chat-history-msg-role assistant"><span>🤖 AI</span></div>
+      </div>
+      <div class="chat-history-msg-label">レビュー結果</div>
+    `;
+
+    if (!comments || comments.length === 0) {
+      return headerHtml + `
+        <div class="review-result-empty">問題点は見つかりませんでした。</div>
+        <div class="chat-history-msg-time">${timeStr}</div>
+      `;
+    }
+
+    const cardsHtml = comments.map((c) => {
+      const copyText = [
+        c.section ? `【${c.section}】` : '',
+        c.problem ? `問題点: ${c.problem}` : '',
+        c.suggestion ? `改善案: ${c.suggestion}` : '',
+      ].filter(Boolean).join('\n');
+
+      return `
+        <div class="review-comment-card">
+          <div class="review-comment-card-header">
+            ${c.section ? `<span class="review-comment-section">${escHtml(c.section)}</span>` : ''}
+            <button class="btn-icon chat-copy-btn review-copy-btn" title="プロンプト入力にコピー" data-copy-text="${escHtml(copyText)}">${SVG_COPY} <span>プロンプトにコピー</span></button>
+          </div>
+          ${c.problem ? `<div class="review-comment-problem"><span class="review-comment-label">問題点</span>${escHtml(c.problem)}</div>` : ''}
+          ${c.suggestion ? `<div class="review-comment-suggestion"><span class="review-comment-label">改善案</span>${escHtml(c.suggestion)}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+
+    return headerHtml + `
+      <div class="review-result-list">${cardsHtml}</div>
+      <div class="chat-history-msg-time">${timeStr}</div>
+    `;
+  }
+
+  /**
+   * メッセージオブジェクトからHTML文字列を生成する
+   */
+  function _buildHistoryMsgHtml(msg) {
+    const copyText = msg.prompt_text || msg.content || '';
+    const copyBtn = `<button class="btn-icon chat-copy-btn" title="チャット入力にコピー" data-copy-text="${escHtml(copyText)}">${SVG_COPY}</button>`;
+    const timeStr = new Date(msg.timestamp).toLocaleString('ja-JP');
+    const metaHtml = _buildMsgMetaHtml(msg);
+
+    if (msg.role === 'command') {
+      return `
+        <div class="chat-history-msg-header">
+          <div class="chat-history-msg-role command"><span>⚡ コマンド</span></div>
+          ${copyBtn}
+        </div>
+        <div class="chat-history-msg-content">${escHtml(msg.content)}</div>
+        ${metaHtml}
+        <div class="chat-history-msg-time">${timeStr}</div>
+      `;
+    } else if (msg.role === 'user') {
+      return `
+        <div class="chat-history-msg-header">
+          <div class="chat-history-msg-role user"><span>👤 あなた</span></div>
+          ${copyBtn}
+        </div>
+        <div class="chat-history-msg-content">${escHtml(msg.content)}</div>
+        ${metaHtml}
+        <div class="chat-history-msg-time">${timeStr}</div>
+      `;
+    } else {
+      // レビュー結果コメントがある場合はカード形式で表示
+      if (msg.review_comments && msg.review_comments.length > 0) {
+        return _buildReviewResultHtml(msg.review_comments, timeStr);
+      }
+      return `
+        <div class="chat-history-msg-header">
+          <div class="chat-history-msg-role assistant"><span>🤖 AI</span></div>
+          ${copyBtn}
+        </div>
+        <div class="chat-history-msg-content">${escHtml(msg.content)}</div>
+        <div class="chat-history-msg-time">${timeStr}</div>
+      `;
+    }
   }
 
   /** 履歴パネルのローディングスピナーを表示する */
@@ -817,39 +1185,46 @@ const AppShell = (() => {
   /**
    * コマンド実行後の要約メッセージをチャット履歴に追加する
    * @param {object} project
-   * @param {string} summaryText - 追加するメッセージ（200文字以内に切り詰め）
+   * @param {string} summaryText - 追加するメッセージ
    */
   async function _addSummaryToHistory(project, summaryText) {
     try {
-      const truncated = summaryText.length > 200 ? summaryText.slice(0, 200) + '…' : summaryText;
       await ApiClient.post(`/api/projects/${project.id}/chat-history/add-message`, {
         scope: 'all',
         role: 'assistant',
-        content: truncated,
+        content: summaryText,
       });
     } catch (_) { }
   }
 
   async function _toggleHistoryPanel() {
-    const panel = document.getElementById('chat-history-panel');
+    const sidePanel = document.getElementById('chat-history-side');
+    const resizer = document.getElementById('history-resizer');
     const project = window.appState.getProject();
     if (!project) return;
 
     _historyPanelOpen = !_historyPanelOpen;
+    const topBtn = document.getElementById('btn-toggle-history');
     if (_historyPanelOpen) {
-      panel.style.display = '';
+      sidePanel.classList.remove('collapsed');
+      resizer.classList.remove('collapsed-indicator');
+      resizer.classList.add('history-open');
+      if (topBtn) topBtn.classList.add('active');
       // ストリーミング中でなければ最新履歴を取得して描画
       if (!_currentSseCtrl) {
         await _refreshHistoryPanel();
       }
     } else {
-      panel.style.display = 'none';
+      sidePanel.classList.add('collapsed');
+      resizer.classList.add('collapsed-indicator');
+      resizer.classList.remove('history-open');
+      if (topBtn) topBtn.classList.remove('active');
     }
   }
 
   async function _refreshHistoryPanel() {
     const project = window.appState.getProject();
-    if (!project || !_historyPanelOpen) return;
+    if (!project) return;
 
     try {
       const msgs = await ApiClient.get(`/api/projects/${project.id}/chat-history`);
@@ -875,24 +1250,7 @@ const AppShell = (() => {
     msgs.forEach(msg => {
       const div = document.createElement('div');
       div.className = `chat-history-msg ${msg.role}`;
-
-      if (msg.role === 'command') {
-        div.innerHTML = `
-          <div class="chat-history-msg-role command"><span>⚡ コマンド</span></div>
-          <div class="chat-history-msg-content">${escHtml(msg.content)}</div>
-          <div class="chat-history-msg-time">${new Date(msg.timestamp).toLocaleString('ja-JP')}</div>
-        `;
-      } else {
-        const roleLabel = msg.role === 'user' ? 'あなた' : 'AI';
-        const roleIcon = msg.role === 'user' ? '👤' : '🤖';
-        const copyBtn = msg.role === 'assistant' ? `<button class="btn btn-sm btn-secondary chat-copy-btn" style="margin-top: 5px; font-size: 0.8em;">チャット入力にコピー</button>` : '';
-        div.innerHTML = `
-          <div class="chat-history-msg-role ${msg.role}"><span>${roleIcon} ${roleLabel}</span></div>
-          <div class="chat-history-msg-content">${escHtml(msg.content)}</div>
-          <div class="chat-history-msg-time">${new Date(msg.timestamp).toLocaleString('ja-JP')}</div>
-          ${copyBtn}
-        `;
-      }
+      div.innerHTML = _buildHistoryMsgHtml(msg);
       container.appendChild(div);
     });
 

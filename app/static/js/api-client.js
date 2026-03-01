@@ -112,6 +112,9 @@ const ApiClient = (() => {
                 case 'review_comment':
                   handlers.onReviewComment && handlers.onReviewComment(data.section_id, data.comment);
                   break;
+                case 'review_result':
+                  handlers.onReviewResult && handlers.onReviewResult(data.comments);
+                  break;
                 case 'done':
                   handlers.onDone && handlers.onDone();
                   break;
@@ -154,6 +157,7 @@ const ApiClient = (() => {
     get: (path) => _fetch('GET', path),
     post: (path, body) => _fetch('POST', path, body),
     put: (path, body) => _fetch('PUT', path, body),
+    patch: (path, body) => _fetch('PATCH', path, body),
     delete: (path) => _fetch('DELETE', path),
     openSSE,
     openFileDialog,

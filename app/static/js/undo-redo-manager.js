@@ -64,9 +64,20 @@ const UndoRedoManager = (() => {
       const project = window.appState.getProject();
       if (project) {
         try {
+          if (window.EditTab && window.EditTab.forceSync) {
+            await window.EditTab.forceSync();
+          }
           await ApiClient.put(`/api/projects/${project.id}/save`);
+          // showOpenFilePicker で開いたファイルがあれば元のファイルへ書き戻す
+          const fileHandle = (typeof ProjectSelector !== 'undefined') ? ProjectSelector.getOpenFileHandle() : null;
+          if (fileHandle) {
+            const projectData = await ApiClient.get(`/api/projects/${project.id}`);
+            const writable = await fileHandle.createWritable();
+            await writable.write(JSON.stringify(projectData, null, 2));
+            await writable.close();
+          }
           showToast('保存しました', 'success');
-        } catch (_) {}
+        } catch (_) { }
       }
     }
   });

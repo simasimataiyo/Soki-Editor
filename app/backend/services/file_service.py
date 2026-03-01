@@ -53,7 +53,7 @@ class FileService:
             kwargs = {}
             if file_types:
                 kwargs["file_types"] = [f"{desc} ({ext})" for desc, ext in file_types]
-            result = window.create_file_dialog(webview.OPEN_DIALOG, **kwargs)
+            result = window.create_file_dialog(webview.FileDialog.OPEN, **kwargs)
             if result and len(result) > 0:
                 return result[0]
             return None
@@ -88,7 +88,7 @@ class FileService:
             window = webview.windows[0] if webview.windows else None
             if window is None:
                 return None
-            result = window.create_file_dialog(webview.FOLDER_DIALOG)
+            result = window.create_file_dialog(webview.FileDialog.FOLDER)
             if result and len(result) > 0:
                 return result[0]
             return None

@@ -10,11 +10,23 @@ from pydantic import BaseModel, Field
 # ─── ドメインモデル ─────────────────────────────────────────────
 
 
+class WindowState(BaseModel):
+    width: int = 1400
+    height: int = 900
+    x: Optional[int] = None
+    y: Optional[int] = None
+
+
 class LLMSettings(BaseModel):
     api_key: str = ""
     endpoint_url: Optional[str] = None
     model: str = "gpt-4o"
     pdf_page_dpi: int = 96  # PDF等倍画像のDPI（設定画面から変更可能）
+    left_panel_width: int = 280  # 左パネル標準幅（px）
+    history_panel_width: int = 280  # チャット履歴右パネル標準幅（px）
+    outline_panel_width: int = 280  # アウトライン左パネル幅（px）
+    review_max_comments: int = 0    # レビューコメントの最大件数（0=無制限）
+    window_state: WindowState = Field(default_factory=WindowState)
 
 
 class Bibliography(BaseModel):
@@ -74,18 +86,29 @@ class Section(BaseModel):
     id: str
     title: str = "新しいセクション"
     summary: str = ""
-    content: str = ""
+    content: Optional[str] = None  # 非推奨。新アーキテクチャでは project.content に統合
     parent_id: Optional[str] = None
     order: int = 0
+
+
+class ReviewCommentItem(BaseModel):
+    section: str = ""
+    problem: str = ""
+    suggestion: str = ""
 
 
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "command"]
     content: str
     timestamp: datetime
-    command_name: Optional[str] = None  # コマンド名（role="command"の場合）
-    command_args: list[str] = []        # コマンド引数
-    explicit_refs: list[str] = []       # このメッセージで明示参照したソース/マテリアルID
+    command_name: Optional[str] = None      # コマンド名（role="command"の場合）
+    command_args: list[str] = []            # コマンド引数
+    explicit_refs: list[str] = []          # このメッセージで明示参照したソース/マテリアルID
+    selected_section_id: Optional[str] = None   # 送信時に選択中だったセクションID
+    selected_section_title: Optional[str] = None  # 送信時に選択中だったセクションタイトル
+    ref_names: list[str] = []              # 明示参照したソース/マテリアルの表示名
+    prompt_text: Optional[str] = None      # ユーザーが入力したプロンプトテキスト（コマンドの場合はフリーテキスト部分）
+    review_comments: list[ReviewCommentItem] = []  # レビューコマンドの結果コメント一覧
 
 
 class ReviewComment(BaseModel):
@@ -108,6 +131,7 @@ class Project(BaseModel):
     sources: list[Source] = []
     materials: list[Material] = []
     sections: list[Section] = []
+    content: str = ""  # 全文Markdownテキスト（<!-- soki-section:uuid --> マーカー付き）
     chat_history: list[ChatMessage] = []
     review_system_prompt: str = ""
     review_comments: list[ReviewComment] = []
@@ -138,6 +162,9 @@ class ChatRequest(BaseModel):
     command_args: list[str] = []           # ["replace"], ["500"], etc.
     explicit_refs: list[str] = []          # ["ref-abc123", "fig-def456"]
     selected_text: Optional[str] = None   # ユーザーが選択中のテキスト（文脈として使用）
+    selected_section_id: Optional[str] = None    # 送信時に選択中だったセクションID
+    selected_section_title: Optional[str] = None  # 送信時に選択中だったセクションタイトル
+    ref_names: list[str] = []              # 明示参照のソース/マテリアル名
 
 
 class ReviewRequest(BaseModel):
@@ -149,9 +176,9 @@ class ReviewRequest(BaseModel):
 
 
 class SectionCreate(BaseModel):
+    id: Optional[str] = None  # 指定時はそのIDを使用（整合性修復時など）
     title: str
     summary: str = ""
-    content: str = ""
     parent_id: Optional[str] = None
     order: Optional[int] = None
 
@@ -159,7 +186,6 @@ class SectionCreate(BaseModel):
 class SectionUpdate(BaseModel):
     title: Optional[str] = None
     summary: Optional[str] = None
-    content: Optional[str] = None
     parent_id: Optional[str] = None
     order: Optional[int] = None
 

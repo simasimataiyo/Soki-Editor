@@ -46,7 +46,7 @@
 {% if enabled_rules %}
 ## 執筆ルール
 
-この論文では以下の執筆ルールに従ってください：
+この文章では以下の執筆ルールに従ってください：
 {% for rule in enabled_rules %}
 - {{ rule.content }}
 {% endfor %}
@@ -69,7 +69,7 @@
 {{ target_section.title }}: {{ target_section.summary or '(概要なし)' }}
 
 **本文**:
-{{ target_section.content or '(本文なし)' }}
+{{ target_section_body or '(本文なし)' }}
 {% endif %}
 
 {% if source_summaries %}

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -17,7 +18,18 @@ logger = logging.getLogger(__name__)
 _STATIC_DIR = Path(__file__).parent.parent / "static"
 _TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
 
-app = FastAPI(title="Soki Editor API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    # シャットダウン時にダーティなプロジェクトをすべて保存する
+    logger.info("シャットダウン処理: ダーティプロジェクトを保存します...")
+    svc = projects.get_service()
+    await svc.flush_all_dirty()
+    logger.info("シャットダウン保存完了")
+
+
+app = FastAPI(title="Soki Editor API", version="0.1.0", lifespan=lifespan)
 
 # ─── CORS（pywebview は null オリジンで送信）─────────────────
 app.add_middleware(

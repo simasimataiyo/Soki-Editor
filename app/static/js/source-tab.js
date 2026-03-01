@@ -6,6 +6,35 @@ const SourceTab = (() => {
   let _project = null;
   let _activeId = null;
 
+  const DEFAULT_SOURCE_NAME = '新しいソース';
+
+  /** ファイル名から拡張子を除いた文字列を返す */
+  function _stemName(filename) {
+    return filename.replace(/\.[^.]+$/, '');
+  }
+
+  /**
+   * ソース名が初期値のままであればファイル名に置き換えてサーバーへ保存する
+   * 文献情報のタイトルも未設定であれば同じ値を充てる
+   */
+  async function _applyFileNameIfDefault(project, updated, filename) {
+    if (updated.name !== DEFAULT_SOURCE_NAME) return;
+    const newName = _stemName(filename);
+    if (!newName) return;
+    const patch = { name: newName };
+    if (!updated.bibliography?.title) {
+      patch.bibliography = { ...updated.bibliography, title: newName };
+    }
+    try {
+      const renamed = await ApiClient.put(
+        `/api/projects/${project.id}/sources/${updated.id}`,
+        patch
+      );
+      const idx = project.sources.findIndex(s => s.id === updated.id);
+      if (idx >= 0) project.sources[idx] = renamed;
+    } catch (_) {}
+  }
+
   const BIB_TYPE_LABELS = {
     paper: '論文', book: '図書', book_chapter: '図書の一部', web: 'Web', resource: 'リソース'
   };
@@ -219,6 +248,45 @@ const SourceTab = (() => {
           <h2>${escHtml(_displayTitle(src))}</h2>
         </div>
 
+        <!-- 内容セクション -->
+        <div class="collapsible-section">
+          <div class="collapsible-header" data-section="content">
+            <span class="chevron">${_sectionCollapsed['content'] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
+            <h3>内容${fullTextProc ? SPINNER : ''}</h3>
+          </div>
+          <div class="collapsible-body${_sectionCollapsed['content'] ? ' collapsed' : ''}">
+            <div class="form-group" style="margin-bottom:12px">
+              <label>全文</label>
+              <textarea class="form-control" id="src-full-text" rows="10" ${fullTextProc ? 'disabled' : ''}>${escHtml(src.full_text)}</textarea>
+            </div>
+            
+            <div class="form-group" style="margin-bottom:12px">
+              <label>ファイルパス</label>
+              <input type="text" class="form-control" id="src-file-path" value="${escHtml(src.file_path || '')}" readonly />
+            </div>
+
+            <div class="source-actions">
+              <button class="btn btn-secondary btn-sm" id="btn-analyze-image" ${fullTextProc ? 'disabled' : ''}>画像解説を追加</button>
+              <button class="btn btn-secondary btn-sm" id="btn-read-file" ${fullTextProc ? 'disabled' : ''}>ファイル読み込み</button>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- 要約セクション -->
+        <div class="collapsible-section">
+          <div class="collapsible-header" data-section="summary">
+            <span class="chevron">${_sectionCollapsed['summary'] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
+            <h3>要約${summaryProc ? SPINNER : ''}</h3>
+          </div>
+          <div class="collapsible-body${_sectionCollapsed['summary'] ? ' collapsed' : ''}">
+            <textarea class="form-control" id="src-summary" rows="5" ${summaryProc ? 'disabled' : ''}>${escHtml(src.summary)}</textarea>
+            <div class="source-actions">
+              <button class="btn btn-secondary btn-sm" id="btn-summarize" ${summaryProc ? 'disabled' : ''}>ソースから要約生成</button>
+            </div>
+          </div>
+        </div>
+
         <!-- 文献情報セクション -->
         <div class="collapsible-section">
           <div class="collapsible-header" data-section="bibliography">
@@ -248,48 +316,6 @@ const SourceTab = (() => {
               <button class="btn btn-secondary btn-sm" id="btn-extract-bib" ${bibProc ? 'disabled' : ''}>文献情報取得</button>
             </div>
             <div id="bib-fields"></div>
-            
-            
-
-          </div>
-        </div>
-
-        <!-- 要約セクション -->
-        <div class="collapsible-section">
-          <div class="collapsible-header" data-section="summary">
-            <span class="chevron">${_sectionCollapsed['summary'] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
-            <h3>要約${summaryProc ? SPINNER : ''}</h3>
-          </div>
-          <div class="collapsible-body${_sectionCollapsed['summary'] ? ' collapsed' : ''}">
-            <div class="source-actions">
-              <button class="btn btn-secondary btn-sm" id="btn-summarize" ${summaryProc ? 'disabled' : ''}>ソースから要約生成</button>
-            </div>
-            <textarea class="form-control" id="src-summary" rows="5" ${summaryProc ? 'disabled' : ''}>${escHtml(src.summary)}</textarea>
-            
-          </div>
-        </div>
-
-        <!-- 内容セクション -->
-        <div class="collapsible-section">
-          <div class="collapsible-header" data-section="content">
-            <span class="chevron">${_sectionCollapsed['content'] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
-            <h3>内容${fullTextProc ? SPINNER : ''}</h3>
-          </div>
-          <div class="collapsible-body${_sectionCollapsed['content'] ? ' collapsed' : ''}">
-            <div class="source-actions">
-              <button class="btn btn-secondary btn-sm" id="btn-analyze-image" ${fullTextProc ? 'disabled' : ''}>画像認識</button>
-              <button class="btn btn-secondary btn-sm" id="btn-read-file" ${fullTextProc ? 'disabled' : ''}>ファイル読み込み</button>
-            </div>
-
-            <div class="form-group" style="margin-bottom:12px">
-              <label>全文</label>
-              <textarea class="form-control" id="src-full-text" rows="10" ${fullTextProc ? 'disabled' : ''}>${escHtml(src.full_text)}</textarea>
-            </div>
-            
-            <div class="form-group" style="margin-bottom:12px">
-              <label>ファイルパス</label>
-              <input type="text" class="form-control" id="src-file-path" value="${escHtml(src.file_path || '')}" readonly />
-            </div>
           </div>
         </div>
 
@@ -339,7 +365,7 @@ const SourceTab = (() => {
 
     // ─── ペイン全体ドラッグ&ドロップ ───────────────────────────
     const overlay = pane.querySelector('.pane-drag-overlay');
-    
+
     /**
      * ドラッグオーバーレイの位置・サイズを詳細ペインに合わせて同期する
      */
@@ -377,6 +403,7 @@ const SourceTab = (() => {
         const updated = await res.json();
         const idx = project.sources.findIndex(s => s.id === src.id);
         if (idx >= 0) project.sources[idx] = updated;
+        await _applyFileNameIfDefault(project, updated, file.name);
         // PDFを再読み込みした場合は画像認識モーダルを閉じる（サムネイルが更新されるため）
         const modalOverlay = document.querySelector('.modal-overlay');
         if (modalOverlay && modalOverlay.querySelector('.pdf-page-grid')) {
@@ -548,6 +575,12 @@ const SourceTab = (() => {
       project.sources = project.sources.filter(s => s.id !== src.id);
       _activeId = null;
       render(project);
+      // バックエンドで更新された content を取得してTiptapに反映
+      try {
+        const result = await ApiClient.get(`/api/projects/${project.id}/content`);
+        project.content = result.content;
+        if (window.TiptapEditor) window.TiptapEditor.setContentFromMarkdown(project.content);
+      } catch (_) {}
       return true;
     } catch (_) {
       return false;
@@ -586,6 +619,7 @@ const SourceTab = (() => {
         const updated = await res.json();
         const idx = project.sources.findIndex(s => s.id === src.id);
         if (idx >= 0) project.sources[idx] = updated;
+        await _applyFileNameIfDefault(project, updated, file.name);
         // PDFを再読み込みした場合は画像認識モーダルを閉じる（サムネイルが更新されるため）
         const modalOverlay = document.querySelector('.modal-overlay');
         if (modalOverlay && modalOverlay.querySelector('.pdf-page-grid')) {

@@ -78,30 +78,6 @@ const CommandParser = (() => {
         requiresLLM: true,
       },
     },
-    review: {
-      // レビューコマンド（フォーカス指定）
-      'review-structure': {
-        description: '文書構造にフォーカスしてレビュー',
-        requiresLLM: true,
-      },
-      'review-rule': {
-        description: '執筆ルールの適用にフォーカスしてレビュー',
-        requiresLLM: true,
-      },
-      'review-source': {
-        description: 'ソース/参考文献の活用にフォーカスしてレビュー',
-        requiresLLM: true,
-      },
-      review: {
-        description: 'レビューを実行（フォーカスなし）',
-        requiresLLM: true,
-      },
-      prompt: {
-        description: 'プロンプトの保存・読み込み',
-        requiresLLM: false,
-        knownArgs: ['save', 'load'],
-      },
-    },
   };
 
   // @参照のパターン
