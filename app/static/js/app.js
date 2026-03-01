@@ -121,6 +121,11 @@ const AppShell = (() => {
     // 3カラムパネルリサイズを初期化
     _initPanelResizers();
 
+    // 履歴パネルトグルボタン（トップバー）
+    document.getElementById('btn-toggle-history')?.addEventListener('click', () => {
+      _toggleHistoryPanel();
+    });
+
     // パブリックなMarkdownエクスポートボタン
     document.getElementById('btn-export-md')?.addEventListener('click', async () => {
       const project = window.appState.getProject();
@@ -197,9 +202,14 @@ const AppShell = (() => {
 
     _renderTopBarActions(tab);
 
-    // Editタブ以外では文字数表示を非表示
+    // Editタブ以外では文字数表示・履歴トグルボタンを非表示
     const charCountEl = document.getElementById('char-count-display');
     if (charCountEl && tab !== 'edit') charCountEl.style.display = 'none';
+    const historyToggleBtn = document.getElementById('btn-toggle-history');
+    if (historyToggleBtn) {
+      historyToggleBtn.style.display = tab === 'edit' ? '' : 'none';
+      if (tab === 'edit') historyToggleBtn.classList.toggle('active', _historyPanelOpen);
+    }
   }
 
   function _resetAllTabs() {
@@ -321,6 +331,8 @@ const AppShell = (() => {
       const resizer = document.getElementById('history-resizer');
       if (sidePanel) sidePanel.classList.remove('collapsed');
       if (resizer) { resizer.classList.remove('collapsed-indicator'); resizer.classList.add('history-open'); }
+      const topBtn = document.getElementById('btn-toggle-history');
+      if (topBtn) topBtn.classList.add('active');
     }
 
     // /structure-section コマンドの場合、選択中のセクションを対象にする
@@ -932,10 +944,12 @@ const AppShell = (() => {
     if (!project) return;
 
     _historyPanelOpen = !_historyPanelOpen;
+    const topBtn = document.getElementById('btn-toggle-history');
     if (_historyPanelOpen) {
       sidePanel.classList.remove('collapsed');
       resizer.classList.remove('collapsed-indicator');
       resizer.classList.add('history-open');
+      if (topBtn) topBtn.classList.add('active');
       // ストリーミング中でなければ最新履歴を取得して描画
       if (!_currentSseCtrl) {
         await _refreshHistoryPanel();
@@ -944,6 +958,7 @@ const AppShell = (() => {
       sidePanel.classList.add('collapsed');
       resizer.classList.add('collapsed-indicator');
       resizer.classList.remove('history-open');
+      if (topBtn) topBtn.classList.remove('active');
     }
   }
 

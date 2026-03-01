@@ -549,6 +549,13 @@ body {
   border-color: var(--color-text-muted);
 }
 
+.btn-secondary.active {
+  background: var(--color-bg);
+  border-color: var(--color-text);
+  color: var(--color-text);
+  font-weight: 600;
+}
+
 /* Tertiary — 透明 + テキストのみ (テキストリンク的) */
 .btn-tertiary {
   background: none;
