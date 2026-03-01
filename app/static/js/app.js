@@ -153,13 +153,12 @@ const AppShell = (() => {
       }
     });
 
-    // チャット履歴パネルのトグルは _initPanelResizers 内で設定済み
-
     // チャットコピーボタンのイベントデリゲーション（SVG子要素クリック対応でclosestを使用）
     document.getElementById('chat-history-panel-messages')?.addEventListener('click', (e) => {
       const copyBtn = e.target.closest('.chat-copy-btn');
       if (copyBtn) {
-        const text = copyBtn.closest('.chat-history-msg').querySelector('.chat-history-msg-content').textContent;
+        const text = copyBtn.dataset.copyText
+          || copyBtn.closest('.chat-history-msg').querySelector('.chat-history-msg-content').textContent;
         const chatInput = document.getElementById('chat-input');
         if (chatInput) {
           chatInput.value = text;
@@ -427,7 +426,7 @@ const AppShell = (() => {
       selected_section_title: _selectedSectionTitle,
       explicit_refs: body.explicit_refs || [],
       ref_names: body.ref_names || [],
-      prompt_text: parsed.freeText || null,
+      prompt_text: userDisplayContent || null,
       command_name: parsed.command ? parsed.command.name : null,
     });
 
@@ -936,9 +935,6 @@ const AppShell = (() => {
     if (refs.length > 0) {
       parts.push(`<span class="chat-history-msg-meta-item">🔗 ${refs.map(n => escHtml(n)).join('、')}</span>`);
     }
-    if (msg.prompt_text) {
-      parts.push(`<span class="chat-history-msg-meta-item chat-history-msg-meta-prompt">${escHtml(msg.prompt_text)}</span>`);
-    }
     if (parts.length === 0) return '';
     return `<div class="chat-history-msg-meta">${parts.join('')}</div>`;
   }
@@ -973,7 +969,8 @@ const AppShell = (() => {
    * メッセージオブジェクトからHTML文字列を生成する
    */
   function _buildHistoryMsgHtml(msg) {
-    const copyBtn = `<button class="btn-icon chat-copy-btn" title="チャット入力にコピー">${SVG_COPY}</button>`;
+    const copyText = msg.prompt_text || msg.content || '';
+    const copyBtn = `<button class="btn-icon chat-copy-btn" title="チャット入力にコピー" data-copy-text="${escHtml(copyText)}">${SVG_COPY}</button>`;
     const timeStr = new Date(msg.timestamp).toLocaleString('ja-JP');
     const metaHtml = _buildMsgMetaHtml(msg);
 

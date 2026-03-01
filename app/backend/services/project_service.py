@@ -659,11 +659,6 @@ class ProjectService:
         if user_message and user_message.strip() and user_message.strip() != f"/{command_name}":
             base_content = f"/{command_name} {user_message.strip()}"
 
-        # フリーテキスト部分（コマンド名を除いた部分）
-        free_text = None
-        if user_message and user_message.strip() and user_message.strip() != f"/{command_name}":
-            free_text = user_message.strip()
-
         message = ChatMessage(
             role="command",
             content=base_content,
@@ -674,7 +669,7 @@ class ProjectService:
             selected_section_title=selected_section_title,
             explicit_refs=explicit_refs or [],
             ref_names=ref_names or [],
-            prompt_text=free_text,
+            prompt_text=base_content,
         )
         project.chat_history.append(message)
         self._mark_dirty(project_id)

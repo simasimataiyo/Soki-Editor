@@ -1294,6 +1294,7 @@ body {
 
 /* ─── Tiptap Editor & Toolbar ────────────────────────────── */
 .tiptap-toolbar {
+  height: 40px;
   display: flex;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
@@ -1678,6 +1679,7 @@ body {
   flex: 1;
   overflow: hidden;
   min-height: 0;
+  border-left: 1px solid var(--color-border);
 }
 
 .chat-history-panel-tabs {
@@ -1738,7 +1740,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  border-left: 1px solid var(--color-border);
 }
 
 .chat-history-placeholder {
@@ -1762,8 +1763,7 @@ body {
   border-radius: var(--radius);
   font-size: 13px;
   line-height: 1.5;
-  max-width: 85%;
-  min-width: 40%;
+  width: 85%;
   user-select: text;
 }
 
@@ -1821,6 +1821,7 @@ body {
 
 /* ─── チャット履歴パネルヘッダ ───────────────────────────── */
 .chat-history-panel-header {
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: space-between;
