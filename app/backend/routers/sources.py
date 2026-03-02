@@ -355,6 +355,77 @@ async def analyze_saved_pdf_page_stream(
     )
 
 
+# ─── 保存済みPDF全ページ一括ストリーミング解析 ────────────────
+
+
+@router.post("/sources/{source_id}/analyze-all-pages-stream")
+async def analyze_all_pages_stream(
+    project_id: str, source_id: str, body: dict
+) -> StreamingResponse:
+    """保存済みPDFの全ページをVision APIで順次ストリーミング解析する。
+
+    SSEイベント形式:
+      data: {"event": "page_start", "page": 0, "total": 5}
+      data: {"event": "chunk",      "page": 0, "text": "..."}
+      data: {"event": "page_done",  "page": 0}
+      data: {"event": "error",      "page": 0, "message": "..."}
+      data: [DONE]
+    """
+    svc = get_service()
+    try:
+        project = await svc.get_project(project_id)
+    except KeyError:
+        _not_found(project_id)
+
+    src = next((s for s in project.sources if s.id == source_id), None)
+    if not src:
+        raise HTTPException(status_code=404, detail="ソースが見つかりません")
+
+    max_chars: int | None = body.get("max_chars_per_page")
+    source_dir = Path(project.data_dir) / "source" / source_id
+
+    # 全 page_raw_{n}.jpg を昇順で収集
+    page_paths: list[tuple[int, Path]] = []
+    pg = 0
+    while True:
+        raw_path = source_dir / f"page_raw_{pg}.jpg"
+        if not raw_path.exists():
+            break
+        page_paths.append((pg, raw_path))
+        pg += 1
+
+    if not page_paths:
+        raise HTTPException(
+            status_code=404,
+            detail="ページ画像が見つかりません。先に「ファイル読み込み」でPDFを読み込んでください。",
+        )
+
+    total = len(page_paths)
+    settings = get_settings_service().get()
+    template = _llm_service._load_template("vision_prompts.jinja2")
+    prompt_text = template.module.pdf_transcription_prompt(max_chars)
+
+    async def event_stream():
+        for pg_num, raw_path in page_paths:
+            yield f"data: {json.dumps({'event': 'page_start', 'page': pg_num, 'total': total})}\n\n"
+            try:
+                img_bytes = raw_path.read_bytes()
+                async for chunk in _llm_service.analyze_image_bytes_with_vision_stream(
+                    img_bytes, "image/jpeg", settings, prompt_text
+                ):
+                    yield f"data: {json.dumps({'event': 'chunk', 'page': pg_num, 'text': chunk})}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'event': 'error', 'page': pg_num, 'message': str(e)})}\n\n"
+            yield f"data: {json.dumps({'event': 'page_done', 'page': pg_num})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 # ─── PDFページ選択・解析（ファイルアップロード版） ────────────
 
 

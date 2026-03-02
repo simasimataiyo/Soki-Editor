@@ -267,7 +267,9 @@ const SourceTab = (() => {
 
             <div class="source-actions">
               <button class="btn btn-secondary btn-sm" id="btn-analyze-image" ${fullTextProc ? 'disabled' : ''}>画像解説を追加</button>
+              <button class="btn btn-secondary btn-sm" id="btn-analyze-all-pages" ${fullTextProc || src.file_type !== 'pdf' ? 'disabled' : ''}>全ページ一括解析</button>
               <button class="btn btn-secondary btn-sm" id="btn-read-file" ${fullTextProc ? 'disabled' : ''}>ファイル読み込み</button>
+              <button class="btn btn-primary btn-sm" id="btn-save-source" ${fullTextProc ? 'disabled' : ''}>保存</button>
             </div>
 
           </div>
@@ -360,6 +362,12 @@ const SourceTab = (() => {
     document.getElementById('btn-delete-source').addEventListener('click', () => _deleteSource(src));
     document.getElementById('btn-read-file').addEventListener('click', () => _readFile(src));
     document.getElementById('btn-analyze-image').addEventListener('click', () => _analyzeImage(src));
+    document.getElementById('btn-analyze-all-pages').addEventListener('click', () => _showBatchPdfAnalysisModal(src));
+    document.getElementById('btn-save-source').addEventListener('click', async () => {
+      _cancelPendingSave();
+      await _saveSource(src.id);
+      showToast('保存しました', 'success');
+    });
     document.getElementById('btn-summarize').addEventListener('click', () => _summarize(src));
     document.getElementById('btn-extract-bib').addEventListener('click', () => _extractBibliography(src));
 
@@ -981,6 +989,224 @@ const SourceTab = (() => {
 
     // 初期表示
     _showPageSelect();
+  }
+
+  /**
+   * PDF全ページ一括書き起こしモーダル（設定 → ストリーミング解析 → 結果確認）
+   * @param {object} src - ソースオブジェクト（file_type === 'pdf'）
+   */
+  function _showBatchPdfAnalysisModal(src) {
+    const project = window.appState.getProject();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.maxWidth = '680px';
+    modal.style.width = '90vw';
+    modal.style.maxHeight = '85vh';
+    modal.style.overflowY = 'auto';
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    let abortController = null;
+
+    function _closeModal() {
+      if (abortController) abortController.abort();
+      overlay.remove();
+    }
+
+    // ── 設定画面 ─────────────────────────────────────────────────
+    function _showSettings() {
+      modal.innerHTML = `
+        <div class="pdf-modal-header">
+          <h3>全ページ一括解析</h3>
+          <button class="pdf-modal-close" title="閉じる">×</button>
+        </div>
+        <p style="color:var(--color-text-muted);font-size:13px;margin-bottom:16px">
+          保存済みの全ページを順番に書き起こします。
+        </p>
+        <div class="form-group" style="margin-bottom:16px">
+          <label>1ページあたりの最大文字数（省略可）</label>
+          <input type="number" class="form-control" id="batch-max-chars"
+            min="100" max="10000" step="100"
+            placeholder="例: 2000（省略時は制限なし）" />
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="batch-btn-cancel">キャンセル</button>
+          <button class="btn btn-primary" id="batch-btn-start">解析開始</button>
+        </div>
+      `;
+      modal.querySelector('.pdf-modal-close').addEventListener('click', _closeModal);
+      modal.querySelector('#batch-btn-cancel').addEventListener('click', _closeModal);
+      modal.querySelector('#batch-btn-start').addEventListener('click', () => {
+        const val = modal.querySelector('#batch-max-chars').value.trim();
+        const maxChars = val ? parseInt(val, 10) : null;
+        _startBatchAnalysis(maxChars);
+      });
+    }
+
+    // ── バッチ解析実行 ────────────────────────────────────────────
+    async function _startBatchAnalysis(maxChars) {
+      if (abortController) abortController.abort();
+      abortController = new AbortController();
+
+      const pageTexts = {};
+      let totalPages = null;
+
+      modal.innerHTML = `
+        <div class="pdf-modal-header">
+          <h3>解析中...</h3>
+          <button class="pdf-modal-close" title="閉じる">×</button>
+        </div>
+        <div class="pdf-analysis-progress" id="batch-progress">
+          <div class="pdf-analysis-spinner"></div>
+          <span id="batch-progress-label">準備中...</span>
+        </div>
+        <div class="pdf-analysis-result" id="batch-current-text"></div>
+        <div class="modal-actions" style="margin-top:12px">
+          <button class="btn btn-secondary" id="batch-btn-abort">中止</button>
+        </div>
+      `;
+      modal.querySelector('.pdf-modal-close').addEventListener('click', _closeModal);
+      modal.querySelector('#batch-btn-abort').addEventListener('click', () => {
+        abortController.abort();
+        // 中止時点までの結果を確認画面へ
+        _showBatchResult(pageTexts, totalPages, true);
+      });
+
+      const progressLabel = modal.querySelector('#batch-progress-label');
+      const currentTextEl = modal.querySelector('#batch-current-text');
+
+      try {
+        const res = await fetch(
+          `/api/projects/${project.id}/sources/${src.id}/analyze-all-pages-stream`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ max_chars_per_page: maxChars }),
+            signal: abortController.signal,
+          }
+        );
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.detail || '解析に失敗しました');
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const payload = line.slice(6).trim();
+            if (payload === '[DONE]') {
+              _showBatchResult(pageTexts, totalPages, false);
+              return;
+            }
+            try {
+              const parsed = JSON.parse(payload);
+              if (parsed.event === 'page_start') {
+                totalPages = parsed.total;
+                pageTexts[parsed.page] = '';
+                progressLabel.textContent = `${parsed.page + 1} / ${parsed.total} ページ目を解析中...`;
+                currentTextEl.textContent = '';
+              } else if (parsed.event === 'chunk') {
+                pageTexts[parsed.page] = (pageTexts[parsed.page] || '') + parsed.text;
+                currentTextEl.textContent = pageTexts[parsed.page];
+                currentTextEl.scrollTop = currentTextEl.scrollHeight;
+              } else if (parsed.event === 'error') {
+                pageTexts[parsed.page] = `[解析失敗: ${parsed.message}]`;
+                currentTextEl.textContent = pageTexts[parsed.page];
+              }
+            } catch (e) {
+              if (!(e instanceof SyntaxError)) throw e;
+            }
+          }
+        }
+
+        _showBatchResult(pageTexts, totalPages, false);
+
+      } catch (e) {
+        if (e.name === 'AbortError') {
+          // 中止ボタンが押されていれば結果画面はすでに表示済み
+          return;
+        }
+        modal.innerHTML = `
+          <div class="pdf-modal-header">
+            <h3>解析エラー</h3>
+            <button class="pdf-modal-close" title="閉じる">×</button>
+          </div>
+          <p style="color:var(--color-danger);font-size:13px;margin:12px 0">${escHtml(e.message)}</p>
+          <div class="modal-actions">
+            <button class="btn btn-secondary" id="batch-err-close">閉じる</button>
+            <button class="btn btn-primary" id="batch-err-retry">再試行</button>
+          </div>
+        `;
+        modal.querySelector('.pdf-modal-close').addEventListener('click', _closeModal);
+        modal.querySelector('#batch-err-close').addEventListener('click', _closeModal);
+        modal.querySelector('#batch-err-retry').addEventListener('click', () => _startBatchAnalysis(maxChars));
+      }
+    }
+
+    // ── 結果確認画面 ──────────────────────────────────────────────
+    function _showBatchResult(pageTexts, totalPages, wasAborted) {
+      const pageNums = Object.keys(pageTexts).map(Number).sort((a, b) => a - b);
+      const combinedText = pageNums
+        .map(n => `--- ${n + 1}ページ目 ---\n${pageTexts[n]}`)
+        .join('\n\n');
+      const title = wasAborted
+        ? `中止 (${pageNums.length}ページ書き起こし済み)`
+        : `解析完了 (${pageNums.length}ページ)`;
+
+      modal.innerHTML = `
+        <div class="pdf-modal-header">
+          <h3>${escHtml(title)}</h3>
+          <button class="pdf-modal-close" title="閉じる">×</button>
+        </div>
+        <div class="pdf-analysis-result" id="batch-result-text" style="max-height:340px">${escHtml(combinedText)}</div>
+        <div class="modal-actions" style="margin-top:16px">
+          <button class="btn btn-secondary" id="batch-btn-back">戻る</button>
+          <button class="btn btn-primary" id="batch-btn-add"${!combinedText ? ' disabled' : ''}>内容に追加</button>
+        </div>
+      `;
+      modal.querySelector('.pdf-modal-close').addEventListener('click', _closeModal);
+      modal.querySelector('#batch-btn-back').addEventListener('click', _showSettings);
+      modal.querySelector('#batch-btn-add').addEventListener('click', async () => {
+        const currentText = src.full_text || '';
+        const separator = currentText ? '\n\n' : '';
+        const newText = currentText + separator + combinedText;
+
+        try {
+          const updated = await ApiClient.put(
+            `/api/projects/${project.id}/sources/${src.id}`,
+            { full_text: newText }
+          );
+          const idx = project.sources.findIndex(s => s.id === src.id);
+          if (idx >= 0) project.sources[idx] = updated;
+          src.full_text = updated.full_text;
+          const ta = document.getElementById('src-full-text');
+          if (ta) ta.value = updated.full_text;
+          showToast('内容に追加しました', 'success');
+          _closeModal();
+        } catch (_) {
+          showToast('保存に失敗しました', 'error');
+        }
+      });
+    }
+
+    // 初期表示
+    _showSettings();
   }
 
   /**

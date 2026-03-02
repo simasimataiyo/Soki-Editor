@@ -8,3 +8,12 @@
 このページ（{{ page_num + 1 }}ページ目）の内容をmarkdown記法を使って詳しく説明してください。
 テキスト、図表、数式などを含む場合はできる限りmarkdown構文で表現してください。
 {% endmacro %}
+
+{# PDF全ページ一括書き起こしプロンプト #}
+{% macro pdf_transcription_prompt(max_chars=None) %}
+このページに書かれている内容を、左上から右下にかけて順に書き起こしてください。
+markdown記法を使用し、説明や解釈は一切加えず、書かれている内容のみを忠実に書き起こしてください。
+{% if max_chars %}
+出力は{{ max_chars }}文字以内に収めてください。
+{% endif %}
+{% endmacro %}
