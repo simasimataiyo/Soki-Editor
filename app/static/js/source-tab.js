@@ -269,6 +269,7 @@ const SourceTab = (() => {
               <button class="btn btn-secondary btn-sm" id="btn-analyze-image" ${fullTextProc ? 'disabled' : ''}>画像解説を追加</button>
               <button class="btn btn-secondary btn-sm" id="btn-analyze-all-pages" ${fullTextProc || src.file_type !== 'pdf' ? 'disabled' : ''}>全ページ一括解析</button>
               <button class="btn btn-secondary btn-sm" id="btn-read-file" ${fullTextProc ? 'disabled' : ''}>ファイル読み込み</button>
+              <button class="btn btn-primary btn-sm" id="btn-save-source" ${fullTextProc ? 'disabled' : ''}>保存</button>
             </div>
 
           </div>
@@ -362,6 +363,11 @@ const SourceTab = (() => {
     document.getElementById('btn-read-file').addEventListener('click', () => _readFile(src));
     document.getElementById('btn-analyze-image').addEventListener('click', () => _analyzeImage(src));
     document.getElementById('btn-analyze-all-pages').addEventListener('click', () => _showBatchPdfAnalysisModal(src));
+    document.getElementById('btn-save-source').addEventListener('click', async () => {
+      _cancelPendingSave();
+      await _saveSource(src.id);
+      showToast('保存しました', 'success');
+    });
     document.getElementById('btn-summarize').addEventListener('click', () => _summarize(src));
     document.getElementById('btn-extract-bib').addEventListener('click', () => _extractBibliography(src));
 
