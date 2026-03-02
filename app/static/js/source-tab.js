@@ -1053,7 +1053,7 @@ const SourceTab = (() => {
       modal.innerHTML = `
         <div class="pdf-modal-header">
           <h3>解析中...</h3>
-          <button class="pdf-modal-close" title="中止">×</button>
+          <button class="pdf-modal-close" title="閉じる">×</button>
         </div>
         <div class="pdf-analysis-progress" id="batch-progress">
           <div class="pdf-analysis-spinner"></div>
@@ -1065,7 +1065,11 @@ const SourceTab = (() => {
         </div>
       `;
       modal.querySelector('.pdf-modal-close').addEventListener('click', _closeModal);
-      modal.querySelector('#batch-btn-abort').addEventListener('click', _closeModal);
+      modal.querySelector('#batch-btn-abort').addEventListener('click', () => {
+        abortController.abort();
+        // 中止時点までの結果を確認画面へ
+        _showBatchResult(pageTexts, totalPages, true);
+      });
 
       const progressLabel = modal.querySelector('#batch-progress-label');
       const currentTextEl = modal.querySelector('#batch-current-text');
@@ -1101,7 +1105,7 @@ const SourceTab = (() => {
             if (!line.startsWith('data: ')) continue;
             const payload = line.slice(6).trim();
             if (payload === '[DONE]') {
-              _showBatchResult(pageTexts, totalPages);
+              _showBatchResult(pageTexts, totalPages, false);
               return;
             }
             try {
@@ -1125,10 +1129,13 @@ const SourceTab = (() => {
           }
         }
 
-        _showBatchResult(pageTexts, totalPages);
+        _showBatchResult(pageTexts, totalPages, false);
 
       } catch (e) {
-        if (e.name === 'AbortError') return;
+        if (e.name === 'AbortError') {
+          // 中止ボタンが押されていれば結果画面はすでに表示済み
+          return;
+        }
         modal.innerHTML = `
           <div class="pdf-modal-header">
             <h3>解析エラー</h3>
@@ -1147,15 +1154,18 @@ const SourceTab = (() => {
     }
 
     // ── 結果確認画面 ──────────────────────────────────────────────
-    function _showBatchResult(pageTexts, totalPages) {
+    function _showBatchResult(pageTexts, totalPages, wasAborted) {
       const pageNums = Object.keys(pageTexts).map(Number).sort((a, b) => a - b);
       const combinedText = pageNums
         .map(n => `--- ${n + 1}ページ目 ---\n${pageTexts[n]}`)
         .join('\n\n');
+      const title = wasAborted
+        ? `中止 (${pageNums.length}ページ書き起こし済み)`
+        : `解析完了 (${pageNums.length}ページ)`;
 
       modal.innerHTML = `
         <div class="pdf-modal-header">
-          <h3>解析完了 (${pageNums.length}ページ)</h3>
+          <h3>${escHtml(title)}</h3>
           <button class="pdf-modal-close" title="閉じる">×</button>
         </div>
         <div class="pdf-analysis-result" id="batch-result-text" style="max-height:340px">${escHtml(combinedText)}</div>

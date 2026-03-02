@@ -2672,13 +2672,12 @@ body {
 }
 
 .pdf-analysis-result {
+  height:400px;
   margin-top: 8px;
   padding: 12px;
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  min-height: 80px;
-  max-height: 280px;
   overflow-y: auto;
   font-size: 13px;
   line-height: 1.6;
