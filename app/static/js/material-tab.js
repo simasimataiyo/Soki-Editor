@@ -99,6 +99,7 @@ const MaterialTab = (() => {
               <label>キャプション</label>
               <input type="text" class="form-control" id="mat-caption" value="${escHtml(mat.caption)}" />
             </div>
+            ${mat.type !== 'table' ? `
             <div class="form-group" style="margin-bottom:10px">
               <label>ファイルパス</label>
               <input type="text" class="form-control" value="${escHtml(mat.file_path || '')}" readonly />
@@ -106,15 +107,32 @@ const MaterialTab = (() => {
             <div class="source-actions" style="margin-bottom:12px">
               <button class="btn btn-secondary btn-sm" id="btn-upload-material">ファイル読み込み</button>
             </div>
+            ` : ''}
           </div>
         </div>
 
+        ${mat.type === 'table' ? `
+        <!-- 表Markdown編集 -->
+        <div class="collapsible-section">
+          <div class="collapsible-header" data-section="mat-table">
+            <span class="chevron">${_sectionCollapsed['mat-table'] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
+            <h3>表データ (Markdown)</h3>
+          </div>
+          <div class="collapsible-body${_sectionCollapsed['mat-table'] ? ' collapsed' : ''}">
+            <div class="form-group" style="margin-bottom:8px">
+              <textarea class="form-control" id="mat-table-content" rows="6" placeholder="| 列1 | 列2 |\n|-----|-----|\n| 値1 | 値2 |">${escHtml(mat.table_content || '')}</textarea>
+            </div>
+            <div class="table-preview" id="mat-table-preview"></div>
+          </div>
+        </div>
+        ` : `
         <!-- 画像プレビュー -->
         <div class="material-preview">
           ${imgSrc
             ? `<img src="${imgSrc}" alt="preview" />`
             : `<span class="preview-placeholder">${SVG_IMAGE_LG}</span>`}
         </div>
+        `}
 
         <!-- 設定セクション -->
         <div class="collapsible-section">
@@ -149,7 +167,7 @@ const MaterialTab = (() => {
     });
 
     document.getElementById('btn-delete-material').addEventListener('click', () => _deleteMaterial(mat));
-    document.getElementById('btn-upload-material').addEventListener('click', () => _uploadFile(mat));
+    document.getElementById('btn-upload-material')?.addEventListener('click', () => _uploadFile(mat));
 
     // ─── ペイン全体ドラッグ&ドロップ ───────────────────────────
     const overlay = pane.querySelector('.pane-drag-overlay');
@@ -219,13 +237,41 @@ const MaterialTab = (() => {
       if (file) await _handleFileDrop(file);
     });
 
+    // 表Markdownプレビュー
+    const tableContentEl = document.getElementById('mat-table-content');
+    const tablePreviewEl = document.getElementById('mat-table-preview');
+    if (tableContentEl && tablePreviewEl) {
+      const updateTablePreview = () => {
+        const md = tableContentEl.value;
+        if (typeof marked !== 'undefined') {
+          tablePreviewEl.innerHTML = marked.parse(md);
+        }
+      };
+      updateTablePreview();
+      tableContentEl.addEventListener('input', updateTablePreview);
+    }
+
+    // typeセレクトを即時反映（UIを切り替えてから保存）
+    const typeEl = document.getElementById('mat-type');
+    if (typeEl) {
+      typeEl.addEventListener('change', () => {
+        const project = window.appState.getProject();
+        const currentMat = project.materials.find(m => m.id === mat.id);
+        if (currentMat) {
+          currentMat.type = typeEl.value;
+          _saveMaterial(mat.id);
+          _renderDetail(mat.id);
+        }
+      });
+    }
+
     // 自動保存
     let saveTimer;
     const autoSave = () => {
       clearTimeout(saveTimer);
       saveTimer = setTimeout(() => _saveMaterial(mat.id), 2000);
     };
-    pane.querySelectorAll('input:not([readonly]), select').forEach(el => {
+    pane.querySelectorAll('input:not([readonly]), textarea').forEach(el => {
       el.addEventListener('input', autoSave);
       el.addEventListener('change', autoSave);
     });
@@ -281,6 +327,7 @@ const MaterialTab = (() => {
       name: document.getElementById('mat-name')?.value || mat.name,
       type: document.getElementById('mat-type')?.value || mat.type,
       caption: document.getElementById('mat-caption')?.value || mat.caption,
+      table_content: document.getElementById('mat-table-content')?.value ?? mat.table_content,
     };
     try {
       const updated = await ApiClient.put(`/api/projects/${project.id}/materials/${mat.id}`, body);

@@ -201,7 +201,7 @@ const FigureNode = Node.create({
     return [{ tag: 'span[data-fig-id]' }];
   },
   renderHTML({ HTMLAttributes }) {
-    return ['span', mergeAttributes(HTMLAttributes, { class: 'figure-node', contenteditable: 'false' }), `![${HTMLAttributes['data-alt-text'] || ''}]("${HTMLAttributes['data-fig-id'] || ''}")`];
+    return ['span', mergeAttributes(HTMLAttributes, { class: 'figure-node', contenteditable: 'false' }), ''];
   },
   addInputRules() {
     return [
@@ -214,6 +214,201 @@ const FigureNode = Node.create({
       }),
     ];
   },
+});
+
+// FigureBlockNode: ブロック要素として図表を埋め込む
+const FigureBlockNode = Node.create({
+  name: 'figureBlockNode',
+  group: 'block',
+  atom: true,
+  draggable: true,
+  addAttributes() {
+    return {
+      figId: {
+        default: null,
+        parseHTML: el => el.getAttribute('data-fig-block-id'),
+        renderHTML: attrs => ({ 'data-fig-block-id': attrs.figId }),
+      },
+    };
+  },
+  parseHTML() {
+    return [{ tag: 'div[data-fig-block-id]' }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ['div', mergeAttributes(HTMLAttributes, { class: 'figure-block-node', contenteditable: 'false' }), 0];
+  },
+});
+
+// ─── 図表番号自動採番プラグイン ──────────────────────────────
+const FigureNumberPluginKey = new PluginKey('figureNumberPlugin');
+const FigureNumberExtension = Extension.create({
+  name: 'figureNumber',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: FigureNumberPluginKey,
+        props: {
+          decorations(state) {
+            const materials = (window.TiptapEditor && window.TiptapEditor._materialsData) || [];
+            const matById = {};
+            materials.forEach(m => { matById[m.id] = m; });
+
+            // 図・表それぞれの採番カウンター
+            const figCounter = {};  // figId -> 図N
+            const tabCounter = {};  // figId -> 表N
+            let figNum = 0;
+            let tabNum = 0;
+
+            state.doc.descendants((node) => {
+              if (node.type.name === 'figureNode') {
+                const id = node.attrs.figId;
+                if (!id) return;
+                if (figCounter[id] !== undefined || tabCounter[id] !== undefined) return;
+                const mat = matById[id];
+                if (mat && mat.type === 'table') {
+                  tabNum++;
+                  tabCounter[id] = tabNum;
+                } else {
+                  figNum++;
+                  figCounter[id] = figNum;
+                }
+              }
+              if (node.type.name === 'figureBlockNode') {
+                const id = node.attrs.figId;
+                if (!id) return;
+                if (figCounter[id] !== undefined || tabCounter[id] !== undefined) return;
+                const mat = matById[id];
+                if (mat && mat.type === 'table') {
+                  tabNum++;
+                  tabCounter[id] = tabNum;
+                } else {
+                  figNum++;
+                  figCounter[id] = figNum;
+                }
+              }
+            });
+
+            const decorations = [];
+            state.doc.descendants((node, pos) => {
+              if (node.type.name === 'figureNode') {
+                const id = node.attrs.figId;
+                if (!id) return;
+                const mat = matById[id];
+                let label;
+                if (mat && mat.type === 'table') {
+                  label = `表${tabCounter[id] || '?'}`;
+                } else {
+                  label = `図${figCounter[id] || '?'}`;
+                }
+                const widget = document.createElement('span');
+                widget.className = 'figure-ref-badge';
+                widget.setAttribute('data-fig-id', id);
+                widget.textContent = label;
+                widget.contentEditable = 'false';
+                decorations.push(Decoration.widget(pos + 1, widget, { side: 0, key: `fig-num-${id}-${pos}` }));
+              }
+            });
+
+            return DecorationSet.create(state.doc, decorations);
+          }
+        }
+      })
+    ];
+  }
+});
+
+// ─── 図表ブロックレンダリングプラグイン ──────────────────────
+const FigureBlockPluginKey = new PluginKey('figureBlockPlugin');
+const FigureBlockExtension = Extension.create({
+  name: 'figureBlock',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: FigureBlockPluginKey,
+        props: {
+          decorations(state) {
+            const materials = (window.TiptapEditor && window.TiptapEditor._materialsData) || [];
+            const projectId = window.appState && window.appState.getProject && window.appState.getProject()?.id;
+            const matById = {};
+            materials.forEach(m => { matById[m.id] = m; });
+
+            // 図・表の全採番（figureNode含む）
+            const figCounter = {};
+            const tabCounter = {};
+            let figNum = 0;
+            let tabNum = 0;
+            state.doc.descendants((node) => {
+              if (node.type.name === 'figureNode' || node.type.name === 'figureBlockNode') {
+                const id = node.attrs.figId;
+                if (!id) return;
+                if (figCounter[id] !== undefined || tabCounter[id] !== undefined) return;
+                const mat = matById[id];
+                if (mat && mat.type === 'table') {
+                  tabNum++;
+                  tabCounter[id] = tabNum;
+                } else {
+                  figNum++;
+                  figCounter[id] = figNum;
+                }
+              }
+            });
+
+            const decorations = [];
+            state.doc.descendants((node, pos) => {
+              if (node.type.name === 'figureBlockNode') {
+                const id = node.attrs.figId;
+                const mat = matById[id];
+                if (!mat) return;
+
+                const isTable = mat.type === 'table';
+                const num = isTable ? tabCounter[id] : figCounter[id];
+                const prefix = isTable ? '表' : '図';
+                const caption = mat.caption || mat.name || '';
+                const captionText = caption ? `${prefix}${num || '?'}: ${caption}` : `${prefix}${num || '?'}`;
+
+                const wrapper = document.createElement('div');
+                wrapper.className = 'figure-block-inner';
+                wrapper.contentEditable = 'false';
+
+                if (isTable && mat.table_content) {
+                  const tableWrap = document.createElement('div');
+                  tableWrap.className = 'figure-block-table-wrap';
+                  tableWrap.innerHTML = marked.parse(mat.table_content);
+                  wrapper.appendChild(tableWrap);
+                } else if (!isTable && mat.thumbnail_path && projectId) {
+                  const img = document.createElement('img');
+                  img.src = `/api/files?path=${encodeURIComponent(mat.thumbnail_path)}&project_id=${projectId}`;
+                  img.alt = caption;
+                  img.className = 'figure-block-img';
+                  wrapper.appendChild(img);
+                } else if (!isTable && mat.file_path && projectId) {
+                  const img = document.createElement('img');
+                  img.src = `/api/files?path=${encodeURIComponent(mat.file_path)}&project_id=${projectId}`;
+                  img.alt = caption;
+                  img.className = 'figure-block-img';
+                  wrapper.appendChild(img);
+                } else {
+                  const placeholder = document.createElement('div');
+                  placeholder.className = 'figure-block-placeholder';
+                  placeholder.textContent = isTable ? '（表データなし）' : '（画像なし）';
+                  wrapper.appendChild(placeholder);
+                }
+
+                const cap = document.createElement('div');
+                cap.className = 'figure-block-caption';
+                cap.textContent = captionText;
+                wrapper.appendChild(cap);
+
+                decorations.push(Decoration.widget(pos + 1, wrapper, { side: 0, key: `fig-block-${id}-${pos}` }));
+              }
+            });
+
+            return DecorationSet.create(state.doc, decorations);
+          }
+        }
+      })
+    ];
+  }
 });
 
 const ReferenceListPluginKey = new PluginKey('referenceListPlugin');
@@ -442,6 +637,7 @@ function _initEditor() {
       TabHandler,
       ReferenceNode,
       FigureNode,
+      FigureBlockNode,
       UniqueID.configure({
         types: ['sectionHeading'],
         attributeName: 'sectionId',
@@ -465,6 +661,8 @@ function _initEditor() {
       }),
       CharacterCount.configure({ limit: null }),
       ReferenceListExtension,
+      FigureNumberExtension,
+      FigureBlockExtension,
       TooltipExtension,
       Placeholder.configure({
         placeholder: '本文を入力...',
@@ -736,9 +934,11 @@ function _markdownWithMarkersToHtml(markdownContent) {
     if (!seg.text.trim()) continue;
 
     // Replace markdown refs and figs with spans so marked doesn't touch them and parseHTML picks them up
+    // Also replace <!-- fig-block:fig-xxx --> with div elements for FigureBlockNode
     let textForMarked = seg.text
       .replace(/\[\^(ref-[^\]]+)\]/g, '<span data-ref-id="$1"></span>')
-      .replace(/!\[([^\]]*)\]\([^)]*"([^"]+)"\)/g, (_, alt, id) => `<span data-alt-text="${alt}" data-fig-id="${id}"></span>`);
+      .replace(/!\[([^\]]*)\]\([^)]*"([^"]+)"\)/g, (_, alt, id) => `<span data-alt-text="${alt}" data-fig-id="${id}"></span>`)
+      .replace(/<!-- fig-block:(fig-[a-z0-9]+) -->/g, (_, id) => `<div data-fig-block-id="${id}"></div>`);
 
     let segHtml = marked.parse(textForMarked);
     // 最初の見出しにdata-*属性を付与
@@ -862,6 +1062,11 @@ function _serializeToMarkdown(doc) {
       }
       case 'horizontalRule': {
         lines.push('---');
+        lines.push('');
+        break;
+      }
+      case 'figureBlockNode': {
+        lines.push(`<!-- fig-block:${node.attrs.figId} -->`);
         lines.push('');
         break;
       }
@@ -1372,6 +1577,9 @@ window.TiptapEditor = {
     return sections;
   },
 };
+
+// markedをグローバルに公開（material-tab.js等の非モジュールスクリプトから参照するため）
+window.marked = marked;
 
 // ─── 初期化 ──────────────────────────────────────────────────
 

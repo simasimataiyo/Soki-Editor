@@ -381,15 +381,23 @@ class ProjectService:
             mat.file_path = data.file_path
         if data.thumbnail_path is not None:
             mat.thumbnail_path = data.thumbnail_path
+        if data.table_content is not None:
+            mat.table_content = data.table_content
         self._mark_dirty(project_id)
         return mat
 
     async def delete_material(self, project_id: str, mat_id: str) -> None:
         project = await self.get_project(project_id)
         project.materials = [m for m in project.materials if m.id != mat_id]
-        # content 内の ![alt]("fig-xxx") 参照を削除
+        # content 内の ![alt]("fig-xxx") インライン参照を削除
         project.content = re.sub(
             r'!\[[^\]]*\]\([^)]*"' + re.escape(mat_id) + r'"[^)]*\)',
+            '',
+            project.content,
+        )
+        # content 内の <!-- fig-block:fig-xxx --> ブロック参照を削除
+        project.content = re.sub(
+            r'<!-- fig-block:' + re.escape(mat_id) + r' -->\n?',
             '',
             project.content,
         )

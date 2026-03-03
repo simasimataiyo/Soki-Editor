@@ -808,9 +808,63 @@ const EditTab = (() => {
     if (!choice) return;
     const mat = project.materials.find(m => m.id === choice);
     if (!mat) { showToast('マテリアルが見つかりません', 'error'); return; }
-    const caption = mat.caption || mat.name;
-    const filePath = mat.file_path || '';
-    _insertAtCursor(sectionId, `![${caption}](${filePath} "${mat.id}")`);
+    _insertFigNumberNode(sectionId, mat);
+  }
+
+  /**
+   * FigureNode（図表番号インライン）をTiptapエディタに直接挿入する
+   */
+  function _insertFigNumberNode(sectionId, mat) {
+    const editor = window.TiptapEditor && window.TiptapEditor.getEditor();
+    if (!editor) return;
+    const nodeContent = { type: 'figureNode', attrs: { figId: mat.id, altText: mat.caption || mat.name } };
+    if (_savedTiptapPos !== null) {
+      editor.chain().focus().insertContentAt(_savedTiptapPos, nodeContent).run();
+    } else {
+      const endPos = sectionId ? window.TiptapEditor.getSectionContentEnd(sectionId) : null;
+      if (endPos !== null) {
+        editor.chain().focus().insertContentAt(endPos, nodeContent).run();
+      } else {
+        editor.chain().focus().insertContent(nodeContent).run();
+      }
+    }
+    _savedTiptapPos = null;
+  }
+
+  /**
+   * マテリアル選択モーダルを表示し、選択した図表をブロック要素としてカーソル位置に挿入する
+   * @param {string} sectionId - 挿入先のセクションID
+   */
+  async function _showInsertFigBlockDialog(sectionId) {
+    _saveCursorPosition();
+    const project = window.appState.getProject();
+    if (!project.materials.length) { showToast('マテリアルがありません', 'error'); return; }
+    const items = project.materials.map(m => ({ value: m.id, label: m.name }));
+    const choice = await Modal.select('図表を挿入', 'マテリアルを選択してください', items, { large: true });
+    if (!choice) return;
+    const mat = project.materials.find(m => m.id === choice);
+    if (!mat) { showToast('マテリアルが見つかりません', 'error'); return; }
+    _insertFigBlockNode(sectionId, mat.id);
+  }
+
+  /**
+   * FigureBlockNodeをTiptapエディタに直接挿入する
+   */
+  function _insertFigBlockNode(sectionId, figId) {
+    const editor = window.TiptapEditor && window.TiptapEditor.getEditor();
+    if (!editor) return;
+    const blockNode = { type: 'figureBlockNode', attrs: { figId } };
+    if (_savedTiptapPos !== null) {
+      editor.chain().focus().insertContentAt(_savedTiptapPos, blockNode).createParagraphNear().focus().run();
+    } else {
+      const endPos = sectionId ? window.TiptapEditor.getSectionContentEnd(sectionId) : null;
+      if (endPos !== null) {
+        editor.chain().focus().insertContentAt(endPos, blockNode).createParagraphNear().focus().run();
+      } else {
+        editor.chain().focus().insertContent(blockNode).createParagraphNear().focus().run();
+      }
+    }
+    _savedTiptapPos = null;
   }
 
   /**
@@ -1143,6 +1197,7 @@ const EditTab = (() => {
     const toolbarDivider = document.getElementById('tiptap-toolbar-divider');
     const refBtn = toolbar ? toolbar.querySelector('[data-action="insert-ref"]') : null;
     const figBtn = toolbar ? toolbar.querySelector('[data-action="insert-fig"]') : null;
+    const figBlockBtn = toolbar ? toolbar.querySelector('[data-action="insert-fig-block"]') : null;
 
     if (toolbar) {
       if (toolbarLabel) {
@@ -1157,6 +1212,7 @@ const EditTab = (() => {
       if (toolbarDivider) toolbarDivider.style.display = '';
       if (refBtn) refBtn.style.display = '';
       if (figBtn) figBtn.style.display = '';
+      if (figBlockBtn) figBlockBtn.style.display = '';
 
       // ボタンのイベントを再バインド（cloneして重複防止）
       if (refBtn) {
@@ -1175,6 +1231,15 @@ const EditTab = (() => {
         newFigBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           _showInsertFigDialog(selectedId);
+        });
+      }
+      if (figBlockBtn) {
+        const newFigBlockBtn = figBlockBtn.cloneNode(true);
+        figBlockBtn.parentNode.replaceChild(newFigBlockBtn, figBlockBtn);
+        newFigBlockBtn.addEventListener('mousedown', e => e.preventDefault());
+        newFigBlockBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          _showInsertFigBlockDialog(selectedId);
         });
       }
 
@@ -1435,6 +1500,7 @@ const EditTab = (() => {
     bindEvents,
     insertRef: _showInsertRefDialog,
     insertFig: _showInsertFigDialog,
+    insertFigBlock: _showInsertFigBlockDialog,
     addChapter: _addChapter,
     reset,
     forceSync: _syncContentToBackend,
