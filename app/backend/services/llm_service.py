@@ -14,6 +14,32 @@ from app.backend.models import LLMSettings, Project
 
 logger = logging.getLogger(__name__)
 
+
+def _sort_sections_hierarchically(sections: list) -> list:
+    """セクションリストを階層順（深さ優先・兄弟はorder昇順）に並べ替える。
+
+    section.order は「同じ親内での並び順」であり、フラットな昇順ソートでは
+    異なる親を持つセクションが誤った順序になる。この関数は親子関係を考慮して
+    正しい表示順に並べ直す。
+    """
+    by_parent: dict = {}
+    for s in sections:
+        pid = s.parent_id
+        by_parent.setdefault(pid, []).append(s)
+    for children in by_parent.values():
+        children.sort(key=lambda s: s.order)
+
+    result = []
+
+    def collect(parent_id):
+        for s in by_parent.get(parent_id, []):
+            result.append(s)
+            collect(s.id)
+
+    collect(None)
+    return result
+
+
 # ─── Tool 定義 ────────────────────────────────────────────────
 
 TOOLS = [
@@ -521,7 +547,7 @@ class LLMService:
     ) -> AsyncGenerator[str, None]:
         """セクションごとに review_comment SSE イベントを yield する。"""
         client = self._make_client(settings)
-        sorted_sections = sorted(project.sections, key=lambda s: s.order)
+        sorted_sections = _sort_sections_hierarchically(project.sections)
 
         # レビュー用システムプロンプトをテンプレート化
         template = self._load_template("review_system.jinja2")
@@ -839,7 +865,7 @@ class LLMService:
         template = self._load_template("command_system.jinja2")
 
         enabled_rules = [r for r in project.rules if r.enabled]
-        sorted_sections = sorted(project.sections, key=lambda s: s.order)
+        sorted_sections = _sort_sections_hierarchically(project.sections)
 
         if context_scope == "all":
             target_section = None
@@ -969,7 +995,7 @@ class LLMService:
 
         # テンプレート変数の準備
         enabled_rules = [r for r in project.rules if r.enabled]
-        sorted_sections = sorted(project.sections, key=lambda s: s.order)
+        sorted_sections = _sort_sections_hierarchically(project.sections)
 
         if context_scope == "all":
             target_section = None

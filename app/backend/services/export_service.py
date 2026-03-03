@@ -17,8 +17,8 @@ class ExportService:
     _REF_PATTERN = re.compile(r"\[\^(ref-[^\]]+)\]")
     # ![caption](path "fig-xxx") マッチパターン
     _FIG_PATTERN = re.compile(r'!\[([^\]]*)\]\([^)]*\s+"(fig-[^"]+)"\)')
-    # soki-section マーカーパターン
-    _MARKER_PATTERN = re.compile(r'<!-- soki-section:[a-f0-9-]+ -->\n?')
+    # soki-section マーカーパターン（新形式: JSON / 旧形式: UUID）
+    _MARKER_PATTERN = re.compile(r'<!-- soki-section:(?:\{[^}]*\}|[a-f0-9-]+) -->\n?')
 
     # ------------------------------------------------------------------
     # Public API
@@ -125,9 +125,10 @@ class ExportService:
     def get_preview_content(self, project: Project) -> list[SectionPreview]:
         """Review タブ表示用: 各セクションの参照解決済みコンテンツを返す。"""
         from app.backend.services.project_service import ProjectService
+        from app.backend.services.llm_service import _sort_sections_hierarchically
         ref_map, fig_map = self.build_reference_maps(project)
         previews: list[SectionPreview] = []
-        sorted_sections = sorted(project.sections, key=lambda s: s.order)
+        sorted_sections = _sort_sections_hierarchically(project.sections)
         for sec in sorted_sections:
             body = ProjectService.extract_section_body(project.content, sec.id)
             resolved = self.resolve_references(body, ref_map, fig_map)

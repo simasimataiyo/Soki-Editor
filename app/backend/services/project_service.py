@@ -163,8 +163,8 @@ class ProjectService:
 
         parts = []
         for sec in ordered:
-            depth = _depth(sec)
-            heading_level = "#" * (depth + 1)  # depth=1→##, depth=2→###
+            depth = min(_depth(sec), 6)
+            heading_level = "#" * depth  # depth=1→#(h1), depth=2→##(h2)
             sec_id = sec["id"]
             title = sec.get("title", "")
             body = (sec.get("content") or "").strip()
@@ -420,8 +420,8 @@ class ProjectService:
         )
         if not marker_exists:
             # project.content にスケルトットを追記（アウトラインからの追加時）
-            depth = self._section_depth(sec, project.sections)
-            heading_level = "#" * (depth + 1)
+            depth = min(self._section_depth(sec, project.sections), 6)
+            heading_level = "#" * depth  # depth=1→#(h1), depth=2→##(h2)
             # 親セクションのブロック末尾に挿入する（なければ末尾）
             meta = json.dumps({"id": sec.id, "summary": sec.summary or "", "parentId": sec.parent_id, "sectionOrder": sec.order}, ensure_ascii=False)
             skeleton = f"\n<!-- soki-section:{meta} -->\n{heading_level} {sec.title}\n\n"
