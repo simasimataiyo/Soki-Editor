@@ -66,6 +66,7 @@ class Material(BaseModel):
     caption: str = ""
     file_path: Optional[str] = None
     thumbnail_path: Optional[str] = None
+    table_content: Optional[str] = None
 
 
 class Rule(BaseModel):
@@ -237,6 +238,7 @@ class MaterialUpdate(BaseModel):
     caption: Optional[str] = None
     file_path: Optional[str] = None
     thumbnail_path: Optional[str] = None
+    table_content: Optional[str] = None
 
 
 class ErrorResponse(BaseModel):

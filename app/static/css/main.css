@@ -2954,3 +2954,83 @@ body {
     padding: 16px;
   }
 }
+
+/* ─── 図表番号インラインバッジ ───────────────────────────── */
+.figure-ref-badge {
+  display: inline-block;
+  background: #fce8e6;
+  color: #c0392b;
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 0.85em;
+  font-weight: 600;
+  cursor: default;
+  user-select: none;
+  vertical-align: baseline;
+}
+
+/* ─── 図表ブロックノード ─────────────────────────────────── */
+.figure-block-node {
+  display: block;
+  margin: 1.5rem auto;
+  text-align: center;
+  border-radius: 4px;
+  padding: 12px 8px 8px;
+  background: var(--color-bg-secondary, #f8f9fa);
+  border: 1px solid var(--color-border, #e0e0e0);
+}
+
+.figure-block-inner {
+  display: block;
+}
+
+.figure-block-node img,
+.figure-block-img {
+  max-width: 100%;
+  max-height: 500px;
+  object-fit: contain;
+  display: block;
+  margin: 0 auto;
+}
+
+.figure-block-caption {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--color-text-muted, #666);
+  text-align: center;
+}
+
+.figure-block-table-wrap {
+  overflow-x: auto;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.figure-block-placeholder {
+  color: var(--color-text-muted, #999);
+  font-size: 0.85rem;
+  padding: 16px;
+}
+
+/* ─── マテリアルタブ: 表プレビュー ──────────────────────── */
+.table-preview {
+  border: 1px solid var(--color-border, #e0e0e0);
+  border-radius: 4px;
+  padding: 8px 12px;
+  min-height: 60px;
+  overflow-x: auto;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.table-preview table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.table-preview th,
+.table-preview td {
+  border: 1px solid var(--color-border, #e0e0e0);
+  padding: 4px 8px;
+  text-align: left;
+}

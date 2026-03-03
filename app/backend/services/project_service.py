@@ -163,8 +163,8 @@ class ProjectService:
 
         parts = []
         for sec in ordered:
-            depth = _depth(sec)
-            heading_level = "#" * (depth + 1)  # depth=1→##, depth=2→###
+            depth = min(_depth(sec), 6)
+            heading_level = "#" * depth  # depth=1→#(h1), depth=2→##(h2)
             sec_id = sec["id"]
             title = sec.get("title", "")
             body = (sec.get("content") or "").strip()
@@ -381,15 +381,23 @@ class ProjectService:
             mat.file_path = data.file_path
         if data.thumbnail_path is not None:
             mat.thumbnail_path = data.thumbnail_path
+        if data.table_content is not None:
+            mat.table_content = data.table_content
         self._mark_dirty(project_id)
         return mat
 
     async def delete_material(self, project_id: str, mat_id: str) -> None:
         project = await self.get_project(project_id)
         project.materials = [m for m in project.materials if m.id != mat_id]
-        # content 内の ![alt]("fig-xxx") 参照を削除
+        # content 内の ![alt]("fig-xxx") インライン参照を削除
         project.content = re.sub(
             r'!\[[^\]]*\]\([^)]*"' + re.escape(mat_id) + r'"[^)]*\)',
+            '',
+            project.content,
+        )
+        # content 内の <!-- fig-block:fig-xxx --> ブロック参照を削除
+        project.content = re.sub(
+            r'<!-- fig-block:' + re.escape(mat_id) + r' -->\n?',
             '',
             project.content,
         )
@@ -420,8 +428,8 @@ class ProjectService:
         )
         if not marker_exists:
             # project.content にスケルトットを追記（アウトラインからの追加時）
-            depth = self._section_depth(sec, project.sections)
-            heading_level = "#" * (depth + 1)
+            depth = min(self._section_depth(sec, project.sections), 6)
+            heading_level = "#" * depth  # depth=1→#(h1), depth=2→##(h2)
             # 親セクションのブロック末尾に挿入する（なければ末尾）
             meta = json.dumps({"id": sec.id, "summary": sec.summary or "", "parentId": sec.parent_id, "sectionOrder": sec.order}, ensure_ascii=False)
             skeleton = f"\n<!-- soki-section:{meta} -->\n{heading_level} {sec.title}\n\n"
