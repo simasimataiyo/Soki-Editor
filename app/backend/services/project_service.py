@@ -657,6 +657,22 @@ class ProjectService:
                 sec_map[item.section_id].parent_id = item.parent_id
         self._mark_dirty(project_id)
 
+    async def reorder_sources(self, project_id: str, ordered_ids: list[str]) -> None:
+        project = await self.get_project(project_id)
+        id_to_src = {s.id: s for s in project.sources}
+        reordered = [id_to_src[sid] for sid in ordered_ids if sid in id_to_src]
+        extras = [s for s in project.sources if s.id not in {x.id for x in reordered}]
+        project.sources = reordered + extras
+        self._mark_dirty(project_id)
+
+    async def reorder_materials(self, project_id: str, ordered_ids: list[str]) -> None:
+        project = await self.get_project(project_id)
+        id_to_mat = {m.id: m for m in project.materials}
+        reordered = [id_to_mat[mid] for mid in ordered_ids if mid in id_to_mat]
+        extras = [m for m in project.materials if m.id not in {x.id for x in reordered}]
+        project.materials = reordered + extras
+        self._mark_dirty(project_id)
+
     # ------------------------------------------------------------------
     # チャット履歴
     # ------------------------------------------------------------------

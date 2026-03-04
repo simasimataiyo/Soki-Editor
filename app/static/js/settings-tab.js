@@ -29,6 +29,8 @@ const SettingsTab = (() => {
       document.getElementById('settings-model').value = s.model || 'gpt-4o';
       document.getElementById('settings-pdf-dpi').value = s.pdf_page_dpi ?? 96;
       document.getElementById('settings-review-max-comments').value = s.review_max_comments ?? 0;
+      const autoEl = document.getElementById('settings-auto-process-on-drop');
+      if (autoEl) autoEl.checked = s.auto_process_on_drop ?? true;
       applyLeftPanelWidth(s.left_panel_width ?? 280);
       applyHistoryPanelWidth(s.history_panel_width ?? 280);
       applyOutlinePanelWidth(s.outline_panel_width ?? 280);
@@ -71,6 +73,7 @@ const SettingsTab = (() => {
         model: document.getElementById('settings-model').value.trim() || 'gpt-4o',
         pdf_page_dpi: parseInt(document.getElementById('settings-pdf-dpi').value, 10) || 96,
         review_max_comments: parseInt(document.getElementById('settings-review-max-comments').value, 10) || 0,
+        auto_process_on_drop: document.getElementById('settings-auto-process-on-drop')?.checked ?? true,
       };
 
       try {

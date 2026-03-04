@@ -13,7 +13,7 @@ from pathlib import Path
 from fastapi import APIRouter, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
-from app.backend.models import Bibliography, Source, SourceUpdate
+from app.backend.models import Bibliography, Source, SourceUpdate, SourcesReorder
 from app.backend.routers.projects import get_service
 from app.backend.routers.settings import get_service as get_settings_service
 from app.backend.services.file_service import FileService
@@ -644,6 +644,16 @@ _SOURCE_CSV_FIELDS = [
     "publication_place", "editor", "url", "site_name",
     "accessed_date", "created_date", "include_in_references",
 ]
+
+
+@router.post("/sources/reorder")
+async def reorder_sources(project_id: str, body: SourcesReorder) -> dict:
+    svc = get_service()
+    try:
+        await svc.reorder_sources(project_id, body.ordered_ids)
+        return {"status": "ok"}
+    except KeyError:
+        _not_found(project_id)
 
 
 @router.get("/sources/export")

@@ -9,6 +9,19 @@ const MaterialTab = (() => {
   let _activeId = null;
   let _sectionCollapsed = {};
 
+  // 左パネルカテゴリグループの折りたたみ状態
+  let _groupCollapsed = {};
+
+  // 検索フィルター文字列
+  let _searchFilter = '';
+
+  // DnD 状態
+  let _materialDragState = null; // { draggedId, targetId, position, draggedGroupType }
+  let _isDraggingItem = false;
+
+  const MAT_TYPE_LABELS = { figure: '図', table: '表' };
+  const MAT_TYPES_ORDER = ['figure', 'table'];
+
   function render(project) {
     _project = project;
     _renderList();
@@ -20,42 +33,182 @@ const MaterialTab = (() => {
   function _renderList() {
     const list = document.getElementById('material-list');
     list.innerHTML = '';
-    _project.materials.forEach(mat => {
-      const li = document.createElement('li');
-      li.className = 'material-card' + (mat.id === _activeId ? ' active' : '');
-      li.dataset.id = mat.id;
-      const imgSrc = mat.thumbnail_path
-        ? `/api/files?path=${encodeURIComponent(mat.thumbnail_path)}&project_id=${_project.id}`
-        : '';
-      li.innerHTML = `
-        <div class="material-card-info">
-          <div class="material-card-name">${escHtml(mat.name)}</div>
-          <div class="material-card-desc">${escHtml(mat.caption || '')}</div>
-        </div>
-        <div class="material-card-thumb">
-          ${imgSrc
-            ? `<img src="${imgSrc}" alt="thumbnail" />`
-            : `<span class="thumb-placeholder">${SVG_IMAGE_SM}</span>`}
-        </div>
-        <button class="btn-icon item-delete-btn" title="削除">${SVG_DELETE}</button>
-      `;
-      li.addEventListener('click', () => {
-        _activeId = mat.id;
-        window.appState.setState({ activeMaterialId: mat.id });
-        _renderList();
-        _renderDetail(mat.id);
-      });
-      // ダブルクリックで名前編集
-      li.addEventListener('dblclick', (e) => {
-        e.stopPropagation();
-        _editMaterialName(mat);
-      });
-      li.querySelector('.item-delete-btn').addEventListener('click', (e) => {
-        e.stopPropagation();
-        _deleteMaterial(mat);
-      });
-      list.appendChild(li);
+
+    const filter = _searchFilter.toLowerCase();
+    const materials = filter
+      ? _project.materials.filter(m =>
+          (m.name || '').toLowerCase().includes(filter) ||
+          (m.caption || '').toLowerCase().includes(filter)
+        )
+      : _project.materials;
+
+    // カテゴリ別にグループ化
+    const groups = { figure: [], table: [] };
+    materials.forEach(m => {
+      (groups[m.type] || groups['figure']).push(m);
     });
+
+    MAT_TYPES_ORDER.forEach(type => {
+      const items = groups[type];
+      if (items.length === 0) return;
+
+      // グループヘッダー li
+      const headerLi = document.createElement('li');
+      headerLi.className = 'material-group-header';
+      headerLi.dataset.groupType = type;
+      const isCollapsed = !!_groupCollapsed[type];
+      headerLi.innerHTML = `
+        <span class="chevron">${isCollapsed ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
+        <span class="group-label">${MAT_TYPE_LABELS[type]}</span>
+        <span class="group-count">${items.length}</span>
+      `;
+      headerLi.addEventListener('click', () => {
+        _groupCollapsed[type] = !_groupCollapsed[type];
+        _renderList();
+      });
+      list.appendChild(headerLi);
+
+      if (!isCollapsed) {
+        items.forEach(mat => {
+          const li = _createMaterialListItem(mat, type);
+          list.appendChild(li);
+        });
+      }
+    });
+  }
+
+  function _createMaterialListItem(mat, groupType) {
+    const li = document.createElement('li');
+    li.className = 'material-card' + (mat.id === _activeId ? ' active' : '');
+    li.dataset.id = mat.id;
+    li.dataset.groupType = groupType;
+    li.draggable = true;
+
+    const imgSrc = mat.thumbnail_path
+      ? `/api/files?path=${encodeURIComponent(mat.thumbnail_path)}&project_id=${_project.id}`
+      : '';
+    li.innerHTML = `
+      <span class="material-drag-handle" title="ドラッグして並べ替え">⠿</span>
+      <div class="material-card-info">
+        <div class="material-card-name">${escHtml(mat.name)}</div>
+        <div class="material-card-desc">${escHtml(mat.caption || '')}</div>
+      </div>
+      <div class="material-card-thumb">
+        ${imgSrc
+          ? `<img src="${imgSrc}" alt="thumbnail" />`
+          : `<span class="thumb-placeholder">${SVG_IMAGE_SM}</span>`}
+      </div>
+      <button class="btn-icon item-delete-btn" title="削除">${SVG_DELETE}</button>
+    `;
+
+    li.addEventListener('click', (e) => {
+      if (e.target.closest('.material-drag-handle')) return;
+      _activeId = mat.id;
+      window.appState.setState({ activeMaterialId: mat.id });
+      _renderList();
+      _renderDetail(mat.id);
+    });
+
+    li.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      _editMaterialName(mat);
+    });
+
+    li.querySelector('.item-delete-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      _deleteMaterial(mat);
+    });
+
+    _bindMaterialItemDnD(li, mat, groupType);
+    return li;
+  }
+
+  function _bindMaterialItemDnD(li, mat, groupType) {
+    li.addEventListener('dragstart', (e) => {
+      _isDraggingItem = true;
+      _materialDragState = { draggedId: mat.id, targetId: null, position: null, draggedGroupType: groupType };
+      li.classList.add('material-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', mat.id);
+    });
+
+    li.addEventListener('dragend', () => {
+      _isDraggingItem = false;
+      li.classList.remove('material-dragging');
+      document.querySelectorAll('#material-list .material-card').forEach(el => {
+        el.classList.remove('material-drag-over-before', 'material-drag-over-after');
+      });
+      _materialDragState = null;
+    });
+
+    li.addEventListener('dragover', (e) => {
+      if (!_materialDragState) return;
+      if (_materialDragState.draggedId === mat.id) return;
+      if (_materialDragState.draggedGroupType !== groupType) {
+        e.dataTransfer.dropEffect = 'none';
+        return;
+      }
+      e.preventDefault();
+
+      const rect = li.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      const position = y < rect.height / 2 ? 'before' : 'after';
+
+      document.querySelectorAll('#material-list .material-card').forEach(el => {
+        el.classList.remove('material-drag-over-before', 'material-drag-over-after');
+      });
+      li.classList.add(`material-drag-over-${position}`);
+      _materialDragState.targetId = mat.id;
+      _materialDragState.position = position;
+    });
+
+    li.addEventListener('dragleave', (e) => {
+      const rect = li.getBoundingClientRect();
+      if (e.clientX < rect.left || e.clientX > rect.right ||
+          e.clientY < rect.top  || e.clientY > rect.bottom) {
+        li.classList.remove('material-drag-over-before', 'material-drag-over-after');
+      }
+    });
+
+    li.addEventListener('drop', async (e) => {
+      if (!_materialDragState || !_materialDragState.targetId) return;
+      if (_materialDragState.draggedGroupType !== groupType) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const { draggedId, targetId, position } = _materialDragState;
+      if (draggedId === targetId) return;
+
+      await _handleMaterialReorder(draggedId, targetId, position);
+    });
+  }
+
+  async function _handleMaterialReorder(draggedId, targetId, position) {
+    const project = window.appState.getProject();
+    const materials = [...project.materials];
+    const fromIdx = materials.findIndex(m => m.id === draggedId);
+    const toIdx   = materials.findIndex(m => m.id === targetId);
+    if (fromIdx === -1 || toIdx === -1) return;
+
+    const [dragged] = materials.splice(fromIdx, 1);
+    const newToIdx = materials.findIndex(m => m.id === targetId);
+    const insertAt = position === 'before' ? newToIdx : newToIdx + 1;
+    materials.splice(insertAt, 0, dragged);
+
+    project.materials = materials;
+    _renderList();
+
+    try {
+      await ApiClient.post(
+        `/api/projects/${project.id}/materials/reorder`,
+        { ordered_ids: materials.map(m => m.id) }
+      );
+    } catch (_) {
+      showToast('並べ替えに失敗しました', 'error');
+      const orig = await ApiClient.get(`/api/projects/${project.id}`);
+      project.materials = orig.materials;
+      _renderList();
+    }
   }
 
   function _renderDetail(matId) {
@@ -440,12 +593,25 @@ const MaterialTab = (() => {
       _activeId = mat.id;
       render(project);
     });
+
+    // 検索フィルター
+    const searchEl = document.getElementById('material-search');
+    if (searchEl) {
+      searchEl.addEventListener('input', () => {
+        _searchFilter = searchEl.value;
+        _renderList();
+      });
+    }
   }
 
   function reset() {
     _project = null;
     _activeId = null;
     _sectionCollapsed = {};
+    _groupCollapsed = {};
+    _searchFilter = '';
+    _materialDragState = null;
+    _isDraggingItem = false;
   }
 
   return { render, bindEvents, reset };

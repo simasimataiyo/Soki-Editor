@@ -1615,6 +1615,23 @@ body {
   margin: 0.6em 0;
 }
 
+/* ─── Tiptap Table ───────────────────────────────────────── */
+#tiptap-editor-mount .ProseMirror table {
+  border-collapse: collapse;
+  margin: 0.6em auto;
+}
+
+#tiptap-editor-mount .ProseMirror th,
+#tiptap-editor-mount .ProseMirror td {
+  border: 1px solid var(--color-border, #d1d5db);
+  padding: 4px 10px;
+}
+
+#tiptap-editor-mount .ProseMirror th {
+  background: var(--color-surface-hover, rgba(0, 0, 0, 0.05));
+  font-weight: 600;
+}
+
 /* ─── Tiptap Drag Handle ─────────────────────────────────── */
 .custom-drag-handle {
   display: flex;
@@ -3106,4 +3123,110 @@ body {
   border: 1px solid var(--color-border, #e0e0e0);
   padding: 4px 8px;
   text-align: left;
+}
+
+
+/* ================================================================
+   Source / Material 左パネル 強化機能
+================================================================ */
+
+/* ─── 検索バー ──────────────────────────────────────────────── */
+.panel-search-bar {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+.panel-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  font-size: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color .15s;
+}
+.panel-search-input:focus { border-color: var(--color-text); }
+
+/* ─── カテゴリグループヘッダー ──────────────────────────────── */
+.source-group-header,
+.material-group-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 14px;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid var(--color-border);
+}
+.source-group-header .chevron,
+.material-group-header .chevron {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.source-group-header .group-label,
+.material-group-header .group-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  flex: 1;
+}
+.source-group-header .group-count,
+.material-group-header .group-count {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  background: var(--color-border);
+  border-radius: 8px;
+  padding: 1px 6px;
+}
+
+/* ─── ドラッグハンドル ──────────────────────────────────────── */
+.source-drag-handle,
+.material-drag-handle {
+  color: var(--color-text-muted);
+  cursor: grab;
+  opacity: 0;
+  transition: opacity .15s;
+  font-size: 13px;
+  flex-shrink: 0;
+  padding: 2px;
+  line-height: 1;
+}
+.item-list li:hover .source-drag-handle,
+.material-card:hover .material-drag-handle { opacity: 0.6; }
+.source-drag-handle:active,
+.material-drag-handle:active { cursor: grabbing; opacity: 1; }
+
+/* ─── アイテムのドラッグビジュアル ─────────────────────────── */
+.item-list li.source-dragging,
+.material-card.material-dragging { opacity: 0.4; }
+.item-list li.source-drag-over-before { border-top: 2px solid var(--color-text) !important; }
+.item-list li.source-drag-over-after  { border-bottom: 2px solid var(--color-text) !important; }
+.material-card.material-drag-over-before { border-top: 2px solid var(--color-text) !important; }
+.material-card.material-drag-over-after  { border-bottom: 2px solid var(--color-text) !important; }
+
+/* ─── 左パネルのファイルドロップゾーン ──────────────────────── */
+#source-panel.panel-file-drop-active {
+  outline: 2px dashed var(--color-text);
+  outline-offset: -4px;
+}
+
+/* ─── Auto-Process インジケーター ───────────────────────────── */
+.source-auto-processing {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
