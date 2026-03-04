@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile
 
-from app.backend.models import Material, MaterialUpdate
+from app.backend.models import Material, MaterialUpdate, MaterialsReorder
 from app.backend.routers.projects import get_service
 from app.backend.services.file_service import FileService
 
@@ -15,6 +15,16 @@ _file_service = FileService()
 
 def _not_found(project_id: str):
     raise HTTPException(status_code=404, detail=f"プロジェクトが見つかりません: {project_id}")
+
+
+@router.post("/materials/reorder")
+async def reorder_materials(project_id: str, body: MaterialsReorder) -> dict:
+    svc = get_service()
+    try:
+        await svc.reorder_materials(project_id, body.ordered_ids)
+        return {"status": "ok"}
+    except KeyError:
+        _not_found(project_id)
 
 
 @router.get("/materials", response_model=list[Material])

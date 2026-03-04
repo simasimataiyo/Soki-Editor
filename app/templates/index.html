@@ -248,7 +248,12 @@
                 <div class="panel-header">
                   <span>Sources</span>
                 </div>
-                <ul class="item-list" id="source-list"></ul>
+                <div class="panel-search-bar">
+                  <input type="text" id="source-search" class="panel-search-input"
+                         placeholder="タイトルで検索..." autocomplete="off" />
+                </div>
+                <ul class="item-list" id="source-list">
+                </ul>
                 <div class="panel-buttons">
                   <button class="btn-add-item" id="btn-add-source">新規追加</button>
                   <button class="btn-panel-action" id="btn-source-import">CSVインポート</button>
@@ -268,6 +273,10 @@
               <aside class="left-panel" id="material-panel">
                 <div class="panel-header">
                   <span>Material</span>
+                </div>
+                <div class="panel-search-bar">
+                  <input type="text" id="material-search" class="panel-search-input"
+                         placeholder="名前で検索..." autocomplete="off" />
                 </div>
                 <ul class="material-card-list" id="material-list"></ul>
                 <div class="panel-buttons">
@@ -360,6 +369,16 @@
                       <label for="settings-pdf-dpi">PDF 等倍画像 DPI</label>
                       <input type="number" id="settings-pdf-dpi" class="form-control" placeholder="96" min="72"
                         max="300" style="max-width:120px" />
+                    </div>
+                    <div class="form-group">
+                      <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-weight:normal;">
+                        <label class="toggle-switch" style="flex-shrink:0;">
+                          <input type="checkbox" id="settings-auto-process-on-drop" />
+                          <span class="slider"></span>
+                        </label>
+                        ファイルドロップ時に自動処理（要約 + 文献情報抽出）
+                      </label>
+                      <small class="form-text text-muted">左パネルにファイルをドロップした際に自動的に要約と文献情報抽出を実行します（デフォルト: オン）</small>
                     </div>
                     <button type="submit" class="btn btn-primary">保存</button>
                   </form>

@@ -38,9 +38,23 @@ const SourceTab = (() => {
   const BIB_TYPE_LABELS = {
     paper: '論文', book: '図書', book_chapter: '図書の一部', web: 'Web', resource: 'リソース'
   };
+  const BIB_TYPES_ORDER = ['paper', 'book', 'book_chapter', 'web', 'resource'];
 
-  // 折りたたみ状態
+  // 折りたたみ状態（右パネルセクション用）
   let _sectionCollapsed = {};
+
+  // 左パネルカテゴリグループの折りたたみ状態
+  let _groupCollapsed = {};
+
+  // 検索フィルター文字列
+  let _searchFilter = '';
+
+  // DnD 状態
+  let _sourceDragState = null; // { draggedId, targetId, position, draggedGroupType }
+  let _isDraggingItem = false; // アイテムDnD中フラグ（ファイルDnDと区別）
+
+  // Auto-Process 状態 Map<srcId, 'summarizing'|'extracting'|'done'|'error'>
+  const _autoProcessState = new Map();
 
   // 保存タイマー（モジュールレベル、一元管理）
   let _pendingSaveTimer = null;
@@ -186,37 +200,370 @@ const SourceTab = (() => {
 
   /**
    * ソース一覧（左ペイン）を再描画する
-   * アクティブなソースはハイライト表示し、ダブルクリックで名前編集モーダルを開く
+   * カテゴリ別グループヘッダーと折りたたみ、検索フィルターに対応
    */
   function _renderList() {
     const list = document.getElementById('source-list');
     list.innerHTML = '';
-    _project.sources.forEach(src => {
-      const li = document.createElement('li');
-      li.dataset.id = src.id;
-      if (src.id === _activeId) li.classList.add('active');
-      li.innerHTML = `
-        ${SVG_DOCUMENT}
-        <span class="item-name">${escHtml(_displayTitle(src))}</span>
-        <button class="btn-icon item-delete-btn" title="削除">${SVG_DELETE}</button>
+
+    const filter = _searchFilter.toLowerCase();
+    const sources = filter
+      ? _project.sources.filter(s =>
+          _displayTitle(s).toLowerCase().includes(filter) ||
+          (s.name || '').toLowerCase().includes(filter)
+        )
+      : _project.sources;
+
+    // カテゴリ別にグループ化
+    const groups = {};
+    BIB_TYPES_ORDER.forEach(t => { groups[t] = []; });
+    sources.forEach(src => {
+      const t = src.bibliography?.type || 'paper';
+      (groups[t] = groups[t] || []).push(src);
+    });
+
+    BIB_TYPES_ORDER.forEach(type => {
+      const items = groups[type];
+      if (items.length === 0) return;
+
+      // グループヘッダー li
+      const headerLi = document.createElement('li');
+      headerLi.className = 'source-group-header';
+      headerLi.dataset.groupType = type;
+      const isCollapsed = !!_groupCollapsed[type];
+      headerLi.innerHTML = `
+        <span class="chevron">${isCollapsed ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
+        <span class="group-label">${BIB_TYPE_LABELS[type]}</span>
+        <span class="group-count">${items.length}</span>
       `;
-      li.addEventListener('click', () => {
-        _flushPendingSave();  // DOM切替前にフラッシュ（_activeIdがまだ旧ソースを指している）
-        _activeId = src.id;
-        window.appState.setState({ activeSourceId: src.id });
+      headerLi.addEventListener('click', () => {
+        _groupCollapsed[type] = !_groupCollapsed[type];
         _renderList();
-        _renderDetail(src.id);
       });
-      // ダブルクリックでタイトル編集
-      li.addEventListener('dblclick', (e) => {
-        e.stopPropagation();
-        _editSourceName(src);
+      list.appendChild(headerLi);
+
+      if (!isCollapsed) {
+        items.forEach(src => {
+          const li = _createSourceListItem(src, type);
+          list.appendChild(li);
+        });
+      }
+    });
+  }
+
+  /**
+   * ソースリストアイテム li を生成してイベントをバインドする
+   */
+  function _createSourceListItem(src, groupType) {
+    const li = document.createElement('li');
+    li.dataset.id = src.id;
+    li.dataset.groupType = groupType;
+    if (src.id === _activeId) li.classList.add('active');
+    li.draggable = true;
+
+    const autoState = _autoProcessState.get(src.id);
+    const processingHtml = autoState && autoState !== 'done'
+      ? `<span class="source-auto-processing">
+           <span class="section-spinner"></span>
+           <span>${_autoProcessLabel(autoState)}</span>
+         </span>`
+      : '';
+
+    li.innerHTML = `
+      <span class="source-drag-handle" title="ドラッグして並べ替え">⠿</span>
+      ${SVG_DOCUMENT}
+      <span class="item-name">${escHtml(_displayTitle(src))}</span>
+      ${processingHtml}
+      <button class="btn-icon item-delete-btn" title="削除">${SVG_DELETE}</button>
+    `;
+
+    li.addEventListener('click', (e) => {
+      if (e.target.closest('.source-drag-handle')) return;
+      _flushPendingSave();
+      _activeId = src.id;
+      window.appState.setState({ activeSourceId: src.id });
+      _renderList();
+      _renderDetail(src.id);
+    });
+
+    li.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      _editSourceName(src);
+    });
+
+    li.querySelector('.item-delete-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      _deleteSource(src);
+    });
+
+    _bindSourceItemDnD(li, src, groupType);
+    return li;
+  }
+
+  function _autoProcessLabel(state) {
+    if (state === 'summarizing') return '要約中';
+    if (state === 'extracting') return '文献抽出中';
+    if (state === 'error') return 'エラー';
+    return '処理中';
+  }
+
+  /**
+   * ソースリストアイテムへ DnD イベントをバインドする（同カテゴリ内のみ）
+   */
+  function _bindSourceItemDnD(li, src, groupType) {
+    li.addEventListener('dragstart', (e) => {
+      _isDraggingItem = true;
+      _sourceDragState = { draggedId: src.id, targetId: null, position: null, draggedGroupType: groupType };
+      li.classList.add('source-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', src.id);
+    });
+
+    li.addEventListener('dragend', () => {
+      _isDraggingItem = false;
+      li.classList.remove('source-dragging');
+      document.querySelectorAll('#source-list li').forEach(el => {
+        el.classList.remove('source-drag-over-before', 'source-drag-over-after');
       });
-      li.querySelector('.item-delete-btn').addEventListener('click', (e) => {
-        e.stopPropagation();
-        _deleteSource(src);
+      _sourceDragState = null;
+    });
+
+    li.addEventListener('dragover', (e) => {
+      if (!_sourceDragState) return;
+      if (_sourceDragState.draggedId === src.id) return;
+      // 異なるカテゴリへのドロップは無効化
+      if (_sourceDragState.draggedGroupType !== groupType) {
+        e.dataTransfer.dropEffect = 'none';
+        return;
+      }
+      e.preventDefault();
+
+      const rect = li.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      const position = y < rect.height / 2 ? 'before' : 'after';
+
+      document.querySelectorAll('#source-list li').forEach(el => {
+        el.classList.remove('source-drag-over-before', 'source-drag-over-after');
       });
-      list.appendChild(li);
+      li.classList.add(`source-drag-over-${position}`);
+      _sourceDragState.targetId = src.id;
+      _sourceDragState.position = position;
+    });
+
+    li.addEventListener('dragleave', (e) => {
+      const rect = li.getBoundingClientRect();
+      if (e.clientX < rect.left || e.clientX > rect.right ||
+          e.clientY < rect.top  || e.clientY > rect.bottom) {
+        li.classList.remove('source-drag-over-before', 'source-drag-over-after');
+      }
+    });
+
+    li.addEventListener('drop', async (e) => {
+      if (!_sourceDragState || !_sourceDragState.targetId) return;
+      if (_sourceDragState.draggedGroupType !== groupType) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const { draggedId, targetId, position } = _sourceDragState;
+      if (draggedId === targetId) return;
+
+      await _handleSourceReorder(draggedId, targetId, position);
+    });
+  }
+
+  /**
+   * ソース並べ替え処理（楽観的 UI 更新 → API 送信）
+   */
+  async function _handleSourceReorder(draggedId, targetId, position) {
+    const project = window.appState.getProject();
+    const sources = [...project.sources];
+    const fromIdx = sources.findIndex(s => s.id === draggedId);
+    const toIdx   = sources.findIndex(s => s.id === targetId);
+    if (fromIdx === -1 || toIdx === -1) return;
+
+    const [dragged] = sources.splice(fromIdx, 1);
+    const newToIdx = sources.findIndex(s => s.id === targetId);
+    const insertAt = position === 'before' ? newToIdx : newToIdx + 1;
+    sources.splice(insertAt, 0, dragged);
+
+    // 楽観的更新
+    project.sources = sources;
+    _renderList();
+
+    try {
+      await ApiClient.post(
+        `/api/projects/${project.id}/sources/reorder`,
+        { ordered_ids: sources.map(s => s.id) }
+      );
+    } catch (_) {
+      showToast('並べ替えに失敗しました', 'error');
+      // ロールバック
+      const orig = await ApiClient.get(`/api/projects/${project.id}`);
+      project.sources = orig.sources;
+      _renderList();
+    }
+  }
+
+  /**
+   * 左パネルへの複数ファイルドロップを処理する
+   * ファイルごとに新規ソースを作成し、auto-process が有効な場合は要約・文献情報抽出も実行する
+   */
+  async function _bulkCreateSources(files, autoProcess) {
+    const project = window.appState.getProject();
+    const ALLOWED_EXTENSIONS = ['.txt', '.md', '.pdf', '.csv', '.docx', '.xlsx', '.pptx', '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp'];
+
+    const validFiles = files.filter(f => {
+      const ext = '.' + f.name.split('.').pop().toLowerCase();
+      return ALLOWED_EXTENSIONS.includes(ext);
+    });
+
+    if (validFiles.length === 0) {
+      showToast('対応しているファイル形式がありません', 'error');
+      return;
+    }
+    const skipped = files.length - validFiles.length;
+    if (skipped > 0) {
+      showToast(`${skipped} 件のファイルは非対応形式のためスキップします`, 'info');
+    }
+
+    let addedCount = 0;
+    for (const file of validFiles) {
+      try {
+        // ソース作成
+        const src = await ApiClient.post(`/api/projects/${project.id}/sources`);
+        project.sources.push(src);
+        _renderList();
+
+        // ファイルアップロード
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await fetch(
+          `/api/projects/${project.id}/sources/${src.id}/read-file-upload`,
+          { method: 'POST', body: formData }
+        );
+        if (!res.ok) {
+          showToast(`${file.name}: アップロードに失敗しました`, 'error');
+          continue;
+        }
+        let updated = await res.json();
+
+        // ファイル名をソース名に適用
+        await _applyFileNameIfDefault(project, updated, file.name);
+        const refreshed = project.sources.find(s => s.id === updated.id);
+        if (refreshed) updated = refreshed;
+
+        const idx = project.sources.findIndex(s => s.id === updated.id);
+        if (idx >= 0) project.sources[idx] = updated;
+        _renderList();
+
+        // Auto-Process
+        if (autoProcess && updated.full_text) {
+          _autoProcessSource(project, updated); // 非同期（awaitしない = 並列処理）
+        }
+
+        addedCount++;
+      } catch (_) {
+        showToast(`${file.name}: 処理中にエラーが発生しました`, 'error');
+      }
+    }
+
+    if (addedCount > 0) {
+      showToast(`${addedCount} 件のソースを追加しました`, 'success');
+    }
+  }
+
+  /**
+   * ソースの要約・文献情報抽出をバックグラウンドで実行する
+   * 左パネルのスピナーのみ更新し、右パネルには干渉しない
+   */
+  async function _autoProcessSource(project, src) {
+    // 要約
+    _autoProcessState.set(src.id, 'summarizing');
+    _renderList();
+    try {
+      const summarized = await ApiClient.post(
+        `/api/projects/${project.id}/sources/${src.id}/summarize`
+      );
+      const idx = project.sources.findIndex(s => s.id === src.id);
+      if (idx < 0) { _autoProcessState.delete(src.id); return; } // 削除済み
+      project.sources[idx] = summarized;
+      // アクティブソースの右パネルも更新
+      if (_activeId === src.id) _renderDetail(src.id);
+    } catch (_) {
+      _autoProcessState.set(src.id, 'error');
+      _renderList();
+      showToast(`${_displayTitle(src)}: 要約生成に失敗しました`, 'error');
+      setTimeout(() => { _autoProcessState.delete(src.id); _renderList(); }, 3000);
+      return;
+    }
+
+    // 文献情報抽出
+    _autoProcessState.set(src.id, 'extracting');
+    _renderList();
+    try {
+      const extracted = await ApiClient.post(
+        `/api/projects/${project.id}/sources/${src.id}/extract-bibliography`
+      );
+      const idx = project.sources.findIndex(s => s.id === src.id);
+      if (idx < 0) { _autoProcessState.delete(src.id); return; }
+      project.sources[idx] = extracted;
+      if (_activeId === src.id) _renderDetail(src.id);
+    } catch (_) {
+      _autoProcessState.set(src.id, 'error');
+      _renderList();
+      showToast(`${_displayTitle(src)}: 文献情報抽出に失敗しました`, 'error');
+      setTimeout(() => { _autoProcessState.delete(src.id); _renderList(); }, 3000);
+      return;
+    }
+
+    _autoProcessState.set(src.id, 'done');
+    _renderList();
+    setTimeout(() => { _autoProcessState.delete(src.id); _renderList(); }, 2000);
+  }
+
+  /**
+   * ソース左パネルへのファイルドロップイベントをバインドする
+   * アイテム DnD 中は無視し、ファイルのみ反応する
+   */
+  function _bindLeftPanelFileDrop() {
+    const panel = document.getElementById('source-panel');
+
+    panel.addEventListener('dragenter', (e) => {
+      if (_isDraggingItem) return;
+      if (!e.dataTransfer.types.includes('Files')) return;
+      e.preventDefault();
+      panel.classList.add('panel-file-drop-active');
+    });
+
+    panel.addEventListener('dragover', (e) => {
+      if (_isDraggingItem) return;
+      if (!e.dataTransfer.types.includes('Files')) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    });
+
+    panel.addEventListener('dragleave', (e) => {
+      if (_isDraggingItem) return;
+      if (panel.contains(e.relatedTarget)) return;
+      panel.classList.remove('panel-file-drop-active');
+    });
+
+    panel.addEventListener('drop', async (e) => {
+      if (_isDraggingItem) return;
+      panel.classList.remove('panel-file-drop-active');
+      if (!e.dataTransfer.types.includes('Files')) return;
+      e.preventDefault();
+
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length === 0) return;
+
+      let autoProcess = true;
+      try {
+        const settings = await ApiClient.get('/api/settings');
+        autoProcess = settings.auto_process_on_drop ?? true;
+      } catch (_) {}
+
+      await _bulkCreateSources(files, autoProcess);
     });
   }
 
@@ -429,6 +776,7 @@ const SourceTab = (() => {
 
     // pane の dragenter でファイルドラッグを検知してオーバーレイを表示
     pane.addEventListener('dragenter', (e) => {
+      if (_isDraggingItem) return; // アイテムDnD中はファイルドロップオーバーレイを表示しない
       if (!e.dataTransfer.types.includes('Files')) return;
       e.preventDefault();
       _syncOverlay()
@@ -789,12 +1137,12 @@ const SourceTab = (() => {
 
     // ── ページ選択画面 ────────────────────────────────────────
     /**
-     * PDFのサムネイル一覧を表示し、解析するページをラジオボタンで選択させる
+     * PDFのサムネイル一覧を表示し、解析するページをチェックボックスで複数選択させる
      */
-    function _showPageSelect() {
+    function _showPageSelect(preselectedPages = null) {
       const thumbsHtml = thumbnails.map(t => `
         <label class="pdf-page-thumb">
-          <input type="radio" name="pdf-page-radio" value="${t.page}" />
+          <input type="checkbox" name="pdf-page-check" value="${t.page}" />
           <img src="${escHtml(t.src || t.data || '')}" alt="${escHtml(t.label)}" />
           <span class="pdf-page-label">${escHtml(t.label)}</span>
         </label>
@@ -805,26 +1153,60 @@ const SourceTab = (() => {
           <h3>ページを選択</h3>
           <button class="pdf-modal-close" title="閉じる">×</button>
         </div>
-        <p style="color:var(--color-text-muted);font-size:13px;margin-bottom:12px">解析するページを1つ選択してください</p>
+        <p style="color:var(--color-text-muted);font-size:13px;margin-bottom:8px">解析するページを選択してください（複数選択可）</p>
+        <div style="margin-bottom:10px;display:flex;gap:8px">
+          <button class="btn btn-secondary btn-sm" id="pdf-select-all">全選択</button>
+          <button class="btn btn-secondary btn-sm" id="pdf-deselect-all">全解除</button>
+          <span id="pdf-selected-count" style="margin-left:4px;font-size:13px;color:var(--color-text-muted);align-self:center">0 ページ選択中</span>
+        </div>
         <div class="pdf-page-grid">${thumbsHtml}</div>
         <div class="modal-actions" style="margin-top:16px">
           <button class="btn btn-primary" id="pdf-modal-confirm">解析実行</button>
         </div>
       `;
 
-      modal.querySelectorAll('.pdf-page-thumb input[type="radio"]').forEach(rb => {
-        rb.addEventListener('change', () => {
-          modal.querySelectorAll('.pdf-page-thumb').forEach(l => l.classList.remove('selected'));
-          rb.closest('.pdf-page-thumb').classList.add('selected');
+      function _updateSelectedCount() {
+        const checked = modal.querySelectorAll('input[name="pdf-page-check"]:checked');
+        modal.querySelector('#pdf-selected-count').textContent = `${checked.length} ページ選択中`;
+      }
+
+      modal.querySelectorAll('.pdf-page-thumb input[type="checkbox"]').forEach(cb => {
+        // preselected pages の復元
+        if (preselectedPages && preselectedPages.includes(parseInt(cb.value))) {
+          cb.checked = true;
+          cb.closest('.pdf-page-thumb').classList.add('selected');
+        }
+        cb.addEventListener('change', () => {
+          cb.closest('.pdf-page-thumb').classList.toggle('selected', cb.checked);
+          _updateSelectedCount();
         });
+      });
+
+      _updateSelectedCount();
+
+      modal.querySelector('#pdf-select-all').addEventListener('click', () => {
+        modal.querySelectorAll('input[name="pdf-page-check"]').forEach(cb => {
+          cb.checked = true;
+          cb.closest('.pdf-page-thumb').classList.add('selected');
+        });
+        _updateSelectedCount();
+      });
+
+      modal.querySelector('#pdf-deselect-all').addEventListener('click', () => {
+        modal.querySelectorAll('input[name="pdf-page-check"]').forEach(cb => {
+          cb.checked = false;
+          cb.closest('.pdf-page-thumb').classList.remove('selected');
+        });
+        _updateSelectedCount();
       });
 
       modal.querySelector('.pdf-modal-close').addEventListener('click', _closeModal);
 
       modal.querySelector('#pdf-modal-confirm').addEventListener('click', () => {
-        const checked = modal.querySelector('input[name="pdf-page-radio"]:checked');
-        if (!checked) { showToast('ページを選択してください', 'error'); return; }
-        _startAnalysis(parseInt(checked.value));
+        const checked = [...modal.querySelectorAll('input[name="pdf-page-check"]:checked')];
+        if (checked.length === 0) { showToast('ページを選択してください', 'error'); return; }
+        const pages = checked.map(cb => parseInt(cb.value)).sort((a, b) => a - b);
+        _startMultiAnalysis(pages);
       });
     }
 
@@ -924,6 +1306,162 @@ const SourceTab = (() => {
         modal.appendChild(errEl);
         // エラー時もアクションボタンを表示
         _showResult(pageNum, fullText, true);
+      }
+    }
+
+    // ── 複数ページ解析（順次ストリーミング）─────────────────────
+    /**
+     * 複数ページを順次Vision解析し、進捗と結果をリアルタイム表示する
+     * @param {number[]} pages - 解析するページの0始まりインデックス配列（昇順）
+     */
+    async function _startMultiAnalysis(pages) {
+      if (abortController) abortController.abort();
+      abortController = new AbortController();
+
+      const pageTexts = {};
+      let currentIdx = 0;
+
+      function _renderProgress(pageNum) {
+        modal.innerHTML = `
+          <div class="pdf-modal-header">
+            <h3>解析中... (${currentIdx + 1} / ${pages.length} ページ)</h3>
+            <button class="pdf-modal-close" title="閉じる">×</button>
+          </div>
+          <div class="pdf-analysis-progress">
+            <div class="pdf-analysis-spinner"></div>
+            <span>p.${pageNum + 1} を解析しています...</span>
+          </div>
+          <div class="pdf-analysis-result" id="pdf-analysis-text"></div>
+        `;
+        modal.querySelector('.pdf-modal-close').addEventListener('click', _closeModal);
+      }
+
+      async function _analyzeOnePage(pageNum) {
+        _renderProgress(pageNum);
+        const resultEl = modal.querySelector('#pdf-analysis-text');
+        let fullText = '';
+
+        let streamUrl, streamOptions;
+        if (pdfFile) {
+          const formData = new FormData();
+          formData.append('file', pdfFile);
+          formData.append('page', String(pageNum));
+          streamUrl = `/api/projects/${project.id}/sources/${src.id}/analyze-pdf-page-stream`;
+          streamOptions = { method: 'POST', body: formData, signal: abortController.signal };
+        } else {
+          streamUrl = `/api/projects/${project.id}/sources/${src.id}/analyze-saved-pdf-page-stream`;
+          streamOptions = {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ page: pageNum }),
+            signal: abortController.signal,
+          };
+        }
+
+        const res = await fetch(streamUrl, streamOptions);
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.detail || '解析に失敗しました');
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const payload = line.slice(6).trim();
+            if (payload === '[DONE]') break;
+            try {
+              const parsed = JSON.parse(payload);
+              if (parsed.error) throw new Error(parsed.error);
+              if (parsed.text) {
+                fullText += parsed.text;
+                resultEl.textContent = fullText;
+                resultEl.scrollTop = resultEl.scrollHeight;
+              }
+            } catch (e) {
+              if (!(e instanceof SyntaxError)) throw e;
+            }
+          }
+        }
+        return fullText;
+      }
+
+      const errors = {};
+      for (let i = 0; i < pages.length; i++) {
+        currentIdx = i;
+        const pageNum = pages[i];
+        try {
+          pageTexts[pageNum] = await _analyzeOnePage(pageNum);
+        } catch (e) {
+          if (e.name === 'AbortError') return;
+          errors[pageNum] = e.message;
+          pageTexts[pageNum] = '';
+        }
+      }
+
+      _showMultiResult(pages, pageTexts, errors);
+    }
+
+    // ── 複数ページ解析結果確認画面 ───────────────────────────
+    /**
+     * 複数ページ解析完了後の結果確認画面を表示する
+     * @param {number[]} pages - 解析したページの0始まりインデックス配列
+     * @param {Object} pageTexts - {page: text} の結果マップ
+     * @param {Object} errors - {page: errorMessage} のエラーマップ
+     */
+    function _showMultiResult(pages, pageTexts, errors) {
+      const hasError = Object.keys(errors).length > 0;
+      const combined = pages.map(p => {
+        if (errors[p]) return `--- ${p + 1}ページ目 ---\n[エラー: ${errors[p]}]`;
+        return `--- ${p + 1}ページ目 ---\n${pageTexts[p] || ''}`;
+      }).join('\n\n');
+
+      modal.innerHTML = `
+        <div class="pdf-modal-header">
+          <h3>${hasError ? '解析完了（一部エラー）' : '解析完了'} — ${pages.length} ページ</h3>
+          <button class="pdf-modal-close" title="閉じる">×</button>
+        </div>
+        <div class="pdf-analysis-result" style="height:400px;overflow-y:auto;white-space:pre-wrap;font-size:13px;padding:12px;background:var(--color-bg-secondary);border-radius:6px;margin-bottom:12px">${escHtml(combined)}</div>
+        <div class="modal-actions" style="margin-top:8px">
+          <button class="btn btn-secondary" id="pdf-btn-back">ページ選択に戻る</button>
+          <button class="btn btn-secondary" id="pdf-btn-retry">再実行</button>
+          <button class="btn btn-primary" id="pdf-btn-add"${!combined.trim() ? ' disabled' : ''}>内容に追加</button>
+        </div>
+      `;
+
+      modal.querySelector('.pdf-modal-close').addEventListener('click', _closeModal);
+      modal.querySelector('#pdf-btn-back').addEventListener('click', () => _showPageSelect(pages));
+      modal.querySelector('#pdf-btn-retry').addEventListener('click', () => _startMultiAnalysis(pages));
+
+      if (combined.trim()) {
+        modal.querySelector('#pdf-btn-add').addEventListener('click', async () => {
+          const currentText = src.full_text || '';
+          const separator = currentText ? '\n\n' : '';
+          const newText = currentText + separator + combined;
+          try {
+            const updated = await ApiClient.put(
+              `/api/projects/${project.id}/sources/${src.id}`,
+              { full_text: newText }
+            );
+            const idx = project.sources.findIndex(s => s.id === src.id);
+            if (idx >= 0) project.sources[idx] = updated;
+            src.full_text = updated.full_text;
+            const ta = document.getElementById('src-full-text');
+            if (ta) ta.value = updated.full_text;
+            showToast('内容に追加しました', 'success');
+            _showPageSelect();
+          } catch (_) {
+            showToast('保存に失敗しました', 'error');
+          }
+        });
       }
     }
 
@@ -1275,6 +1813,18 @@ const SourceTab = (() => {
       _activeId = src.id;
       render(project);
     });
+
+    // 検索フィルター
+    const searchEl = document.getElementById('source-search');
+    if (searchEl) {
+      searchEl.addEventListener('input', () => {
+        _searchFilter = searchEl.value;
+        _renderList();
+      });
+    }
+
+    // 左パネルファイルドロップ
+    _bindLeftPanelFileDrop();
   }
 
   /**
@@ -1329,6 +1879,11 @@ const SourceTab = (() => {
     _project = null;
     _activeId = null;
     _sectionCollapsed = {};
+    _groupCollapsed = {};
+    _searchFilter = '';
+    _sourceDragState = null;
+    _isDraggingItem = false;
+    _autoProcessState.clear();
     _cancelPendingSave();
     _processingState.clear();
   }
