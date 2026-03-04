@@ -1137,12 +1137,12 @@ const SourceTab = (() => {
 
     // ── ページ選択画面 ────────────────────────────────────────
     /**
-     * PDFのサムネイル一覧を表示し、解析するページをラジオボタンで選択させる
+     * PDFのサムネイル一覧を表示し、解析するページをチェックボックスで複数選択させる
      */
-    function _showPageSelect() {
+    function _showPageSelect(preselectedPages = null) {
       const thumbsHtml = thumbnails.map(t => `
         <label class="pdf-page-thumb">
-          <input type="radio" name="pdf-page-radio" value="${t.page}" />
+          <input type="checkbox" name="pdf-page-check" value="${t.page}" />
           <img src="${escHtml(t.src || t.data || '')}" alt="${escHtml(t.label)}" />
           <span class="pdf-page-label">${escHtml(t.label)}</span>
         </label>
@@ -1153,26 +1153,60 @@ const SourceTab = (() => {
           <h3>ページを選択</h3>
           <button class="pdf-modal-close" title="閉じる">×</button>
         </div>
-        <p style="color:var(--color-text-muted);font-size:13px;margin-bottom:12px">解析するページを1つ選択してください</p>
+        <p style="color:var(--color-text-muted);font-size:13px;margin-bottom:8px">解析するページを選択してください（複数選択可）</p>
+        <div style="margin-bottom:10px;display:flex;gap:8px">
+          <button class="btn btn-secondary btn-sm" id="pdf-select-all">全選択</button>
+          <button class="btn btn-secondary btn-sm" id="pdf-deselect-all">全解除</button>
+          <span id="pdf-selected-count" style="margin-left:4px;font-size:13px;color:var(--color-text-muted);align-self:center">0 ページ選択中</span>
+        </div>
         <div class="pdf-page-grid">${thumbsHtml}</div>
         <div class="modal-actions" style="margin-top:16px">
           <button class="btn btn-primary" id="pdf-modal-confirm">解析実行</button>
         </div>
       `;
 
-      modal.querySelectorAll('.pdf-page-thumb input[type="radio"]').forEach(rb => {
-        rb.addEventListener('change', () => {
-          modal.querySelectorAll('.pdf-page-thumb').forEach(l => l.classList.remove('selected'));
-          rb.closest('.pdf-page-thumb').classList.add('selected');
+      function _updateSelectedCount() {
+        const checked = modal.querySelectorAll('input[name="pdf-page-check"]:checked');
+        modal.querySelector('#pdf-selected-count').textContent = `${checked.length} ページ選択中`;
+      }
+
+      modal.querySelectorAll('.pdf-page-thumb input[type="checkbox"]').forEach(cb => {
+        // preselected pages の復元
+        if (preselectedPages && preselectedPages.includes(parseInt(cb.value))) {
+          cb.checked = true;
+          cb.closest('.pdf-page-thumb').classList.add('selected');
+        }
+        cb.addEventListener('change', () => {
+          cb.closest('.pdf-page-thumb').classList.toggle('selected', cb.checked);
+          _updateSelectedCount();
         });
+      });
+
+      _updateSelectedCount();
+
+      modal.querySelector('#pdf-select-all').addEventListener('click', () => {
+        modal.querySelectorAll('input[name="pdf-page-check"]').forEach(cb => {
+          cb.checked = true;
+          cb.closest('.pdf-page-thumb').classList.add('selected');
+        });
+        _updateSelectedCount();
+      });
+
+      modal.querySelector('#pdf-deselect-all').addEventListener('click', () => {
+        modal.querySelectorAll('input[name="pdf-page-check"]').forEach(cb => {
+          cb.checked = false;
+          cb.closest('.pdf-page-thumb').classList.remove('selected');
+        });
+        _updateSelectedCount();
       });
 
       modal.querySelector('.pdf-modal-close').addEventListener('click', _closeModal);
 
       modal.querySelector('#pdf-modal-confirm').addEventListener('click', () => {
-        const checked = modal.querySelector('input[name="pdf-page-radio"]:checked');
-        if (!checked) { showToast('ページを選択してください', 'error'); return; }
-        _startAnalysis(parseInt(checked.value));
+        const checked = [...modal.querySelectorAll('input[name="pdf-page-check"]:checked')];
+        if (checked.length === 0) { showToast('ページを選択してください', 'error'); return; }
+        const pages = checked.map(cb => parseInt(cb.value)).sort((a, b) => a - b);
+        _startMultiAnalysis(pages);
       });
     }
 
@@ -1272,6 +1306,162 @@ const SourceTab = (() => {
         modal.appendChild(errEl);
         // エラー時もアクションボタンを表示
         _showResult(pageNum, fullText, true);
+      }
+    }
+
+    // ── 複数ページ解析（順次ストリーミング）─────────────────────
+    /**
+     * 複数ページを順次Vision解析し、進捗と結果をリアルタイム表示する
+     * @param {number[]} pages - 解析するページの0始まりインデックス配列（昇順）
+     */
+    async function _startMultiAnalysis(pages) {
+      if (abortController) abortController.abort();
+      abortController = new AbortController();
+
+      const pageTexts = {};
+      let currentIdx = 0;
+
+      function _renderProgress(pageNum) {
+        modal.innerHTML = `
+          <div class="pdf-modal-header">
+            <h3>解析中... (${currentIdx + 1} / ${pages.length} ページ)</h3>
+            <button class="pdf-modal-close" title="閉じる">×</button>
+          </div>
+          <div class="pdf-analysis-progress">
+            <div class="pdf-analysis-spinner"></div>
+            <span>p.${pageNum + 1} を解析しています...</span>
+          </div>
+          <div class="pdf-analysis-result" id="pdf-analysis-text"></div>
+        `;
+        modal.querySelector('.pdf-modal-close').addEventListener('click', _closeModal);
+      }
+
+      async function _analyzeOnePage(pageNum) {
+        _renderProgress(pageNum);
+        const resultEl = modal.querySelector('#pdf-analysis-text');
+        let fullText = '';
+
+        let streamUrl, streamOptions;
+        if (pdfFile) {
+          const formData = new FormData();
+          formData.append('file', pdfFile);
+          formData.append('page', String(pageNum));
+          streamUrl = `/api/projects/${project.id}/sources/${src.id}/analyze-pdf-page-stream`;
+          streamOptions = { method: 'POST', body: formData, signal: abortController.signal };
+        } else {
+          streamUrl = `/api/projects/${project.id}/sources/${src.id}/analyze-saved-pdf-page-stream`;
+          streamOptions = {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ page: pageNum }),
+            signal: abortController.signal,
+          };
+        }
+
+        const res = await fetch(streamUrl, streamOptions);
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.detail || '解析に失敗しました');
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const payload = line.slice(6).trim();
+            if (payload === '[DONE]') break;
+            try {
+              const parsed = JSON.parse(payload);
+              if (parsed.error) throw new Error(parsed.error);
+              if (parsed.text) {
+                fullText += parsed.text;
+                resultEl.textContent = fullText;
+                resultEl.scrollTop = resultEl.scrollHeight;
+              }
+            } catch (e) {
+              if (!(e instanceof SyntaxError)) throw e;
+            }
+          }
+        }
+        return fullText;
+      }
+
+      const errors = {};
+      for (let i = 0; i < pages.length; i++) {
+        currentIdx = i;
+        const pageNum = pages[i];
+        try {
+          pageTexts[pageNum] = await _analyzeOnePage(pageNum);
+        } catch (e) {
+          if (e.name === 'AbortError') return;
+          errors[pageNum] = e.message;
+          pageTexts[pageNum] = '';
+        }
+      }
+
+      _showMultiResult(pages, pageTexts, errors);
+    }
+
+    // ── 複数ページ解析結果確認画面 ───────────────────────────
+    /**
+     * 複数ページ解析完了後の結果確認画面を表示する
+     * @param {number[]} pages - 解析したページの0始まりインデックス配列
+     * @param {Object} pageTexts - {page: text} の結果マップ
+     * @param {Object} errors - {page: errorMessage} のエラーマップ
+     */
+    function _showMultiResult(pages, pageTexts, errors) {
+      const hasError = Object.keys(errors).length > 0;
+      const combined = pages.map(p => {
+        if (errors[p]) return `--- ${p + 1}ページ目 ---\n[エラー: ${errors[p]}]`;
+        return `--- ${p + 1}ページ目 ---\n${pageTexts[p] || ''}`;
+      }).join('\n\n');
+
+      modal.innerHTML = `
+        <div class="pdf-modal-header">
+          <h3>${hasError ? '解析完了（一部エラー）' : '解析完了'} — ${pages.length} ページ</h3>
+          <button class="pdf-modal-close" title="閉じる">×</button>
+        </div>
+        <div class="pdf-analysis-result" style="height:400px;overflow-y:auto;white-space:pre-wrap;font-size:13px;padding:12px;background:var(--color-bg-secondary);border-radius:6px;margin-bottom:12px">${escHtml(combined)}</div>
+        <div class="modal-actions" style="margin-top:8px">
+          <button class="btn btn-secondary" id="pdf-btn-back">ページ選択に戻る</button>
+          <button class="btn btn-secondary" id="pdf-btn-retry">再実行</button>
+          <button class="btn btn-primary" id="pdf-btn-add"${!combined.trim() ? ' disabled' : ''}>内容に追加</button>
+        </div>
+      `;
+
+      modal.querySelector('.pdf-modal-close').addEventListener('click', _closeModal);
+      modal.querySelector('#pdf-btn-back').addEventListener('click', () => _showPageSelect(pages));
+      modal.querySelector('#pdf-btn-retry').addEventListener('click', () => _startMultiAnalysis(pages));
+
+      if (combined.trim()) {
+        modal.querySelector('#pdf-btn-add').addEventListener('click', async () => {
+          const currentText = src.full_text || '';
+          const separator = currentText ? '\n\n' : '';
+          const newText = currentText + separator + combined;
+          try {
+            const updated = await ApiClient.put(
+              `/api/projects/${project.id}/sources/${src.id}`,
+              { full_text: newText }
+            );
+            const idx = project.sources.findIndex(s => s.id === src.id);
+            if (idx >= 0) project.sources[idx] = updated;
+            src.full_text = updated.full_text;
+            const ta = document.getElementById('src-full-text');
+            if (ta) ta.value = updated.full_text;
+            showToast('内容に追加しました', 'success');
+            _showPageSelect();
+          } catch (_) {
+            showToast('保存に失敗しました', 'error');
+          }
+        });
       }
     }
 
