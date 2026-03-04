@@ -305,7 +305,7 @@ const FigureNumberExtension = Extension.create({
                 widget.setAttribute('data-fig-id', id);
                 widget.textContent = label;
                 widget.contentEditable = 'false';
-                decorations.push(Decoration.widget(pos + 1, widget, { side: 0, key: `fig-num-${id}-${pos}` }));
+                decorations.push(Decoration.widget(pos, widget, { side: 1, key: `fig-num-${id}-${pos}` }));
               }
             });
 
@@ -370,34 +370,43 @@ const FigureBlockExtension = Extension.create({
                 wrapper.className = 'figure-block-inner';
                 wrapper.contentEditable = 'false';
 
+                const dragHandle = document.createElement('div');
+                dragHandle.className = 'figure-block-drag-handle';
+                dragHandle.setAttribute('data-drag-handle', '');
+                wrapper.appendChild(dragHandle);
+
+                const contentArea = document.createElement('div');
+                contentArea.className = 'figure-block-content';
+
                 if (isTable && mat.table_content) {
                   const tableWrap = document.createElement('div');
                   tableWrap.className = 'figure-block-table-wrap';
                   tableWrap.innerHTML = marked.parse(mat.table_content);
-                  wrapper.appendChild(tableWrap);
+                  contentArea.appendChild(tableWrap);
                 } else if (!isTable && mat.thumbnail_path && projectId) {
                   const img = document.createElement('img');
                   img.src = `/api/files?path=${encodeURIComponent(mat.thumbnail_path)}&project_id=${projectId}`;
                   img.alt = caption;
                   img.className = 'figure-block-img';
-                  wrapper.appendChild(img);
+                  contentArea.appendChild(img);
                 } else if (!isTable && mat.file_path && projectId) {
                   const img = document.createElement('img');
                   img.src = `/api/files?path=${encodeURIComponent(mat.file_path)}&project_id=${projectId}`;
                   img.alt = caption;
                   img.className = 'figure-block-img';
-                  wrapper.appendChild(img);
+                  contentArea.appendChild(img);
                 } else {
                   const placeholder = document.createElement('div');
                   placeholder.className = 'figure-block-placeholder';
                   placeholder.textContent = isTable ? '（表データなし）' : '（画像なし）';
-                  wrapper.appendChild(placeholder);
+                  contentArea.appendChild(placeholder);
                 }
 
                 const cap = document.createElement('div');
                 cap.className = 'figure-block-caption';
                 cap.textContent = captionText;
-                wrapper.appendChild(cap);
+                contentArea.appendChild(cap);
+                wrapper.appendChild(contentArea);
 
                 decorations.push(Decoration.widget(pos + 1, wrapper, { side: 0, key: `fig-block-${id}-${pos}` }));
               }
@@ -519,7 +528,7 @@ const ReferenceNumberExtension = Extension.create({
               widget.className = 'reference-ref-badge';
               widget.textContent = `[${num}]`;
               widget.contentEditable = 'false';
-              decorations.push(Decoration.widget(pos + 1, widget, { side: 0, key: `ref-num-${node.attrs.refId}-${pos}` }));
+              decorations.push(Decoration.widget(pos, widget, { side: 1, key: `ref-num-${node.attrs.refId}-${pos}` }));
             }
           });
           return DecorationSet.create(state.doc, decorations);
@@ -690,6 +699,11 @@ function _initEditor() {
           element.className = 'custom-drag-handle';
           element.innerHTML = '⋮⋮';
           return element;
+        },
+        shouldShow: ({ state, from }) => {
+          const node = state.doc.nodeAt(from);
+          if (node && node.type.name === 'figureBlockNode') return false;
+          return true;
         },
       }),
       TableOfContents.configure({

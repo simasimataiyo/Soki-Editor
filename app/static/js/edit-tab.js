@@ -793,7 +793,24 @@ const EditTab = (() => {
     if (!choice) return;
     const src = project.sources.find(s => s.id === choice);
     if (!src) { showToast('ソースが見つかりません', 'error'); return; }
-    _insertAtCursor(sectionId, `[^${src.id}]`);
+    _insertRefNode(sectionId, src.id);
+  }
+
+  function _insertRefNode(sectionId, refId) {
+    const editor = window.TiptapEditor && window.TiptapEditor.getEditor();
+    if (!editor) return;
+    const nodeContent = { type: 'referenceNode', attrs: { refId } };
+    if (_savedTiptapPos !== null) {
+      editor.chain().focus().insertContentAt(_savedTiptapPos, nodeContent).run();
+    } else {
+      const endPos = sectionId ? window.TiptapEditor.getSectionContentEnd(sectionId) : null;
+      if (endPos !== null) {
+        editor.chain().focus().insertContentAt(endPos, nodeContent).run();
+      } else {
+        editor.chain().focus().insertContent(nodeContent).run();
+      }
+    }
+    _savedTiptapPos = null;
   }
 
   /**
@@ -868,30 +885,6 @@ const EditTab = (() => {
     _savedTiptapPos = null;
   }
 
-  /**
-   * 保存済みカーソル位置（Tiptap ProseMirror位置）にテキストを挿入する
-   * カーソル位置が無効な場合はセクションのコンテンツ末尾に追加する
-   * @param {string} sectionId - 挿入先のセクションID
-   * @param {string} text - 挿入するテキスト
-   */
-  function _insertAtCursor(sectionId, text) {
-    const editor = window.TiptapEditor && window.TiptapEditor.getEditor();
-    if (!editor) return;
-
-    if (_savedTiptapPos !== null) {
-      editor.chain().focus().insertContentAt(_savedTiptapPos, text).run();
-    } else {
-      // フォールバック: セクションのコンテンツ末尾に挿入
-      const endPos = sectionId ? window.TiptapEditor.getSectionContentEnd(sectionId) : null;
-      if (endPos !== null) {
-        editor.chain().focus().insertContentAt(endPos, text).run();
-      } else {
-        editor.chain().focus().insertContent(text).run();
-      }
-    }
-    _savedTiptapPos = null;
-    // Tiptapのupdateイベントが自動保存をトリガーする
-  }
 
   /**
    * アウトラインパネルの最新状態（順序・親・タイトル）に合わせて
