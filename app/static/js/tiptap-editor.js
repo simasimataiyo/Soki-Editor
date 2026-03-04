@@ -163,7 +163,7 @@ const ReferenceNode = Node.create({
     return [{ tag: 'span[data-ref-id]' }];
   },
   renderHTML({ HTMLAttributes }) {
-    return ['span', mergeAttributes(HTMLAttributes, { class: 'reference-node', contenteditable: 'false' }), `[^${HTMLAttributes['data-ref-id']}]`];
+    return ['span', mergeAttributes(HTMLAttributes, { class: 'reference-node', contenteditable: 'false' })];
   },
   addInputRules() {
     return [
@@ -488,6 +488,47 @@ const ReferenceListExtension = Extension.create({
   }
 });
 
+// ─── 文献番号自動採番バッジプラグイン ────────────────────
+const ReferenceNumberPluginKey = new PluginKey('referenceNumberPlugin');
+const ReferenceNumberExtension = Extension.create({
+  name: 'referenceNumber',
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      key: ReferenceNumberPluginKey,
+      props: {
+        decorations(state) {
+          const isEnabled = window.TiptapEditor && window.TiptapEditor._referencesEnabled;
+          if (!isEnabled) return DecorationSet.empty;
+          const refMap = {};
+          let counter = 0;
+          state.doc.descendants(node => {
+            if (node.type.name === 'referenceNode') {
+              const srcId = node.attrs.refId;
+              if (srcId && refMap[srcId] === undefined) {
+                counter++;
+                refMap[srcId] = counter;
+              }
+            }
+          });
+          const decorations = [];
+          state.doc.descendants((node, pos) => {
+            if (node.type.name === 'referenceNode') {
+              const num = refMap[node.attrs.refId];
+              if (num === undefined) return;
+              const widget = document.createElement('span');
+              widget.className = 'reference-ref-badge';
+              widget.textContent = `[${num}]`;
+              widget.contentEditable = 'false';
+              decorations.push(Decoration.widget(pos + 1, widget, { side: 0, key: `ref-num-${node.attrs.refId}-${pos}` }));
+            }
+          });
+          return DecorationSet.create(state.doc, decorations);
+        }
+      }
+    })];
+  }
+});
+
 let _tooltipEl = null;
 function _getTooltip() {
   if (!_tooltipEl) {
@@ -661,6 +702,7 @@ function _initEditor() {
       }),
       CharacterCount.configure({ limit: null }),
       ReferenceListExtension,
+      ReferenceNumberExtension,
       FigureNumberExtension,
       FigureBlockExtension,
       TooltipExtension,

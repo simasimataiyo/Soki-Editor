@@ -138,10 +138,10 @@
                 <div class="panel-header">
                   <span>Outline</span>
                 </div>
-                <div class="panel-buttons">
-                  <button class="btn-add-item" id="btn-add-chapter">セクション追加</button>
-                </div>
                 <ul class="outline-list" id="outline-list"></ul>
+                <div class="outline-deselect-row">
+                  <button class="btn-panel-action" id="btn-deselect-section">選択解除</button>
+                </div>
                 <div class="outline-references" id="outline-references">
                   <span class="outline-references-label">
                     <span class="icon">≡</span> 参考文献
@@ -150,6 +150,9 @@
                     <input type="checkbox" id="references-section-enabled" />
                     <span class="slider"></span>
                   </label>
+                </div>
+                <div class="panel-buttons outline-panel-footer">
+                  <button class="btn-add-item" id="btn-add-chapter">セクション追加</button>
                 </div>
               </aside>
               <!-- パネルリサイザー: アウトライン ↔ エディタ -->
@@ -166,8 +169,7 @@
                     <button class="btn-toolbar" data-action="strike" title="取り消し線 (Ctrl+Shift+X)"><s>S</s></button>
                     <button class="btn-toolbar" data-action="code"
                       title="インラインコード (Ctrl+E)"><code>&lt;/&gt;</code></button>
-                    <div id="tiptap-toolbar-divider" class="toolbar-divider"></div>
-                    
+                    <div class="toolbar-divider"></div>
                     <button class="btn btn-sm btn-secondary" data-action="insert-ref">文献挿入</button>
                     <button class="btn btn-sm btn-secondary" data-action="insert-fig">図表番号挿入</button>
                     <button class="btn btn-sm btn-secondary" data-action="insert-fig-block">図表挿入</button>
@@ -215,30 +217,28 @@
                   <div class="chat-history-panel-messages" id="chat-history-panel-messages">
                     <p class="chat-history-placeholder">スコープを選択してください</p>
                   </div>
-                </div>
-              </div>
-            </div>
-            <div>
-              <!-- チャット入力バー -->
-                <div class="chat-bar" id="chat-bar">
-                  <div class="chat-resize-handle" id="chat-resize-handle" title="ドラッグで高さ調整"></div>
-                  <div style="padding: 12px 24px;">
-                    <div id="chat-selection-badge" class="chat-selection-badge" style="display:none"></div>
-                    <div class="chat-textarea-wrapper">
-                      <textarea id="chat-input" class="chat-textarea" placeholder="What would you like to know?"
-                        rows="3"></textarea>
-                    </div>
-                    <div class="chat-controls">
-                      <button class="btn-icon btn-send" id="btn-chat-send" title="送信"><svg viewBox="0 0 16 16" width="16"
-                          height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
-                          stroke-linejoin="round">
-                          <line x1="8" y1="13" x2="8" y2="3" />
-                          <polyline points="4,7 8,3 12,7" />
-                        </svg></button>
+                  <!-- チャット入力バー -->
+                  <div class="chat-bar" id="chat-bar">
+                    <div class="chat-resize-handle" id="chat-resize-handle" title="ドラッグで高さ調整"></div>
+                    <div style="padding: 12px 24px;">
+                      <div id="chat-selection-badge" class="chat-selection-badge" style="display:none"></div>
+                      <div class="chat-textarea-wrapper">
+                        <textarea id="chat-input" class="chat-textarea" placeholder="What would you like to know?"
+                          rows="3"></textarea>
+                      </div>
+                      <div class="chat-controls">
+                        <button class="btn-icon btn-send" id="btn-chat-send" title="送信"><svg viewBox="0 0 16 16" width="16"
+                            height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                            stroke-linejoin="round">
+                            <line x1="8" y1="13" x2="8" y2="3" />
+                            <polyline points="4,7 8,3 12,7" />
+                          </svg></button>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
+            </div>
           </div>
 
           <!-- Source タブ -->
@@ -248,12 +248,12 @@
                 <div class="panel-header">
                   <span>Sources</span>
                 </div>
+                <ul class="item-list" id="source-list"></ul>
                 <div class="panel-buttons">
                   <button class="btn-add-item" id="btn-add-source">新規追加</button>
                   <button class="btn-panel-action" id="btn-source-import">CSVインポート</button>
                   <button class="btn-panel-action" id="btn-source-export">CSVエクスポート</button>
                 </div>
-                <ul class="item-list" id="source-list"></ul>
               </aside>
               <div class="panel-resizer" id="source-resizer"></div>
               <div class="detail-pane" id="source-detail">
@@ -269,10 +269,10 @@
                 <div class="panel-header">
                   <span>Material</span>
                 </div>
+                <ul class="material-card-list" id="material-list"></ul>
                 <div class="panel-buttons">
                   <button class="btn-add-item" id="btn-add-material">新規追加</button>
                 </div>
-                <ul class="material-card-list" id="material-list"></ul>
               </aside>
               <div class="panel-resizer" id="material-resizer"></div>
               <div class="detail-pane" id="material-detail">
@@ -425,7 +425,7 @@
   <script src="/static/js/undo-redo-manager.js"></script>
   <script src="/static/js/modal.js"></script>
   <script src="/static/js/project-selector.js"></script>
-  <script type="module" src="/static/js/tiptap-bundle.js?v=7"></script>
+  <script type="module" src="/static/js/tiptap-bundle.js?v=9"></script>
   <script src="/static/js/edit-tab.js?v=8"></script>
   <script src="/static/js/source-tab.js"></script>
   <script src="/static/js/material-tab.js?v=2"></script>

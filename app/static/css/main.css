@@ -623,12 +623,15 @@ body {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 6px;
-  padding: 0 12px 8px;
+  padding: 8px 12px;
+  flex-shrink: 0;
+  border-top: 1px solid var(--color-border);
 }
 
 /* detail-pane内ではpadding不要（親コンテナが管理） */
 .detail-pane .panel-buttons {
   padding: 0 0 12px;
+  border-top: none;
 }
 
 /* 新規追加ボタンは常に全幅 */
@@ -1265,6 +1268,22 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* ─── アウトライン: 選択解除行 ───────────────────────────── */
+.outline-deselect-row {
+  padding: 4px 12px;
+  flex-shrink: 0;
+}
+
+.outline-deselect-row .btn-panel-action {
+  width: 100%;
+}
+
+/* ─── アウトライン: 下部ボタンエリア ────────────────────── */
+.outline-panel-footer {
+  padding: 8px 12px !important;
+  border-top: 1px solid var(--color-border) !important;
 }
 
 /* ─── セクション選択状態 ─────────────────────────────────── */
@@ -2969,15 +2988,29 @@ body {
   vertical-align: baseline;
 }
 
+/* ─── 文献番号インラインバッジ ───────────────────────────── */
+.reference-ref-badge {
+  display: inline-block;
+  background: #e8f0fe;
+  color: #1a56c4;
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 0.85em;
+  font-weight: 600;
+  cursor: default;
+  user-select: none;
+  vertical-align: baseline;
+}
+
 /* ─── 図表ブロックノード ─────────────────────────────────── */
 .figure-block-node {
   display: block;
   margin: 1.5rem auto;
   text-align: center;
   border-radius: 4px;
-  padding: 12px 8px 8px;
-  background: var(--color-bg-secondary, #f8f9fa);
-  border: 1px solid var(--color-border, #e0e0e0);
+  padding: 4px 0 8px;
+  background: transparent;
+  border: none;
 }
 
 .figure-block-inner {

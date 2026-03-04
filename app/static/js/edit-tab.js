@@ -786,8 +786,9 @@ const EditTab = (() => {
   async function _showInsertRefDialog(sectionId) {
     _saveCursorPosition();
     const project = window.appState.getProject();
-    if (!project.sources.length) { showToast('ソースがありません', 'error'); return; }
-    const items = project.sources.map(s => ({ value: s.id, label: s.bibliography?.title || s.name }));
+    const filteredSources = project.sources.filter(s => s.bibliography?.include_in_references === true);
+    if (!filteredSources.length) { showToast('参考文献に含めるソースがありません', 'error'); return; }
+    const items = filteredSources.map(s => ({ value: s.id, label: s.bibliography?.title || s.name }));
     const choice = await Modal.select('文献を挿入', 'ソースを選択してください', items, { large: true });
     if (!choice) return;
     const src = project.sources.find(s => s.id === choice);
@@ -1384,6 +1385,11 @@ const EditTab = (() => {
     // 「セクション追加」ボタン: 引数なし（undefined）で呼び出し → 選択中セクションがあればそれを親に
     document.getElementById('btn-add-chapter').addEventListener('click', () => {
       _showAddSectionModal();
+    });
+
+    // 「選択解除」ボタン
+    document.getElementById('btn-deselect-section').addEventListener('click', () => {
+      clearSectionSelection();
     });
 
     // Tiptapのテキスト選択時の文字数表示とセクション同期（tiptap-ready後に登録）
