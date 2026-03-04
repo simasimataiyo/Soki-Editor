@@ -88,55 +88,86 @@ sections 配列の各要素:
 ```
 
 {% elif command_mode == "section" %}
-### モード: 現在セクション配下のみ
+### モード: 選択セクションの構造編集
+
 {% if target_section %}
-対象セクション「{{ target_section.title }}」(ID: {{ target_section.id }}) の配下にのみ子セクションを生成・修正してください。
+選択セクション「{{ target_section.title }}」(ID: {{ target_section.id }}) の**タイトル・概要・子セクション構造**を編集してください。
 
-**重要な制約:**
-- 既存セクションの本文（content）は絶対に変更しないでください
-- タイトルの変更は `update_section_title` ツールで行えます
-- 概要の更新は `update_section_summary` ツールで行えます
-- 子セクションの追加は `create_section`、並べ替えは `move_section` で行えます
-- `update_section` ツールは使用しないでください
+**使用できるツール:**
+- `update_section_title`: セクションのタイトルを変更する
+- `update_section_summary`: セクションの概要を更新する
+- `create_section`: 新しい子セクションを追加する（`parent_id` に `{{ target_section.id }}` を指定）
+- `delete_section`: 不要な子セクションを削除する
+- `move_section`: 子セクションを並べ替えまたは階層変更する
 
-**既存セクションを親にする場合の特別ルール:**
-- ツールを使用して、対象セクション配下に一括で子セクション群を追加してください
-- `parent_section_id` 引数に `{{ target_section.id }}` を指定してください
+**絶対厳守の制約:**
+- 本文（content）は変更しないでください — `update_section` ツールは使用禁止です
+- 対象セクション外のセクションは変更しないでください
 
-対象セクションの現在の構造:
-{% for section in sections %}
-{% if section.parent_id == target_section.id %}
-- ID: {{ section.id }} / {{ section.title }}: {{ section.summary or '(概要なし)' }}
-  {% set body = section_bodies_by_id.get(section.id, '') if section_bodies_by_id else '' %}{% if body %}(本文あり: {{ body[:50] }}...){% endif %}
-{% endif %}
-{% endfor %}
+現在の子セクション:
+{% for section in sections %}{% if section.parent_id == target_section.id %}
+- ID: {{ section.id }} | {{ section.title }}: {{ section.summary or '(概要なし)' }}
+  {% set body = section_bodies_by_id.get(section.id, '') if section_bodies_by_id else '' %}{% if body %}(本文あり){% endif %}
+{% endif %}{% endfor %}
 {% else %}
-対象セクションが選択されていません。全体モードとして骨子を追加生成します。
+対象セクションが選択されていません。セクションを選択してから `/structure-section` を実行してください。
 {% endif %}
 
+{% elif command_mode == "summary" %}
+### モード: 概要（サマリー）の更新
+
+{% if target_section %}
+対象セクション「{{ target_section.title }}」(ID: {{ target_section.id }}) およびその直下の子セクションの概要（summary）を更新してください。
+
+更新対象:
+- ID: {{ target_section.id }} | {{ target_section.title }}: 現在の概要: {{ target_section.summary or '(なし)' }}
+{% for section in sections %}{% if section.parent_id == target_section.id %}
+- ID: {{ section.id }} | {{ section.title }}: 現在の概要: {{ section.summary or '(なし)' }}
+  {% set body = section_bodies_by_id.get(section.id, '') if section_bodies_by_id else '' %}{% if body %}本文（先頭200文字）: {{ body[:200] }}{% endif %}
+{% endif %}{% endfor %}
 {% else %}
-### モード: 追加・修正（既存保持）
+全セクションの概要を更新してください。
 
-既存のセクション構造を維持しつつ、不足しているセクションを追加してください。
-提供されたツールを **1回** 呼び出すことで、複数セクションを一括追加できます。
-
-**重要な制約:**
-- 既存セクションの削除や変更は行わないでください
-- 既存セクションと階層構造が整合するように新しいセクションを追加してください
-
-**新しいセクションの `parent_key` ルール:**
-- このモードでは、新しいセクション同士の親子関係は配列内の `key` で参照してください
-- 既存セクションを親にする場合、`parent_key` に既存セクションIDを直接指定できます
-- 混在例:
-  - 既存IDを親にする: `{"key": "new-s1", "title": "...", "parent_key": "{{ target_section.id }}", "order": 0}`
-  - 新しいセクションを親にする: `{"key": "new-s1-1", "title": "...", "parent_key": "new-s1", "order": 0}`
-
-{% if sections %}
-**現在の既存セクション:**
+更新対象:
 {% for section in sections %}
-- {{ section.title }} (ID: {{ section.id }}, parent: {{ section.parent_id or 'ルート' }})
+- ID: {{ section.id }} | {{ section.title }}: 現在の概要: {{ section.summary or '(なし)' }}
+  {% set body = section_bodies_by_id.get(section.id, '') if section_bodies_by_id else '' %}{% if body %}本文（先頭200文字）: {{ body[:200] }}{% endif %}
 {% endfor %}
 {% endif %}
+
+**制約:**
+- 本文（content）は絶対に変更しないでください
+- `update_section_summary` のみ使用してください
+- 概要は約150文字程度で、本文の内容を正確に反映してください
+- 本文がないセクションはスキップして構いません
+
+{% else %}
+### モード: 子セクション追加（structure-add）
+
+{% if target_section %}
+選択中のセクション「{{ target_section.title }}」(ID: {{ target_section.id }}) の直下に子セクションを追加してください。
+
+**ツール: `create_sections_under_parent`**
+- `parent_section_id`: `{{ target_section.id }}` を必ず指定してください
+- 既存の子セクションは保持したまま追加します
+
+既存の子セクション（order の続きから追加）:
+{% for section in sections %}{% if section.parent_id == target_section.id %}
+- ID: {{ section.id }} | {{ section.title }} (order: {{ section.order }})
+{% endif %}{% endfor %}
+{% else %}
+セクションが選択されていません。ルートレベルに新しいセクションを追加してください。
+
+**ツール: `create_sections_under_parent`**
+- `parent_section_id`: `null` を指定してください
+
+現在のルートセクション:
+{% for section in sections %}{% if not section.parent_id %}
+- ID: {{ section.id }} | {{ section.title }} (order: {{ section.order }})
+{% endif %}{% endfor %}
+{% endif %}
+
+新規セクションの order は既存の最大 order + 1 から始めてください。
 
 {% endif %}
 

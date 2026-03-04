@@ -388,23 +388,36 @@ class LLMService:
                 call_kwargs["tools"] = TOOLS
                 call_kwargs["tool_choice"] = "auto"
 
-                # 特定の /structure 系コマンドの場合は、ツールを1つに強制する
+                # 特定の /structure 系コマンドの場合は、ツールを制限する
                 if command and command.startswith("structure"):
                     command_mode = self._normalize_command(command, command_args or [])
                     mode = command_mode["mode"]
                     if mode == "replace":
                         target_tool_name = "set_document_structure"
+                        call_kwargs["tools"] = [t for t in TOOLS if t["function"]["name"] == target_tool_name]
+                        call_kwargs["tool_choice"] = {
+                            "type": "function",
+                            "function": {"name": target_tool_name}
+                        }
                     elif mode == "section":
+                        # structure-section: タイトル・概要・子構造の変更（本文不変）
+                        structure_section_tools = [
+                            "update_section_title", "update_section_summary",
+                            "create_section", "delete_section", "move_section"
+                        ]
+                        call_kwargs["tools"] = [t for t in TOOLS if t["function"]["name"] in structure_section_tools]
+                        call_kwargs["tool_choice"] = "auto"
+                    elif mode == "summary":
+                        # structure-summary: 概要のみ更新
+                        call_kwargs["tools"] = [t for t in TOOLS if t["function"]["name"] == "update_section_summary"]
+                        call_kwargs["tool_choice"] = "auto"
+                    else:  # add
                         target_tool_name = "create_sections_under_parent"
-                    else: # add or others
-                        target_tool_name = "create_document_structure"
-                    
-                    # ターゲットツールだけを渡す
-                    call_kwargs["tools"] = [t for t in TOOLS if t["function"]["name"] == target_tool_name]
-                    call_kwargs["tool_choice"] = {
-                        "type": "function",
-                        "function": {"name": target_tool_name}
-                    }
+                        call_kwargs["tools"] = [t for t in TOOLS if t["function"]["name"] == target_tool_name]
+                        call_kwargs["tool_choice"] = {
+                            "type": "function",
+                            "function": {"name": target_tool_name}
+                        }
 
             # 多段ループ: fetch_sources が呼ばれたら全文を注入して再呼び出し
             max_rounds = 3
@@ -879,7 +892,7 @@ class LLMService:
         source_summaries = [
             {"id": s.id, "name": s.name, "summary": s.summary}
             for s in project.sources
-            if s.summary
+            if s.summary and s.bibliography and s.bibliography.include_in_references
         ]
 
         # 明示参照されたソース・マテリアルを解決
@@ -913,9 +926,11 @@ class LLMService:
             target_section_body = self._extract_section_body(
                 project.content, target_section.id
             )
-        # review/rewrite コマンドで全セクションの本文も必要な場合
+        # review/rewrite/structure-summary/structure-section コマンドで全セクションの本文も必要な場合
         section_bodies_by_id = {}
-        if command_mode["base_command"] in ("rewrite", "review"):
+        _needs_bodies = command_mode["base_command"] in ("rewrite", "review") or \
+            (command_mode["base_command"] == "structure" and command_mode["mode"] in ("summary", "section"))
+        if _needs_bodies:
             for sec in sorted_sections:
                 section_bodies_by_id[sec.id] = self._extract_section_body(
                     project.content, sec.id
