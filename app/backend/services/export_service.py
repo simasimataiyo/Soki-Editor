@@ -16,9 +16,11 @@ class ExportService:
     # [^ref-xxx] マッチパターン
     _REF_PATTERN = re.compile(r"\[\^(ref-[^\]]+)\]")
     # ![caption](path "fig-xxx") マッチパターン
-    _FIG_PATTERN = re.compile(r'!\[([^\]]*)\]\([^)]*\s+"(fig-[^"]+)"\)')
+    _FIG_PATTERN = re.compile(r'!\[([^\]]*)\]\([^)]*?"(fig-[^"]+)"\)')
     # soki-section マーカーパターン（新形式: JSON / 旧形式: UUID）
     _MARKER_PATTERN = re.compile(r'<!-- soki-section:(?:\{[^}]*\}|[a-f0-9-]+) -->\n?')
+    # fig-block コメントパターン
+    _FIG_BLOCK_PATTERN = re.compile(r'<!-- fig-block:(fig-[a-z0-9]+) -->')
 
     # ------------------------------------------------------------------
     # Public API
@@ -30,6 +32,10 @@ class ExportService:
 
         # マーカーを除去
         content = self._MARKER_PATTERN.sub('', project.content)
+
+        # fig-block を表Markdownに展開
+        mat_by_id = {m.id: m for m in project.materials}
+        content = self._expand_fig_blocks(content, mat_by_id)
 
         # 参照解決
         content = self.resolve_references(content, ref_map, fig_map)
@@ -69,12 +75,11 @@ class ExportService:
             return m.group(0)
 
         def replace_fig(m: re.Match) -> str:
-            caption = m.group(1)
             fig_id = m.group(2)
             if fig_id in fig_map:
                 fig_type, num = fig_map[fig_id]
                 prefix = "図" if fig_type == "figure" else "表"
-                return f"{prefix}{num} {caption}"
+                return f"{prefix}{num}"
             return m.group(0)
 
         content = self._REF_PATTERN.sub(replace_ref, content)
@@ -154,6 +159,19 @@ class ExportService:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _expand_fig_blocks(self, content: str, mat_by_id: dict) -> str:
+        """<!-- fig-block:fig-xxx --> を表マテリアルの table_content に展開する。
+        図マテリアルの場合はコメントをそのまま除去する。"""
+        def replace_fig_block(m: re.Match) -> str:
+            fig_id = m.group(1)
+            mat = mat_by_id.get(fig_id)
+            if mat and mat.type == "table" and mat.table_content:
+                caption = mat.caption or mat.name
+                return f"{mat.table_content.strip()}\n\n*{caption}*"
+            return ""
+
+        return self._FIG_BLOCK_PATTERN.sub(replace_fig_block, content)
 
     def _format_bibliography(self, bib) -> str:
         """参考文献エントリを簡易テキスト形式にフォーマットする。"""
