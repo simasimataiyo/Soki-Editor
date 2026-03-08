@@ -140,6 +140,43 @@ async def update_references_section(project_id: str, body: dict) -> dict:
         raise HTTPException(status_code=404, detail="プロジェクトが見つかりません")
 
 
+@router.put("/projects/{project_id}/citation-formats")
+async def update_citation_formats(project_id: str, body: dict) -> dict:
+    """種類ごとの参考文献フォーマット（CitationToken リスト）を更新する。
+    body: { "type": str, "tokens": list[dict] }
+    """
+    from app.backend.models import CitationToken
+    svc = get_service()
+    try:
+        proj = await svc.get(project_id)
+        bib_type = body.get("type")
+        tokens_raw = body.get("tokens", [])
+        if not bib_type:
+            raise HTTPException(status_code=400, detail="type は必須です")
+        tokens = [CitationToken(**t) for t in tokens_raw]
+        formats = dict(proj.citation_formats or {})
+        formats[bib_type] = tokens
+        proj.citation_formats = formats
+        await svc.flush(project_id)
+        return {"type": bib_type, "tokens": [t.model_dump() for t in tokens]}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="プロジェクトが見つかりません")
+
+
+@router.get("/projects/{project_id}/citation-formats")
+async def get_citation_formats(project_id: str) -> dict:
+    """種類ごとの参考文献フォーマットを返す。"""
+    svc = get_service()
+    try:
+        proj = await svc.get(project_id)
+        result = {}
+        for bib_type, tokens in (proj.citation_formats or {}).items():
+            result[bib_type] = [t.model_dump() for t in tokens]
+        return {"citation_formats": result}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="プロジェクトが見つかりません")
+
+
 @router.get("/projects/{project_id}/content")
 async def get_project_content(project_id: str) -> dict:
     """プロジェクトの本文コンテンツ（マーカー付きMarkdown）を返す。"""

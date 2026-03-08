@@ -30,6 +30,14 @@ class LLMSettings(BaseModel):
     window_state: WindowState = Field(default_factory=WindowState)
 
 
+class CitationToken(BaseModel):
+    """参考文献フォーマットの1要素。field値のフィールドを prefix/suffix で囲んで出力する。
+    field="literal" の場合は prefix を固定文字列として出力する。"""
+    field: str        # "author" | "title" | "year" | ... | "literal"
+    prefix: str = ""  # フィールド値の前に付ける文字列
+    suffix: str = ""  # フィールド値の後に付ける文字列
+
+
 class Bibliography(BaseModel):
     type: Literal["paper", "book", "book_chapter", "web", "resource"] = "paper"
     include_in_references: bool = False
@@ -138,6 +146,7 @@ class Project(BaseModel):
     review_system_prompt: str = ""
     review_comments: list[ReviewComment] = []
     references_section_enabled: bool = False
+    citation_formats: dict[str, list[CitationToken]] = {}  # type → token list
     saved_review_prompts: dict[str, str] = {}  # name → prompt text
 
 

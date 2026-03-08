@@ -53,7 +53,8 @@ class ExportService:
                     src = src_by_id.get(src_id)
                     if src:
                         bib = src.bibliography
-                        entry = self._format_bibliography(bib)
+                        tokens = (project.citation_formats or {}).get(bib.type)
+                        entry = self._format_bibliography(bib, tokens)
                         lines.append(f"[{num}] {entry}")
                 lines.append("")
                 return "\n".join(lines)
@@ -147,7 +148,8 @@ class ExportService:
             for src_id, num in sorted(ref_map.items(), key=lambda x: x[1]):
                 src = src_by_id.get(src_id)
                 if src:
-                    bib_lines.append(f"[{num}] {self._format_bibliography(src.bibliography)}")
+                    tokens = (project.citation_formats or {}).get(src.bibliography.type)
+                bib_lines.append(f"[{num}] {self._format_bibliography(src.bibliography, tokens)}")
             previews.append(
                 SectionPreview(
                     section_id="__references__",
@@ -173,17 +175,70 @@ class ExportService:
 
         return self._FIG_BLOCK_PATTERN.sub(replace_fig_block, content)
 
-    def _format_bibliography(self, bib) -> str:
-        """参考文献エントリを簡易テキスト形式にフォーマットする。"""
+    # デフォルトの参考文献フォーマット（種類ごと）
+    DEFAULT_CITATION_FORMATS: dict = {
+        "paper": [
+            {"field": "author", "prefix": "", "suffix": ""},
+            {"field": "year", "prefix": "(", "suffix": ")"},
+            {"field": "title", "prefix": "『", "suffix": "』"},
+            {"field": "journal", "prefix": "", "suffix": ""},
+            {"field": "volume", "prefix": "", "suffix": ""},
+            {"field": "issue", "prefix": "(", "suffix": ")"},
+            {"field": "pages", "prefix": ":", "suffix": ""},
+        ],
+        "book": [
+            {"field": "author", "prefix": "", "suffix": ""},
+            {"field": "year", "prefix": "(", "suffix": ")"},
+            {"field": "title", "prefix": "『", "suffix": "』"},
+            {"field": "publisher", "prefix": "", "suffix": ""},
+            {"field": "publication_place", "prefix": "", "suffix": ""},
+        ],
+        "book_chapter": [
+            {"field": "author", "prefix": "", "suffix": ""},
+            {"field": "year", "prefix": "(", "suffix": ")"},
+            {"field": "title", "prefix": "『", "suffix": "』"},
+            {"field": "editor", "prefix": "", "suffix": "(編)"},
+            {"field": "publisher", "prefix": "", "suffix": ""},
+            {"field": "pages", "prefix": "pp.", "suffix": ""},
+        ],
+        "web": [
+            {"field": "author", "prefix": "", "suffix": ""},
+            {"field": "year", "prefix": "(", "suffix": ")"},
+            {"field": "title", "prefix": "", "suffix": ""},
+            {"field": "site_name", "prefix": "", "suffix": ""},
+            {"field": "url", "prefix": "", "suffix": ""},
+            {"field": "accessed_date", "prefix": "[参照: ", "suffix": "]"},
+        ],
+        "resource": [
+            {"field": "author", "prefix": "", "suffix": ""},
+            {"field": "year", "prefix": "(", "suffix": ")"},
+            {"field": "title", "prefix": "", "suffix": ""},
+        ],
+    }
+
+    def _format_bibliography(self, bib, tokens: list | None = None) -> str:
+        """参考文献エントリをトークンリストに従ってフォーマットする。
+        tokens が None の場合はデフォルトフォーマットを使用する。"""
+        if tokens is None:
+            tokens = self.DEFAULT_CITATION_FORMATS.get(bib.type, [
+                {"field": "author", "prefix": "", "suffix": ""},
+                {"field": "title", "prefix": "『", "suffix": "』"},
+                {"field": "year", "prefix": "(", "suffix": ")"},
+                {"field": "url", "prefix": "", "suffix": ""},
+            ])
+
         parts: list[str] = []
-        if bib.author:
-            parts.append(bib.author)
-        if bib.title:
-            parts.append(f"『{bib.title}』")
-        if bib.journal:
-            parts.append(bib.journal)
-        if bib.year:
-            parts.append(f"({bib.year})")
-        if bib.url:
-            parts.append(bib.url)
+        for tok in tokens:
+            field = tok.get("field", "") if isinstance(tok, dict) else getattr(tok, "field", "")
+            prefix = tok.get("prefix", "") if isinstance(tok, dict) else getattr(tok, "prefix", "")
+            suffix = tok.get("suffix", "") if isinstance(tok, dict) else getattr(tok, "suffix", "")
+            if field == "literal":
+                # prefixを固定文字列として出力
+                if prefix:
+                    parts.append(prefix)
+                continue
+            value = getattr(bib, field, None) or ""
+            if value:
+                parts.append(f"{prefix}{value}{suffix}")
+
         return " ".join(parts) if parts else "(文献情報なし)"
