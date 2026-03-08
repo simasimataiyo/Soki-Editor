@@ -1,6 +1,8 @@
 """プロジェクト管理・ダイアログ API ルーター"""
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
@@ -35,8 +37,6 @@ def set_service(svc: ProjectService) -> None:
 @router.post("/projects", response_model=Project)
 async def create_project(body: ProjectCreate) -> Project:
     svc = get_service()
-    from pathlib import Path
-
     data_dir = body.data_dir
     if data_dir is None:
         p = Path(body.json_file_path)
@@ -46,10 +46,8 @@ async def create_project(body: ProjectCreate) -> Project:
     project = await svc.create_project(body.name, body.json_file_path, data_dir)
     # data_dir をプロジェクト ID ベースに修正（作成後に ID が確定）
     if body.data_dir is None:
-        from pathlib import Path as _Path
-
         actual_data_dir = str(
-            _Path(body.json_file_path).parent / project.id / "data"
+            Path(body.json_file_path).parent / project.id / "data"
         )
         await svc.update_data_dir(project.id, actual_data_dir)
         project = await svc.get_project(project.id)
@@ -66,8 +64,6 @@ async def create_project(body: ProjectCreate) -> Project:
 @router.post("/projects/open-upload", response_model=Project)
 async def open_project_upload(file: UploadFile) -> Project:
     """ブラウザからアップロードされたプロジェクトJSONファイルを開く。"""
-    from pathlib import Path
-
     content = await file.read()
     save_dir = Path.home() / "soki-projects"
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -85,8 +81,6 @@ async def open_project_upload(file: UploadFile) -> Project:
 @router.get("/projects/suggest-path")
 async def suggest_project_path(name: str = "project") -> dict:
     """新規プロジェクトのデフォルト保存パスを提案する。"""
-    from pathlib import Path
-
     safe_name = "".join(c for c in name if c.isalnum() or c in " _-").strip() or "project"
     path = Path.home() / "soki-projects" / f"{safe_name}.json"
     return {"path": str(path)}
@@ -148,7 +142,7 @@ async def update_citation_formats(project_id: str, body: dict) -> dict:
     """
     svc = get_service()
     try:
-        proj = await svc.get(project_id)
+        proj = await svc.get_project(project_id)
         bib_type = body.get("type")
         tokens_raw = body.get("tokens", [])
         if not bib_type:
@@ -166,7 +160,7 @@ async def get_citation_formats(project_id: str) -> dict:
     """種類ごとの参考文献フォーマットを返す。"""
     svc = get_service()
     try:
-        proj = await svc.get(project_id)
+        proj = await svc.get_project(project_id)
         result = {}
         for bib_type, tokens in (proj.citation_formats or {}).items():
             result[bib_type] = [t.model_dump() for t in tokens]
@@ -263,14 +257,12 @@ def dialog_save_file(body: dict = {}) -> dict:
 @router.post("/dialog/write-file")
 def dialog_write_file(body: dict) -> dict:
     """指定パスにコンテンツを書き込む。"""
-    import pathlib
-
     path = body.get("path", "")
     content = body.get("content", "")
     if not path:
         return {"ok": False, "error": "path is required"}
     try:
-        pathlib.Path(path).write_text(content, encoding="utf-8-sig")
+        Path(path).write_text(content, encoding="utf-8-sig")
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -291,8 +283,6 @@ def dialog_open_directory() -> dict:
 @router.get("/filesystem/browse")
 def browse_filesystem(dir: str = "") -> dict:
     """ディレクトリ内容を返す（ブラウザモードのファイル選択用）。"""
-    from pathlib import Path
-
     if not dir:
         base = Path.home()
     else:

@@ -22,6 +22,7 @@ const MaterialTab = (() => {
   // 保存タイマー（モジュールレベル、一元管理）
   let _pendingSaveTimer = null;
   let _pendingSaveId = null;
+  let _nameTimer = null;
 
   const MAT_TYPE_LABELS = { figure: '図', table: '表' };
   const MAT_TYPES_ORDER = ['figure', 'table'];
@@ -455,10 +456,9 @@ const MaterialTab = (() => {
     // 名前フィールドの即時反映（常に最新のプロジェクトからマテリアルを参照）
     const nameEl = document.getElementById('mat-name');
     if (nameEl) {
-      let nameTimer;
       nameEl.addEventListener('input', () => {
-        clearTimeout(nameTimer);
-        nameTimer = setTimeout(() => {
+        clearTimeout(_nameTimer);
+        _nameTimer = setTimeout(() => {
           // 常に最新のプロジェクトからマテリアルを参照
           const project = window.appState.getProject();
           const currentMat = project.materials.find(m => m.id === mat.id);

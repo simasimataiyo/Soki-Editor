@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from typing import AsyncGenerator
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response, StreamingResponse
@@ -268,7 +269,6 @@ async def export_markdown(project_id: str) -> Response:
         _not_found(project_id)
 
     md_content = _export_service.export_to_markdown(project)
-    from urllib.parse import quote
     filename_encoded = quote(f"{project.name}.md", safe="")
     return Response(
         content=md_content.encode("utf-8"),

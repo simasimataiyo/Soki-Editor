@@ -698,6 +698,39 @@ async def export_sources_csv(project_id: str) -> StreamingResponse:
     )
 
 
+async def _import_sources_from_text(svc, project_id: str, text: str) -> int:
+    """CSV テキストからソースをインポートし、追加件数を返す。"""
+    reader = csv.DictReader(io.StringIO(text))
+    imported = 0
+    for row in reader:
+        bib = Bibliography(
+            type=row.get("bib_type", "paper"),
+            title=row.get("title", ""),
+            author=row.get("author", ""),
+            journal=row.get("journal") or None,
+            volume=row.get("volume") or None,
+            issue=row.get("issue") or None,
+            pages=row.get("pages") or None,
+            year=row.get("year") or None,
+            publisher=row.get("publisher") or None,
+            publication_place=row.get("publication_place") or None,
+            editor=row.get("editor") or None,
+            url=row.get("url") or None,
+            site_name=row.get("site_name") or None,
+            accessed_date=row.get("accessed_date") or None,
+            created_date=row.get("created_date") or None,
+            include_in_references=str(row.get("include_in_references", "False")).lower() == "true",
+        )
+        src = await svc.add_source(project_id)
+        await svc.update_source(
+            project_id,
+            src.id,
+            SourceUpdate(name=row.get("name", src.name), bibliography=bib),
+        )
+        imported += 1
+    return imported
+
+
 @router.post("/sources/import-native")
 async def import_sources_csv_native(project_id: str, body: dict) -> dict:
     """pywebview 用: ファイルパスを受け取って CSV インポート。"""
@@ -715,36 +748,7 @@ async def import_sources_csv_native(project_id: str, body: dict) -> dict:
     except KeyError:
         _not_found(project_id)
 
-    reader = csv.DictReader(io.StringIO(text))
-    imported = 0
-    for row in reader:
-        bib = Bibliography(
-            type=row.get("bib_type", "paper"),
-            title=row.get("title", ""),
-            author=row.get("author", ""),
-            journal=row.get("journal") or None,
-            volume=row.get("volume") or None,
-            issue=row.get("issue") or None,
-            pages=row.get("pages") or None,
-            year=row.get("year") or None,
-            publisher=row.get("publisher") or None,
-            publication_place=row.get("publication_place") or None,
-            editor=row.get("editor") or None,
-            url=row.get("url") or None,
-            site_name=row.get("site_name") or None,
-            accessed_date=row.get("accessed_date") or None,
-            created_date=row.get("created_date") or None,
-            include_in_references=str(row.get("include_in_references", "False")).lower() == "true",
-        )
-        src = await svc.add_source(project_id)
-        await svc.update_source(
-            project_id,
-            src.id,
-            SourceUpdate(name=row.get("name", src.name), bibliography=bib),
-        )
-        imported += 1
-
-    return {"imported": imported}
+    return {"imported": await _import_sources_from_text(svc, project_id, text)}
 
 
 @router.post("/sources/import")
@@ -755,36 +759,5 @@ async def import_sources_csv(project_id: str, file: UploadFile) -> dict:
     except KeyError:
         _not_found(project_id)
 
-    content = await file.read()
-    text = content.decode("utf-8-sig")
-    reader = csv.DictReader(io.StringIO(text))
-
-    imported = 0
-    for row in reader:
-        bib = Bibliography(
-            type=row.get("bib_type", "paper"),
-            title=row.get("title", ""),
-            author=row.get("author", ""),
-            journal=row.get("journal") or None,
-            volume=row.get("volume") or None,
-            issue=row.get("issue") or None,
-            pages=row.get("pages") or None,
-            year=row.get("year") or None,
-            publisher=row.get("publisher") or None,
-            publication_place=row.get("publication_place") or None,
-            editor=row.get("editor") or None,
-            url=row.get("url") or None,
-            site_name=row.get("site_name") or None,
-            accessed_date=row.get("accessed_date") or None,
-            created_date=row.get("created_date") or None,
-            include_in_references=str(row.get("include_in_references", "False")).lower() == "true",
-        )
-        src = await svc.add_source(project_id)
-        await svc.update_source(
-            project_id,
-            src.id,
-            SourceUpdate(name=row.get("name", src.name), bibliography=bib),
-        )
-        imported += 1
-
-    return {"imported": imported}
+    text = (await file.read()).decode("utf-8-sig")
+    return {"imported": await _import_sources_from_text(svc, project_id, text)}

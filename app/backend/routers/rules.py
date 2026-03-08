@@ -127,6 +127,29 @@ async def export_rules_csv(project_id: str) -> StreamingResponse:
     )
 
 
+async def _import_rules_from_text(svc, project_id: str, text: str) -> int:
+    """CSV テキストからルールをインポートし、追加件数を返す。"""
+    project = await svc.get_project(project_id)
+    reader = csv.reader(io.StringIO(text))
+    cat_name_to_id: dict[str, str] = {c.name: c.id for c in project.rule_categories}
+    imported = 0
+    for row in reader:
+        if len(row) < 2 or row[0] == "カテゴリ":
+            continue
+        cat_name, content_text = row[0].strip(), row[1].strip()
+        if not content_text:
+            continue
+        if cat_name not in cat_name_to_id:
+            cat = await svc.add_rule_category(project_id, cat_name)
+            cat_name_to_id[cat_name] = cat.id
+        await svc.add_rule(
+            project_id,
+            RuleCreate(category_id=cat_name_to_id[cat_name], content=content_text),
+        )
+        imported += 1
+    return imported
+
+
 @router.post("/rules/import-native")
 async def import_rules_csv_native(project_id: str, body: dict) -> dict:
     """pywebview 用: ファイルパスを受け取って CSV インポート。"""
@@ -142,64 +165,16 @@ async def import_rules_csv_native(project_id: str, body: dict) -> dict:
 
     svc = get_service()
     try:
-        project = await svc.get_project(project_id)
+        return {"imported": await _import_rules_from_text(svc, project_id, text)}
     except KeyError:
         _not_found(project_id)
-
-    reader = csv.reader(io.StringIO(text))
-    cat_name_to_id: dict[str, str] = {
-        c.name: c.id for c in project.rule_categories
-    }
-    imported = 0
-    for row in reader:
-        if len(row) < 2 or row[0] == "カテゴリ":
-            continue
-        cat_name, content_text = row[0].strip(), row[1].strip()
-        if not content_text:
-            continue
-        if cat_name not in cat_name_to_id:
-            cat = await svc.add_rule_category(project_id, cat_name)
-            cat_name_to_id[cat_name] = cat.id
-        await svc.add_rule(
-            project_id,
-            RuleCreate(category_id=cat_name_to_id[cat_name], content=content_text),
-        )
-        imported += 1
-
-    return {"imported": imported}
 
 
 @router.post("/rules/import")
 async def import_rules_csv(project_id: str, file: UploadFile) -> dict:
     svc = get_service()
+    text = (await file.read()).decode("utf-8-sig")
     try:
-        project = await svc.get_project(project_id)
+        return {"imported": await _import_rules_from_text(svc, project_id, text)}
     except KeyError:
         _not_found(project_id)
-
-    content = await file.read()
-    text = content.decode("utf-8-sig")
-    reader = csv.reader(io.StringIO(text))
-
-    # 既存カテゴリ名 → ID マップ
-    cat_name_to_id: dict[str, str] = {
-        c.name: c.id for c in project.rule_categories
-    }
-    imported = 0
-    for row in reader:
-        if len(row) < 2 or row[0] == "カテゴリ":
-            continue
-        cat_name, content_text = row[0].strip(), row[1].strip()
-        if not content_text:
-            continue
-        # カテゴリが存在しなければ作成
-        if cat_name not in cat_name_to_id:
-            cat = await svc.add_rule_category(project_id, cat_name)
-            cat_name_to_id[cat_name] = cat.id
-        await svc.add_rule(
-            project_id,
-            RuleCreate(category_id=cat_name_to_id[cat_name], content=content_text),
-        )
-        imported += 1
-
-    return {"imported": imported}

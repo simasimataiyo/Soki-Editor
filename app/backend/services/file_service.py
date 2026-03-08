@@ -121,8 +121,6 @@ class FileService:
         suffix = path.suffix.lower()
         if suffix == ".pdf":
             image_bytes = self._extract_pdf_first_page(str(path))
-            import io
-
             img = Image.open(io.BytesIO(image_bytes))
         else:
             img = Image.open(str(path))
@@ -130,4 +128,12 @@ class FileService:
         img.thumbnail(size, Image.LANCZOS)
         img.save(str(thumb_path), "PNG")
         return str(thumb_path)
+
+    def _extract_pdf_first_page(self, pdf_path: str) -> bytes:
+        import fitz  # PyMuPDF
+
+        doc = fitz.open(pdf_path)
+        page = doc.load_page(0)
+        pix = page.get_pixmap()
+        return pix.tobytes("png")
 

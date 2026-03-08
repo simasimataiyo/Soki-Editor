@@ -5,7 +5,6 @@
 const RuleTab = (() => {
   let _project = null;
   let _activeCategoryId = null;
-  let _catCollapsed = {};       // 左パネルツリー折りたたみ
   let _sectionCollapsed = {};   // 右パネルセクション折りたたみ
 
   function render(project) {
@@ -64,18 +63,18 @@ const RuleTab = (() => {
       section.appendChild(body);
 
       // 折りたたみトグル
+      function toggleCollapse() {
+        _sectionCollapsed[cat.id] = !_sectionCollapsed[cat.id];
+        header.querySelector('.chevron').innerHTML = _sectionCollapsed[cat.id] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN;
+        body.classList.toggle('collapsed');
+      }
+
       header.querySelector('.chevron').addEventListener('click', (e) => {
         e.stopPropagation();
-        _sectionCollapsed[cat.id] = !_sectionCollapsed[cat.id];
-        header.querySelector('.chevron').innerHTML = _sectionCollapsed[cat.id] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN;
-        body.classList.toggle('collapsed');
+        toggleCollapse();
       });
 
-      header.querySelector('h3').addEventListener('click', () => {
-        _sectionCollapsed[cat.id] = !_sectionCollapsed[cat.id];
-        header.querySelector('.chevron').innerHTML = _sectionCollapsed[cat.id] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN;
-        body.classList.toggle('collapsed');
-      });
+      header.querySelector('h3').addEventListener('click', toggleCollapse);
 
       // カテゴリ編集
       header.querySelector('[data-action="edit"]').addEventListener('click', (e) => {
@@ -321,7 +320,6 @@ const RuleTab = (() => {
   function reset() {
     _project = null;
     _activeCategoryId = null;
-    _catCollapsed = {};
     _sectionCollapsed = {};
   }
 
