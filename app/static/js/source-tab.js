@@ -1988,7 +1988,6 @@ const SourceTab = (() => {
               tokens[idx].suffix = '';
             }
             renderTokenList();
-            updatePreview();
           });
           row.querySelector('.citation-tok-prefix').addEventListener('input', (e) => {
             tokens[idx].prefix = e.target.value;
@@ -2006,7 +2005,6 @@ const SourceTab = (() => {
           row.querySelector('[data-action="delete"]').addEventListener('click', () => {
             tokens.splice(idx, 1);
             renderTokenList();
-            updatePreview();
           });
 
           // ドラッグ&ドロップ
@@ -2030,7 +2028,6 @@ const SourceTab = (() => {
             const moved = tokens.splice(fromIdx, 1)[0];
             tokens.splice(idx, 0, moved);
             renderTokenList();
-            updatePreview();
           });
 
           list.appendChild(row);
@@ -2043,14 +2040,12 @@ const SourceTab = (() => {
       document.getElementById('btn-citation-add-field').addEventListener('click', () => {
         tokens.push({ field: 'author', prefix: '', suffix: '' });
         renderTokenList();
-        updatePreview();
       });
 
       document.getElementById('btn-citation-reset').addEventListener('click', async () => {
         if (!(await Modal.confirm(`「${typeName}」のフォーマットをデフォルトに戻しますか？`))) return;
         tokens = JSON.parse(JSON.stringify(DEFAULT_CITATION_FORMATS[bibType] || []));
         renderTokenList();
-        updatePreview();
       });
 
       document.getElementById('btn-citation-cancel').addEventListener('click', () => {

@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 from app.backend.models import (
+    CitationToken,
     DataDirUpdate,
     Project,
     ProjectCreate,
@@ -145,7 +146,6 @@ async def update_citation_formats(project_id: str, body: dict) -> dict:
     """種類ごとの参考文献フォーマット（CitationToken リスト）を更新する。
     body: { "type": str, "tokens": list[dict] }
     """
-    from app.backend.models import CitationToken
     svc = get_service()
     try:
         proj = await svc.get(project_id)
@@ -154,9 +154,7 @@ async def update_citation_formats(project_id: str, body: dict) -> dict:
         if not bib_type:
             raise HTTPException(status_code=400, detail="type は必須です")
         tokens = [CitationToken(**t) for t in tokens_raw]
-        formats = dict(proj.citation_formats or {})
-        formats[bib_type] = tokens
-        proj.citation_formats = formats
+        proj.citation_formats[bib_type] = tokens
         await svc.flush(project_id)
         return {"type": bib_type, "tokens": [t.model_dump() for t in tokens]}
     except KeyError:

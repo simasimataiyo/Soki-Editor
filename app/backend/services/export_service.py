@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     pass
 
-from app.backend.models import Project, SectionPreview
+from app.backend.models import CitationToken, Project, SectionPreview
 
 
 class ExportService:
@@ -149,7 +149,7 @@ class ExportService:
                 src = src_by_id.get(src_id)
                 if src:
                     tokens = (project.citation_formats or {}).get(src.bibliography.type)
-                bib_lines.append(f"[{num}] {self._format_bibliography(src.bibliography, tokens)}")
+                    bib_lines.append(f"[{num}] {self._format_bibliography(src.bibliography, tokens)}")
             previews.append(
                 SectionPreview(
                     section_id="__references__",
@@ -176,69 +176,60 @@ class ExportService:
         return self._FIG_BLOCK_PATTERN.sub(replace_fig_block, content)
 
     # デフォルトの参考文献フォーマット（種類ごと）
-    DEFAULT_CITATION_FORMATS: dict = {
+    DEFAULT_CITATION_FORMATS: dict[str, list[CitationToken]] = {
         "paper": [
-            {"field": "author", "prefix": "", "suffix": ""},
-            {"field": "year", "prefix": "(", "suffix": ")"},
-            {"field": "title", "prefix": "『", "suffix": "』"},
-            {"field": "journal", "prefix": "", "suffix": ""},
-            {"field": "volume", "prefix": "", "suffix": ""},
-            {"field": "issue", "prefix": "(", "suffix": ")"},
-            {"field": "pages", "prefix": ":", "suffix": ""},
+            CitationToken(field="author"),
+            CitationToken(field="year", prefix="(", suffix=")"),
+            CitationToken(field="title", prefix="『", suffix="』"),
+            CitationToken(field="journal"),
+            CitationToken(field="volume"),
+            CitationToken(field="issue", prefix="(", suffix=")"),
+            CitationToken(field="pages", prefix=":"),
         ],
         "book": [
-            {"field": "author", "prefix": "", "suffix": ""},
-            {"field": "year", "prefix": "(", "suffix": ")"},
-            {"field": "title", "prefix": "『", "suffix": "』"},
-            {"field": "publisher", "prefix": "", "suffix": ""},
-            {"field": "publication_place", "prefix": "", "suffix": ""},
+            CitationToken(field="author"),
+            CitationToken(field="year", prefix="(", suffix=")"),
+            CitationToken(field="title", prefix="『", suffix="』"),
+            CitationToken(field="publisher"),
+            CitationToken(field="publication_place"),
         ],
         "book_chapter": [
-            {"field": "author", "prefix": "", "suffix": ""},
-            {"field": "year", "prefix": "(", "suffix": ")"},
-            {"field": "title", "prefix": "『", "suffix": "』"},
-            {"field": "editor", "prefix": "", "suffix": "(編)"},
-            {"field": "publisher", "prefix": "", "suffix": ""},
-            {"field": "pages", "prefix": "pp.", "suffix": ""},
+            CitationToken(field="author"),
+            CitationToken(field="year", prefix="(", suffix=")"),
+            CitationToken(field="title", prefix="『", suffix="』"),
+            CitationToken(field="editor", suffix="(編)"),
+            CitationToken(field="publisher"),
+            CitationToken(field="pages", prefix="pp."),
         ],
         "web": [
-            {"field": "author", "prefix": "", "suffix": ""},
-            {"field": "year", "prefix": "(", "suffix": ")"},
-            {"field": "title", "prefix": "", "suffix": ""},
-            {"field": "site_name", "prefix": "", "suffix": ""},
-            {"field": "url", "prefix": "", "suffix": ""},
-            {"field": "accessed_date", "prefix": "[参照: ", "suffix": "]"},
+            CitationToken(field="author"),
+            CitationToken(field="year", prefix="(", suffix=")"),
+            CitationToken(field="title"),
+            CitationToken(field="site_name"),
+            CitationToken(field="url"),
+            CitationToken(field="accessed_date", prefix="[参照: ", suffix="]"),
         ],
         "resource": [
-            {"field": "author", "prefix": "", "suffix": ""},
-            {"field": "year", "prefix": "(", "suffix": ")"},
-            {"field": "title", "prefix": "", "suffix": ""},
+            CitationToken(field="author"),
+            CitationToken(field="year", prefix="(", suffix=")"),
+            CitationToken(field="title"),
         ],
     }
 
-    def _format_bibliography(self, bib, tokens: list | None = None) -> str:
+    def _format_bibliography(self, bib, tokens: list[CitationToken] | None = None) -> str:
         """参考文献エントリをトークンリストに従ってフォーマットする。
         tokens が None の場合はデフォルトフォーマットを使用する。"""
         if tokens is None:
-            tokens = self.DEFAULT_CITATION_FORMATS.get(bib.type, [
-                {"field": "author", "prefix": "", "suffix": ""},
-                {"field": "title", "prefix": "『", "suffix": "』"},
-                {"field": "year", "prefix": "(", "suffix": ")"},
-                {"field": "url", "prefix": "", "suffix": ""},
-            ])
+            tokens = self.DEFAULT_CITATION_FORMATS.get(bib.type, self.DEFAULT_CITATION_FORMATS["resource"])
 
         parts: list[str] = []
         for tok in tokens:
-            field = tok.get("field", "") if isinstance(tok, dict) else getattr(tok, "field", "")
-            prefix = tok.get("prefix", "") if isinstance(tok, dict) else getattr(tok, "prefix", "")
-            suffix = tok.get("suffix", "") if isinstance(tok, dict) else getattr(tok, "suffix", "")
-            if field == "literal":
-                # prefixを固定文字列として出力
-                if prefix:
-                    parts.append(prefix)
+            if tok.field == "literal":
+                if tok.prefix:
+                    parts.append(tok.prefix)
                 continue
-            value = getattr(bib, field, None) or ""
+            value = getattr(bib, tok.field, None) or ""
             if value:
-                parts.append(f"{prefix}{value}{suffix}")
+                parts.append(f"{tok.prefix}{value}{tok.suffix}")
 
         return " ".join(parts) if parts else "(文献情報なし)"
