@@ -528,6 +528,8 @@ class ProjectService:
             src.full_text = data.full_text
         if data.summary is not None:
             src.summary = data.summary
+        if data.extended_summary is not None:
+            src.extended_summary = data.extended_summary
         if data.bibliography is not None:
             src.bibliography = data.bibliography
         # v2: ソースファイルを即時書き込み

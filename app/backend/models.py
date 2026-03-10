@@ -65,6 +65,7 @@ class Source(BaseModel):
     file_type: Optional[str] = None  # "pdf" | "image" | "text" | None
     full_text: str = ""
     summary: str = ""
+    extended_summary: str = ""  # 構造化詳細サマリー（主張・数値・固有名詞・引用候補）
     bibliography: Bibliography = Field(default_factory=Bibliography)
 
 
@@ -241,6 +242,7 @@ class SourceUpdate(BaseModel):
     file_type: Optional[str] = None
     full_text: Optional[str] = None
     summary: Optional[str] = None
+    extended_summary: Optional[str] = None
     bibliography: Optional[Bibliography] = None
 
 

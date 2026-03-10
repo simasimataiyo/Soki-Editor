@@ -595,13 +595,17 @@ async def summarize_source(project_id: str, source_id: str) -> Source:
     if not src.full_text:
         raise HTTPException(status_code=400, detail="全文が登録されていません")
 
+    settings = get_settings_service().get()
     try:
-        summary = await _llm_service.generate_summary(src.full_text, get_settings_service().get())
+        summary, extended_summary = await asyncio.gather(
+            _llm_service.generate_summary(src.full_text, settings),
+            _llm_service.generate_extended_summary(src.full_text, settings),
+        )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"要約生成失敗: {e}")
 
     updated = await svc.update_source(
-        project_id, source_id, SourceUpdate(summary=summary)
+        project_id, source_id, SourceUpdate(summary=summary, extended_summary=extended_summary)
     )
     return updated
 

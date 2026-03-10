@@ -636,6 +636,40 @@ class LLMService:
                 "要約生成完了: model=%s, elapsed=%.2fs", settings.model, elapsed
             )
 
+    async def generate_extended_summary(
+        self, full_text: str, settings: LLMSettings
+    ) -> str:
+        """全文テキストから構造化詳細サマリーを生成する。
+        LLMが fetch_sources を呼んだ際に返す内容として使用する。
+        主張・重要数値・固有名詞・引用候補フレーズを含む2000字程度のサマリー。
+        """
+        client = self._make_client(settings)
+        start = time.time()
+        system_prompt = (
+            "以下のテキストから、論文・報告書の執筆支援に役立つ構造化サマリーを2000字程度で生成してください。\n"
+            "以下の要素を漏れなく含めてください（見出しは使用してください）:\n"
+            "1. 主要な主張・結論（箇条書き）\n"
+            "2. 重要な数値・統計データ（具体的な数字を含む）\n"
+            "3. 重要な固有名詞（人名・地名・概念・手法名など）\n"
+            "4. 引用候補となるキーフレーズ（そのまま引用できる文章断片）\n"
+            "5. 著者の立場・限界・今後の課題（あれば）\n"
+        )
+        try:
+            response = await client.chat.completions.create(
+                model=settings.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": full_text[:12000]},
+                ],
+            )
+            extended_summary = response.choices[0].message.content or ""
+            return extended_summary
+        finally:
+            elapsed = time.time() - start
+            logger.info(
+                "詳細サマリー生成完了: model=%s, elapsed=%.2fs", settings.model, elapsed
+            )
+
     async def extract_bibliography(
         self, full_text: str, bib_type: str, settings: LLMSettings
     ) -> Bibliography:
@@ -1141,13 +1175,17 @@ class LLMService:
                 tool_calls_acc.clear()
 
     def _resolve_source_full_texts(self, project: Project, source_ids: list[str]) -> str:
-        """ソースIDリストを全文テキストに解決する。"""
+        """ソースIDリストを詳細サマリー（なければ全文冒頭）に解決する。"""
         src_by_id = {s.id: s for s in project.sources}
         texts = []
         for sid in source_ids[:4]:
             src = src_by_id.get(sid)
-            if src and src.full_text:
-                texts.append(f"### [^{src.id}] {src.name}\n\n{src.full_text[:5000]}")
+            if not src:
+                continue
+            if src.extended_summary:
+                texts.append(f"### [^{src.id}] {src.name}\n\n{src.extended_summary}")
+            elif src.full_text:
+                texts.append(f"### [^{src.id}] {src.name}\n\n{src.full_text[:3000]}")
         if not texts:
             return "指定されたソースは見つかりませんでした。"
         return "\n\n---\n\n".join(texts)
