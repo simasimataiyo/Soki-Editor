@@ -82,7 +82,7 @@ async def open_project_upload(file: UploadFile) -> Project:
 async def suggest_project_path(name: str = "project") -> dict:
     """新規プロジェクトのデフォルト保存パスを提案する。"""
     safe_name = "".join(c for c in name if c.isalnum() or c in " _-").strip() or "project"
-    path = Path.home() / "soki-projects" / f"{safe_name}.json"
+    path = Path.home() / "soki-projects" / safe_name / "project.json"
     return {"path": str(path)}
 
 
@@ -302,8 +302,13 @@ def browse_filesystem(dir: str = "") -> dict:
             if item.name.startswith("."):
                 continue
             if item.is_dir():
-                dirs.append({"name": item.name, "path": str(item)})
-            elif item.suffix.lower() == ".json":
+                # project.json を持つフォルダはプロジェクトとして直接表示
+                project_json = item / "project.json"
+                if project_json.exists():
+                    files.append({"name": item.name, "path": str(project_json)})
+                else:
+                    dirs.append({"name": item.name, "path": str(item)})
+            elif item.suffix.lower() == ".json" and item.name != "project.json":
                 files.append({"name": item.name, "path": str(item)})
     except PermissionError:
         pass

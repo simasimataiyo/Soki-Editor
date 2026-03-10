@@ -131,6 +131,7 @@ class ReviewComment(BaseModel):
 class Project(BaseModel):
     id: str
     name: str
+    format_version: int = 1  # 1=旧形式(単一JSON), 2=新形式(フォルダ分割)
     created_at: datetime
     updated_at: datetime
     json_file_path: str  # プロジェクト JSON の保存先絶対パス
