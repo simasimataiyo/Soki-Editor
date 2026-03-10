@@ -70,7 +70,10 @@ const ProjectSelector = (() => {
     document.getElementById('btn-open-project').addEventListener('click', _openProjectFromFile);
     document.getElementById('btn-cancel-new-project').addEventListener('click', _hideNewProjectModal);
     document.getElementById('btn-confirm-new-project').addEventListener('click', _confirmNewProject);
-    document.getElementById('btn-select-json-path').addEventListener('click', _selectJsonPath);
+    document.getElementById('btn-select-project-dir').addEventListener('click', _selectProjectDir);
+
+    // プロジェクト名入力時にパスプレビューを更新
+    document.getElementById('new-project-name').addEventListener('input', _updateDirPreview);
 
     // ディレクトリブラウザのイベント
     document.getElementById('btn-fb-up').addEventListener('click', _fbGoUp);
@@ -80,7 +83,8 @@ const ProjectSelector = (() => {
 
   function _showNewProjectModal() {
     document.getElementById('new-project-name').value = '';
-    document.getElementById('new-project-path').value = '';
+    document.getElementById('new-project-dir').value = '';
+    document.getElementById('new-project-dir-preview').textContent = '';
     _pendingSaveHandle = null;
     document.getElementById('modal-new-project').style.display = 'flex';
   }
@@ -89,61 +93,48 @@ const ProjectSelector = (() => {
     document.getElementById('modal-new-project').style.display = 'none';
   }
 
-  async function _selectJsonPath() {
-    // 1. pywebview ネイティブダイアログを試行
+  function _updateDirPreview() {
+    const name = document.getElementById('new-project-name').value.trim();
+    const dir = document.getElementById('new-project-dir').value.trim();
+    const preview = document.getElementById('new-project-dir-preview');
+    if (name && dir) {
+      const sep = dir.includes('\\') ? '\\' : '/';
+      preview.textContent = `作成先: ${dir}${sep}${name}${sep}project.json`;
+    } else {
+      preview.textContent = '';
+    }
+  }
+
+  async function _selectProjectDir() {
+    // 1. pywebview ネイティブダイアログを試行（ディレクトリ選択）
     try {
-      const result = await ApiClient.saveFileDialog('新しいプロジェクト.json');
+      const result = await ApiClient.openDirectoryDialog();
       if (result && result.path) {
-        document.getElementById('new-project-path').value = result.path;
+        document.getElementById('new-project-dir').value = result.path;
+        _updateDirPreview();
         return;
       }
     } catch (_) {
       // ネイティブダイアログが使えない場合はフォールバック
     }
 
-    const name = document.getElementById('new-project-name').value.trim() || 'project';
-
-    // 2. ブラウザモード: showSaveFilePicker（Chrome/Edge 対応）
-    if (window.showSaveFilePicker) {
-      try {
-        const handle = await window.showSaveFilePicker({
-          suggestedName: name + '.json',
-          types: [{
-            description: 'Soki Project (.json)',
-            accept: { 'application/json': ['.json'] },
-          }],
-        });
-        _pendingSaveHandle = handle;
-        // サーバー側パスはファイル名ベースで自動生成
-        const chosenName = handle.name.replace(/\.json$/i, '') || name;
-        const res = await ApiClient.get(`/api/projects/suggest-path?name=${encodeURIComponent(chosenName)}`);
-        if (res && res.path) {
-          document.getElementById('new-project-path').value = res.path;
-        }
-        return;
-      } catch (e) {
-        if (e.name === 'AbortError') return; // ユーザーがキャンセル
-      }
-    }
-
-    // 3. フォールバック: ディレクトリブラウザ
-    const filename = name + '.json';
-    const selectedPath = await _openFileBrowser(filename);
-    if (selectedPath) {
-      document.getElementById('new-project-path').value = selectedPath;
+    // 2. フォールバック: ディレクトリブラウザ
+    const selectedDir = await _openFileBrowser();
+    if (selectedDir) {
+      document.getElementById('new-project-dir').value = selectedDir;
+      _updateDirPreview();
     }
   }
 
   // ─── ディレクトリブラウザ ─────────────────────────────────
 
   /**
-   * ディレクトリブラウザモーダルを開き、ユーザーが選択したパスを返す。
+   * ディレクトリブラウザモーダルを開き、ユーザーが選択したディレクトリパスを返す。
    * キャンセル時は null を返す。
    */
-  function _openFileBrowser(defaultFilename) {
+  function _openFileBrowser() {
     return new Promise((resolve) => {
       _fbResolve = resolve;
-      document.getElementById('fb-filename').value = defaultFilename || 'project.json';
       document.getElementById('modal-file-browser').style.display = 'flex';
       // ホームディレクトリから開始
       _fbNavigate('');
@@ -177,14 +168,11 @@ const ProjectSelector = (() => {
         listEl.appendChild(item);
       });
 
-      // .json ファイル
+      // プロジェクトフォルダ（project.json を持つディレクトリ）は開くだけ
       data.files.forEach(f => {
         const item = document.createElement('div');
         item.className = 'file-browser-item is-file';
         item.innerHTML = `<span class="file-browser-icon">&#128196;</span><span>${escHtml(f.name)}</span>`;
-        item.addEventListener('click', () => {
-          document.getElementById('fb-filename').value = f.name;
-        });
         listEl.appendChild(item);
       });
     } catch (_) {
@@ -202,48 +190,33 @@ const ProjectSelector = (() => {
   }
 
   function _fbConfirm() {
-    const filename = document.getElementById('fb-filename').value.trim();
-    if (!filename) { showToast('ファイル名を入力してください', 'error'); return; }
-
-    // パス区切り文字を判定（Windows: \, その他: /）
-    const sep = _fbCurrentDir.includes('\\') ? '\\' : '/';
-    const fullPath = _fbCurrentDir + sep + filename;
-
+    // 現在のディレクトリをそのまま返す
     document.getElementById('modal-file-browser').style.display = 'none';
-    if (_fbResolve) { _fbResolve(fullPath); _fbResolve = null; }
+    if (_fbResolve) { _fbResolve(_fbCurrentDir); _fbResolve = null; }
   }
 
   // ─── プロジェクト作成・オープン ────────────────────────────
 
   async function _confirmNewProject() {
     const name = document.getElementById('new-project-name').value.trim();
-    const path = document.getElementById('new-project-path').value.trim();
+    const dir = document.getElementById('new-project-dir').value.trim();
     if (!name) { showToast('プロジェクト名を入力してください', 'error'); return; }
-    if (!path) { showToast('保存先を選択してください', 'error'); return; }
+    if (!dir) { showToast('保存先フォルダを選択してください', 'error'); return; }
+
+    // プロジェクトフォルダ = 保存先ディレクトリ / プロジェクト名
+    const sep = dir.includes('\\') ? '\\' : '/';
+    const projectDir = dir + sep + name;
 
     try {
       const project = await ApiClient.post('/api/projects', {
         name,
-        json_file_path: path,
-        data_dir: null,
+        project_dir: projectDir,
       });
       _hideNewProjectModal();
-
-      // showSaveFilePicker で取得した FileHandle があれば、プロジェクト JSON を書き込む
-      if (_pendingSaveHandle) {
-        try {
-          const projectData = await ApiClient.get(`/api/projects/${project.id}`);
-          const writable = await _pendingSaveHandle.createWritable();
-          await writable.write(JSON.stringify(projectData, null, 2));
-          await writable.close();
-        } catch (e) {
-          console.warn('FileHandle への書き込みに失敗:', e);
-        }
-        _pendingSaveHandle = null;
-      }
-
       AppShell.enterEditor(project);
-    } catch (_) {}
+    } catch (_) {
+      showToast('プロジェクトを作成できませんでした', 'error');
+    }
   }
 
   async function _openProjectFromFile() {

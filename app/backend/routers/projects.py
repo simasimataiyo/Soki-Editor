@@ -37,20 +37,25 @@ def set_service(svc: ProjectService) -> None:
 @router.post("/projects", response_model=Project)
 async def create_project(body: ProjectCreate) -> Project:
     svc = get_service()
-    data_dir = body.data_dir
-    if data_dir is None:
-        p = Path(body.json_file_path)
-        project_id_placeholder = p.stem
-        data_dir = str(p.parent / project_id_placeholder / "data")
 
-    project = await svc.create_project(body.name, body.json_file_path, data_dir)
-    # data_dir をプロジェクト ID ベースに修正（作成後に ID が確定）
-    if body.data_dir is None:
-        actual_data_dir = str(
-            Path(body.json_file_path).parent / project.id / "data"
-        )
-        await svc.update_data_dir(project.id, actual_data_dir)
-        project = await svc.get_project(project.id)
+    # v2: project_dir が指定されていればフォルダ形式で作成
+    if body.project_dir:
+        project_dir = Path(body.project_dir)
+        json_file_path = str(project_dir / "project.json")
+        data_dir = str(project_dir / "data")
+    elif body.json_file_path:
+        # 後方互換: json_file_path 指定の場合（v1形式として扱う）
+        p = Path(body.json_file_path)
+        json_file_path = body.json_file_path
+        data_dir = body.data_dir or str(p.parent / p.stem / "data")
+    else:
+        raise HTTPException(status_code=422, detail="project_dir または json_file_path が必要です")
+
+    project = await svc.create_project(body.name, json_file_path, data_dir)
+
+    # v2 フォルダ形式の場合は format_version を 2 に設定
+    if body.project_dir:
+        project.format_version = 2
 
     # デフォルトルールカテゴリを追加
     for cat_name in ["表現方法", "心構え", "その他"]:
@@ -80,10 +85,10 @@ async def open_project_upload(file: UploadFile) -> Project:
 
 @router.get("/projects/suggest-path")
 async def suggest_project_path(name: str = "project") -> dict:
-    """新規プロジェクトのデフォルト保存パスを提案する。"""
+    """新規プロジェクトのデフォルトフォルダパスを提案する。"""
     safe_name = "".join(c for c in name if c.isalnum() or c in " _-").strip() or "project"
-    path = Path.home() / "soki-projects" / safe_name / "project.json"
-    return {"path": str(path)}
+    project_dir = Path.home() / "soki-projects" / safe_name
+    return {"path": str(project_dir / "project.json"), "project_dir": str(project_dir)}
 
 
 @router.post("/projects/open", response_model=Project)

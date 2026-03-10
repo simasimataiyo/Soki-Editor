@@ -402,11 +402,12 @@
         <input type="text" id="new-project-name" class="form-control" placeholder="プロジェクト名" />
       </div>
       <div class="form-group">
-        <label>保存先 (.json)</label>
+        <label>保存先フォルダ</label>
         <div class="input-with-btn">
-          <input type="text" id="new-project-path" class="form-control" placeholder="保存先を選択または入力..." />
-          <button class="btn btn-secondary btn-sm" id="btn-select-json-path">選択</button>
+          <input type="text" id="new-project-dir" class="form-control" placeholder="フォルダを選択または入力..." />
+          <button class="btn btn-secondary btn-sm" id="btn-select-project-dir">選択</button>
         </div>
+        <div id="new-project-dir-preview" style="font-size:12px;color:var(--color-text-muted);margin-top:4px"></div>
       </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" id="btn-cancel-new-project">キャンセル</button>
@@ -418,19 +419,15 @@
   <!-- モーダル: ディレクトリブラウザ（ブラウザモード用保存先選択） -->
   <div class="modal-overlay" id="modal-file-browser" style="display:none">
     <div class="modal modal-lg">
-      <h3>保存先を選択</h3>
+      <h3 id="fb-modal-title">保存先フォルダを選択</h3>
       <div class="file-browser-bar">
         <button class="btn btn-secondary btn-sm" id="btn-fb-up" title="上の階層へ">&#8593; 上へ</button>
         <div class="file-browser-path" id="fb-current-path"></div>
       </div>
       <div class="file-browser-list" id="fb-list"></div>
-      <div class="form-group">
-        <label>ファイル名</label>
-        <input type="text" id="fb-filename" class="form-control" value="project.json" />
-      </div>
       <div class="modal-actions">
         <button class="btn btn-secondary" id="btn-fb-cancel">キャンセル</button>
-        <button class="btn btn-primary" id="btn-fb-select">選択</button>
+        <button class="btn btn-primary" id="btn-fb-select">このフォルダを選択</button>
       </div>
     </div>
   </div>

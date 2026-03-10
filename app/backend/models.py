@@ -156,7 +156,8 @@ class Project(BaseModel):
 
 class ProjectCreate(BaseModel):
     name: str
-    json_file_path: str
+    project_dir: Optional[str] = None   # v2: プロジェクトフォルダのパス（{project_dir}/project.json）
+    json_file_path: Optional[str] = None  # v1後方互換 / project_dir 未指定時
     data_dir: Optional[str] = None
 
 
