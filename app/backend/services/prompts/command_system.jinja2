@@ -1,7 +1,7 @@
-あなたは構造化された文章(論文やブログ記事)の執筆を支援する専門的なAIアシスタントです。
-ユーザーの目的や文章のトーンに合わせて、適切な執筆支援を提供してください。
+{# コマンド実行時にユーザーメッセージの末尾に注入するタスク指示テンプレート #}
+{# このテンプレートはシステムプロンプトではなく、ユーザーメッセージへの追記として使用される #}
 
-{# ----- コマンド実行時のプロンプト ----- #}
+---
 
 {% if command == "structure" %}
 ## タスク: 文書構造（骨子）の生成
@@ -176,6 +176,10 @@ sections 配列の各要素:
 {% elif command == "draft" %}
 ## タスク: 本文の執筆
 
+**ソースの活用（重要）:**
+参考文献の概要一覧が提供されている場合、執筆前に関連するソースの全文を `fetch_sources` で取得して内容を確認してください。
+ソースの内容に基づいた根拠のある本文を執筆し、適切な引用タグ `[^ref-xxx]` を挿入してください。
+
 **重要な制約（必ず守ること）:**
 - `create_section`、`delete_section`、`move_section`、`set_document_structure`、`create_document_structure`、`create_sections_under_parent` は **絶対に使用しないでください**
 - セクションの追加・削除・移動・構造変更は一切禁止です
@@ -217,6 +221,10 @@ sections 配列の各要素:
 
 {% elif command == "rewrite" %}
 ## タスク: 本文の書き直し
+
+**ソースの活用:**
+参考文献の概要一覧が提供されている場合、書き直し前に関連するソースの全文を `fetch_sources` で取得して参照してください。
+ソースの内容と整合した書き直しを行い、必要に応じて引用タグ `[^ref-xxx]` を補完してください。
 
 **重要な制約（必ず守ること）:**
 - `create_section`、`delete_section`、`move_section`、`set_document_structure`、`create_document_structure`、`create_sections_under_parent` は **絶対に使用しないでください**
@@ -270,7 +278,7 @@ sections 配列の各要素:
 {% if target_section %}
 対象セクション「{{ target_section.title }}」の本文を拡張してください。
 内容の一貫性を保ちながら、詳細な説明、具体例、論拠の補強を追加してください。
-拡張量などの具体的な指示は、ユーザーの入力（フリーテキスト）に従ってください。
+拡張量などの具体的な指示は、上記ユーザー入力に従ってください。
 
 現在の本文:
 {{ target_section_body or '(本文なし)' }}
@@ -278,7 +286,7 @@ sections 配列の各要素:
 `update_section` ツールを使用して、セクション ID `{{ target_section.id }}` の本文を更新してください。
 {% else %}
 現在選択されているセクションの本文を拡張してください。
-拡張量などの具体的な指示は、ユーザーの入力（フリーテキスト）に従ってください。
+拡張量などの具体的な指示は、上記ユーザー入力に従ってください。
 {% endif %}
 
 {% elif command == "shorten" %}
@@ -289,7 +297,7 @@ sections 配列の各要素:
 {% if target_section %}
 対象セクション「{{ target_section.title }}」の本文を圧縮してください。
 重要な内容を維持しながら、冗長な表現を削除してください。
-圧縮後の文字数などの具体的な指示は、ユーザーの入力（フリーテキスト）に従ってください。
+圧縮後の文字数などの具体的な指示は、上記ユーザー入力に従ってください。
 
 現在の本文（{{ (target_section_body or '') | length }}文字）:
 {{ target_section_body or '(本文なし)' }}
@@ -297,7 +305,7 @@ sections 配列の各要素:
 `update_section` ツールを使用して、セクション ID `{{ target_section.id }}` の本文を更新してください。
 {% else %}
 現在選択されているセクションの本文を圧縮してください。
-圧縮後の文字数などの具体的な指示は、ユーザーの入力（フリーテキスト）に従ってください。
+圧縮後の文字数などの具体的な指示は、上記ユーザー入力に従ってください。
 {% endif %}
 
 {% elif command == "tone" %}
@@ -308,7 +316,7 @@ sections 配列の各要素:
 {% if target_section %}
 対象セクション「{{ target_section.title }}」の文体を変更してください。
 内容は変更せず、表現のみを調整してください。
-文体の種類（フォーマル、カジュアルなど）は、ユーザーの入力（フリーテキスト）に従ってください。
+文体の種類（フォーマル、カジュアルなど）は、上記ユーザー入力に従ってください。
 
 現在の本文:
 {{ target_section_body or '(本文なし)' }}
@@ -316,7 +324,7 @@ sections 配列の各要素:
 `update_section` ツールを使用して、セクション ID `{{ target_section.id }}` の本文を更新してください。
 {% else %}
 現在選択されているセクションの文体を変更してください。
-文体の種類（フォーマル、カジュアルなど）は、ユーザーの入力（フリーテキスト）に従ってください。
+文体の種類（フォーマル、カジュアルなど）は、上記ユーザー入力に従ってください。
 {% endif %}
 
 {% elif command == "cite" %}
@@ -374,9 +382,25 @@ sections 配列の各要素:
 - 複数の問題点は、それぞれ独立したコメントアイテムとして配列に追加してください。
 - 問題がない場合は空の配列を返してください。
 
+{% if target_section %}
+**配下の子セクションの本文**:
+{% for child in sections %}{% if child.parent_id == target_section.id %}
+### ID: {{ child.id }} | {{ child.title }}
+{% set child_body = section_bodies_by_id.get(child.id, '') if section_bodies_by_id else '' %}
+{{ child_body or '(本文なし)' }}
+{% endif %}{% endfor %}
+{% else %}
+## 原稿全体の本文
+{% for sec in sections %}
+### ID: {{ sec.id }} | {{ sec.title }}
+{% set sec_body = section_bodies_by_id.get(sec.id, '') if section_bodies_by_id else '' %}
+{{ sec_body or '(本文なし)' }}
+{% endfor %}
 {% endif %}
 
-{# ----- function callingの指示 ----- #}
+{% endif %}
+
+{# ----- 利用可能なツール ----- #}
 ## 利用可能なツール
 
 **ソース参照ツール:**
@@ -398,135 +422,6 @@ sections 配列の各要素:
 - `create_document_structure`: 既存セクションを残したまま新しい骨子構造を一括追加する
 - `create_sections_under_parent`: 指定セクション配下に子セクションを一括追加する
 
-**構造生成ツール使用時の注意:**
-- `sections` 配列内の `parent_key` は必ず配列内の他の要素の `key` と一致するか、`null` である必要があります
-- 親セクションが子セクションより先に定義されている必要はありません（フロントエンドで順序付けされます）
-
-**ソースの参照について（重要）:**
-参考文献の概要一覧が提供されています。
-- **執筆・編集・引用挿入を行う前に、必ず `fetch_sources` を呼び出してソース内容を確認してください。**
-- 概要（summary）だけで内容を判断・引用しないでください。必ず全文または詳細サマリーを確認してから使用してください。
-- `fetch_sources` ツールでソースIDを最大4つまで指定して詳細内容を取得できます。
-- 「指定されたソース」セクションに既に全文が掲載されているソースについては `fetch_sources` は不要です。
-
-{# ----- 引用挿入 ----- #}
-## 引用の挿入
-
-本文中で情報を引用する際は、以下の形式で引用マークを挿入してください：
-- `[^ref-xxx]` 形式（xxx はソースID）
-- 引用箇所の直後に挿入
-- 複数のソースを引用する場合: `[^ref-001][^ref-005]`
-- 引用は事実ベースの主張に対してのみ行い、一般的な知識や自身の推論には不要
-
-{# ----- ユーザ選択したテキストの読み込み ----- #}
-{% if selected_text %}
-## 選択されたテキスト（ユーザーが指定した文脈）
-
-ユーザーが以下のテキストを選択した状態でリクエストしました。このテキストを文脈として考慮してください：
-> {{ selected_text }}
-
-{% endif %}
-
-{% if enabled_rules %}
-## 執筆ルール
-
-この文章では以下の執筆ルールに従ってください：
-
-{% for rule in enabled_rules %}
-- {{ rule.content }}
-{% endfor %}
-{% endif %}
-
-{% if sections %}
-## 文書アウトライン
-
-文章の全体構造は以下の通りです：
-
-{% for section in sections %}
-- ID: {{ section.id }} | {{ section.title }}: {{ section.summary or '(概要なし)' }}
-{% endfor %}
-{% endif %}
-
-{% if target_section %}
-## 対象セクション
-
-現在編集中のセクション（ID: {{ target_section.id }}）：
-{{ target_section.title }}: {{ target_section.summary or '(概要なし)' }}
-
-{% if command not in ["rewrite", "expand", "shorten", "tone"] %}
-**本文**:
-{{ target_section_body or '(本文なし)' }}
-{% endif %}
-
-{% if command == "review" %}
-**配下の子セクションの本文**:
-{% for child in sections %}{% if child.parent_id == target_section.id %}
-### ID: {{ child.id }} | {{ child.title }}
-{% set child_body = section_bodies_by_id.get(child.id, '') if section_bodies_by_id else '' %}
-{{ child_body or '(本文なし)' }}
-{% endif %}{% endfor %}
-{% endif %}
-
-{% elif command == "review" %}
-## 原稿全体の本文
-{% for sec in sections %}
-### ID: {{ sec.id }} | {{ sec.title }}
-{% set sec_body = section_bodies_by_id.get(sec.id, '') if section_bodies_by_id else '' %}
-{{ sec_body or '(本文なし)' }}
-{% endfor %}
-{% endif %}
-
-{% if source_summaries %}
-## 参考文献の概要
-
-利用可能な参考文献：
-{% for source in source_summaries %}
-- [^{{ source.id }}] {{ source.name }}: {{ source.summary or '(要約なし)' }}
-{% endfor %}
-{% endif %}
-
-{% if explicit_sources %}
-## 指定されたソース（全文参照）
-
-以下のソースを優先的に参照してください：
-
-{% for source in explicit_sources %}
-### {{ source.name }}
-
-{{ source.full_text[:5000] }}
-
-{% endfor %}
-{% endif %}
-
-{% if explicit_materials %}
-## 指定されたマテリアル
-
-以下のマテリアルを参照してください：
-
-{% for mat in explicit_materials %}
-- {{ mat.name }} ({{ mat.type }}): {{ mat.caption or '(キャプションなし)' }}
-{% endfor %}
-{% endif %}
-
-{% if history_sources %}
-## 会話中に参照されたソース（現在の状態）
-
-以下のソースはこの会話の過去のターンで参照されました。ソース内容はその後更新されている可能性があります：
-{% for source in history_sources %}
-- [^{{ source.id }}] {{ source.name }}: {{ source.summary or '(要約なし)' }}
-{% endfor %}
-{% endif %}
-
-{% if history_materials %}
-## 会話中に参照されたマテリアル（現在の状態）
-
-{% for mat in history_materials %}
-- {{ mat.name }} ({{ mat.type }}): {{ mat.caption or '(キャプションなし)' }}
-{% endfor %}
-{% endif %}
-
----
-
 {% if command == "structure" %}
 **ツール呼び出し前の必須確認チェックリスト:**
 以下を順番に確認してから構造生成ツールを呼び出してください：
@@ -540,8 +435,6 @@ sections 配列の各要素:
        （違う親のセクションと通し番号になっていないか）
 {% endif %}
 
-指示に基づいて、適切なツールを使用して処理を実行してください。
 {% if command != "review" %}
-
 ツール呼び出しの完了後、処理結果を**140文字以内の日本語で簡潔に**説明してください。
 {% endif %}

@@ -9,8 +9,10 @@
 4. **明確なコミュニケーション**: 用語を正確に使用し、不明点は質問で確認してください
 
 ## ツールの使用
+
 以下のツールを使用して、文章の構造を操作できます：
 - `update_section`: セクションの本文（content）を更新する
+- `update_multiple_sections`: 複数のセクションの本文を一括更新する
 - `create_section`: 新しいセクションを1件作成する（title, summary, content, parent_id を指定）
 - `update_section_summary`: セクションの概要（summary）を更新する
 - `update_section_title`: セクションのタイトルを変更する（section_id, title）
@@ -22,8 +24,9 @@
 ユーザーが明示的に指示した場合のみ、これらのツールを使用してセクションを編集してください。
 
 **ソースの参照について:**
-参考文献の概要一覧が提供されています。ユーザーのリクエストに応じるためにソースの全文が必要な場合は、
-`fetch_sources` ツールでソースIDを最大4つまで指定して全文を取得してください。
+参考文献の概要一覧が提供されています。執筆支援・内容の確認・引用挿入など、ソースの内容が関連しそうなタスクでは、
+積極的に `fetch_sources` ツールでソースIDを最大4つまで指定して全文を取得してください。
+概要だけでは不十分と判断したら、迷わず `fetch_sources` を呼び出してください。
 「指定されたソース」セクションに既に全文が掲載されているソースについては `fetch_sources` は不要です。
 
 ## 引用の挿入
@@ -33,15 +36,6 @@
 - 引用箇所の直後に挿入
 - 複数のソースを引用する場合: `[^ref-001][^ref-005]`
 - 引用は事実ベースの主張に対してのみ行い、一般的な知識や自身の推論には不要
-
-{% if selected_text %}
-## 選択されたテキスト（ユーザーが指定した文脈）
-
-ユーザーが以下のテキストを選択した状態でリクエストしました。このテキストを文脈として考慮してください：
-
-> {{ selected_text }}
-
-{% endif %}
 
 {% if enabled_rules %}
 ## 執筆ルール
@@ -58,18 +52,8 @@
 文章の骨子(全体構造)は以下の通りです：
 
 {% for section in sections %}
-- {{ section.title }}: {{ section.summary or '(概要なし)' }}
+- ID: {{ section.id }} | {{ section.title }}: {{ section.summary or '(概要なし)' }}
 {% endfor %}
-{% endif %}
-
-{% if target_section %}
-## 対象セクション
-
-現在編集中のセクション：
-{{ target_section.title }}: {{ target_section.summary or '(概要なし)' }}
-
-**本文**:
-{{ target_section_body or '(本文なし)' }}
 {% endif %}
 
 {% if source_summaries %}
@@ -78,46 +62,6 @@
 利用可能な参考文献（現在の状態）：
 {% for source in source_summaries %}
 - [^{{ source.id }}] {{ source.name }}: {{ source.summary or '(要約なし)' }}
-{% endfor %}
-{% endif %}
-
-{% if explicit_sources %}
-## 指定されたソース（全文参照）
-
-以下のソースを優先的に参照してください：
-
-{% for source in explicit_sources %}
-### [^{{ source.id }}] {{ source.name }}
-
-{{ source.full_text[:5000] }}
-
-{% endfor %}
-{% endif %}
-
-{% if explicit_materials %}
-## 指定されたマテリアル
-
-以下のマテリアルを参照してください：
-
-{% for mat in explicit_materials %}
-- {{ mat.name }} ({{ mat.type }}): {{ mat.caption or '(キャプションなし)' }}
-{% endfor %}
-{% endif %}
-
-{% if history_sources %}
-## 会話中に参照されたソース（現在の状態）
-
-以下のソースはこの会話の過去のターンで参照されました。ソース内容はその後更新されている可能性があります：
-{% for source in history_sources %}
-- [^{{ source.id }}] {{ source.name }}: {{ source.summary or '(要約なし)' }}
-{% endfor %}
-{% endif %}
-
-{% if history_materials %}
-## 会話中に参照されたマテリアル（現在の状態）
-
-{% for mat in history_materials %}
-- {{ mat.name }} ({{ mat.type }}): {{ mat.caption or '(キャプションなし)' }}
 {% endfor %}
 {% endif %}
 

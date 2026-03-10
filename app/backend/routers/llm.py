@@ -36,6 +36,8 @@ async def chat_stream(project_id: str, body: ChatRequest) -> StreamingResponse:
         _not_found(project_id)
 
     global_settings = get_settings_service().get()
+    import logging as _logging
+    _logging.getLogger(__name__).info("chat request: explicit_refs=%s, user_message=%r", body.explicit_refs, body.user_message[:100] if body.user_message else "")
 
     async def _stream_with_history() -> AsyncGenerator[str, None]:
         # ユーザーメッセージ・コマンドをストリーム開始前に保存

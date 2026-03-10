@@ -351,18 +351,13 @@ class LLMService:
         """
         client = self._make_client(settings)
 
-        if command:
-            messages = self._build_command_messages(
-                project, user_message, context_scope,
-                command, command_args or [], explicit_refs or [],
-                selected_text=selected_text,
-            )
-        else:
-            messages = self._build_chat_messages(
-                project, user_message, context_scope,
-                explicit_refs=explicit_refs,
-                selected_text=selected_text,
-            )
+        messages = self._build_messages(
+            project, user_message, context_scope,
+            command=command,
+            command_args=command_args or [],
+            explicit_refs=explicit_refs or [],
+            selected_text=selected_text,
+        )
 
         start = time.time()
         is_review_command = command and self._normalize_command(command, command_args or [])["base_command"] == "review"
@@ -898,112 +893,130 @@ class LLMService:
         m = pattern.search(project_content)
         return m.group(1).strip() if m else ''
 
-    def _build_command_messages(
+    def _build_messages(
         self,
         project: Project,
         user_message: str,
         context_scope: str,
-        command: str,
-        command_args: list[str],
-        explicit_refs: list[str],
+        command: str | None = None,
+        command_args: list[str] | None = None,
+        explicit_refs: list[str] | None = None,
         selected_text: str | None = None,
     ) -> list[dict]:
-        """コマンド専用のシステムプロンプトを構築する。"""
-        template = self._load_template("command_system.jinja2")
+        """チャット・コマンド共通のメッセージリストを構築する。
+
+        - system: chat_system.jinja2 （全モード共通・固定）
+        - history: 通常チャット(user/assistant)ペアのみ。コマンド実行ペアは除外し
+                   要約テキスト(assistant)のみ残す
+        - user: ユーザー入力。コマンド時はタスク指示を末尾に注入する
+        """
+        refs = explicit_refs or []
+        args = command_args or []
 
         enabled_rules = [r for r in project.rules if r.enabled]
         sorted_sections = _sort_sections_hierarchically(project.sections)
 
         if context_scope == "all":
             target_section = None
-            context_scope_value = "all"
         else:
             target_section = next(
                 (s for s in sorted_sections if s.id == context_scope), None
             )
-            context_scope_value = "section"
 
         source_summaries = [
             {"id": s.id, "name": s.name, "summary": s.summary}
             for s in project.sources
-            if s.summary and s.bibliography and s.bibliography.include_in_references
+            if s.summary
         ]
 
-        # 明示参照されたソース・マテリアルを解決
         src_by_id = {s.id: s for s in project.sources}
         mat_by_id = {m.id: m for m in project.materials}
-        explicit_sources = [
-            src_by_id[rid] for rid in explicit_refs if rid in src_by_id
-        ]
-        explicit_materials = [
-            mat_by_id[rid] for rid in explicit_refs if rid in mat_by_id
-        ]
+        explicit_sources = [src_by_id[rid] for rid in refs if rid in src_by_id]
+        explicit_materials = [mat_by_id[rid] for rid in refs if rid in mat_by_id]
 
-        # 全体の履歴を取得
         history = project.chat_history
-
-        # 履歴中で明示参照されたソース/マテリアルの現在の状態を収集
         history_ref_ids: set[str] = set()
         for msg in history:
             history_ref_ids.update(getattr(msg, "explicit_refs", []))
-        # 今回のコマンドで明示参照されたものは explicit_sources/materials に含まれるので除外
-        history_ref_ids -= set(explicit_refs)
+        history_ref_ids -= set(refs)
         history_sources = [src_by_id[rid] for rid in history_ref_ids if rid in src_by_id]
         history_materials = [mat_by_id[rid] for rid in history_ref_ids if rid in mat_by_id]
 
-        # コマンド名の正規化（ハイフン区切り形式を内部形式に変換）
-        command_mode = self._normalize_command(command, command_args)
-
-        # セクション本文の取得（project.content から抽出）
+        # セクション本文の取得
         target_section_body = None
         if target_section:
             target_section_body = self._extract_section_body(
                 project.content, target_section.id
             )
-        # review/rewrite/structure-summary/structure-section コマンドで全セクションの本文も必要な場合
-        section_bodies_by_id = {}
-        _needs_bodies = command_mode["base_command"] in ("rewrite", "review") or \
-            (command_mode["base_command"] == "structure" and command_mode["mode"] in ("summary", "section"))
-        if _needs_bodies:
-            for sec in sorted_sections:
-                section_bodies_by_id[sec.id] = self._extract_section_body(
-                    project.content, sec.id
-                )
 
-        system_content = template.render(
-            command=command_mode["base_command"],
-            command_mode=command_mode["mode"],
+        # system プロンプト（全モード共通・安定化）
+        system_template = self._load_template("chat_system.jinja2")
+        system_content = system_template.render(
             enabled_rules=enabled_rules,
             sections=sorted_sections,
-            context_scope=context_scope_value,
+            source_summaries=source_summaries,
+        )
+
+        # 履歴の構築:
+        #   - 通常チャット (user/assistant) → そのまま含める
+        #   - コマンド実行 (role="command") → 除外（次のassistantが要約テキスト）
+        #   - コマンド後の要約 (role="assistant" で直前がcommand) → 保持
+        history_messages: list[dict] = []
+        for msg in history:
+            if msg.role == "command":
+                # コマンド実行メッセージ自体は除外。次のassistant要約は保持するためフラグを立てない
+                # （要約はLLMに渡すべき事実として保持）
+                continue
+            elif msg.role == "assistant":
+                history_messages.append({"role": "assistant", "content": msg.content})
+            elif msg.role == "user":
+                history_messages.append({"role": "user", "content": msg.content})
+
+        # 動的コンテキスト（対象セクション・指定ソース等）をuserメッセージに注入（常時）
+        context_template = self._load_template("user_context.jinja2")
+        context_injection = context_template.render(
             target_section=target_section,
             target_section_body=target_section_body,
-            section_bodies_by_id=section_bodies_by_id,
-            source_summaries=source_summaries,
+            selected_text=selected_text,
             explicit_sources=explicit_sources,
             explicit_materials=explicit_materials,
             history_sources=history_sources,
             history_materials=history_materials,
-            user_message=user_message,
-            selected_text=selected_text,
-        )
+        ).strip()
 
-        # 同一スコープの履歴（チャット履歴をコンテキストに追加）
-        history_messages = []
-        for msg in history:
-            if msg.role == "user":
-                history_messages.append({"role": "user", "content": msg.content})
-            elif msg.role == "assistant":
-                history_messages.append({"role": "assistant", "content": msg.content})
-            elif msg.role == "command":
-                # コマンド履歴も含める（ユーザーメッセージと区別するためプレフィックス付与）
-                history_messages.append({"role": "user", "content": f"[コマンド実行] {msg.content}"})
+        # userメッセージの構築
+        if command:
+            command_mode = self._normalize_command(command, args)
+            # コマンド時: 全セクション本文が必要なケース
+            section_bodies_by_id: dict[str, str] = {}
+            _needs_bodies = command_mode["base_command"] in ("rewrite", "review") or \
+                (command_mode["base_command"] == "structure" and command_mode["mode"] in ("summary", "section"))
+            if _needs_bodies:
+                for sec in sorted_sections:
+                    section_bodies_by_id[sec.id] = self._extract_section_body(
+                        project.content, sec.id
+                    )
 
-        # コマンドの場合もチャット履歴を含める（文脈を保持）
+            # タスク指示をユーザーメッセージに注入（コンテキスト → タスク指示の順）
+            task_template = self._load_template("command_system.jinja2")
+            task_injection = task_template.render(
+                command=command_mode["base_command"],
+                command_mode=command_mode["mode"],
+                sections=sorted_sections,
+                target_section=target_section,
+                target_section_body=target_section_body,
+                section_bodies_by_id=section_bodies_by_id,
+                source_summaries=source_summaries,
+            ).strip()
+            parts = [p for p in [user_message, context_injection, task_injection] if p]
+            final_user_message = "\n".join(parts)
+        else:
+            parts = [p for p in [user_message, context_injection] if p]
+            final_user_message = "\n".join(parts)
+
         messages: list[dict] = [{"role": "system", "content": system_content}]
         messages.extend(history_messages)
-        if user_message:
-            messages.append({"role": "user", "content": user_message})
+        messages.append({"role": "user", "content": final_user_message})
         return self._trim_history_by_size(messages)
 
     @staticmethod
@@ -1031,90 +1044,11 @@ class LLMService:
 
         return {"base_command": command, "mode": ""}
 
-    def _build_chat_messages(
-        self,
-        project: Project,
-        user_message: str,
-        context_scope: str,
-        explicit_refs: list[str] | None = None,
-        selected_text: str | None = None,
-    ) -> list[dict]:
-        """Jinja2テンプレートを使用してシステムプロンプトを構築する。"""
-        template = self._load_template("chat_system.jinja2")
-
-        # テンプレート変数の準備
-        enabled_rules = [r for r in project.rules if r.enabled]
-        sorted_sections = _sort_sections_hierarchically(project.sections)
-
-        if context_scope == "all":
-            target_section = None
-            context_scope_value = "all"
-        else:
-            target_section = next((s for s in sorted_sections if s.id == context_scope), None)
-            context_scope_value = "section"
-
-        source_summaries = [
-            {"id": s.id, "name": s.name, "summary": s.summary}
-            for s in project.sources if s.summary
-        ]
-
-        # 明示参照されたソース・マテリアルを解決
-        refs = explicit_refs or []
-        src_by_id = {s.id: s for s in project.sources}
-        mat_by_id = {m.id: m for m in project.materials}
-        explicit_sources = [src_by_id[rid] for rid in refs if rid in src_by_id]
-        explicit_materials = [mat_by_id[rid] for rid in refs if rid in mat_by_id]
-
-        # チャット履歴の取得
-        history = project.chat_history
-
-        # 履歴中で明示参照されたソース/マテリアルの現在の状態を収集
-        history_ref_ids: set[str] = set()
-        for msg in history:
-            history_ref_ids.update(getattr(msg, "explicit_refs", []))
-        # 今回明示参照されたものは explicit_sources/materials に含まれるので除外
-        history_ref_ids -= set(refs)
-        history_sources = [src_by_id[rid] for rid in history_ref_ids if rid in src_by_id]
-        history_materials = [mat_by_id[rid] for rid in history_ref_ids if rid in mat_by_id]
-
-        # セクション本文の取得（project.content から抽出）
-        target_section_body = None
-        if target_section:
-            target_section_body = self._extract_section_body(
-                project.content, target_section.id
-            )
-
-        # システムプロンプトの生成
-        system_content = template.render(
-            enabled_rules=enabled_rules,
-            sections=sorted_sections,
-            context_scope=context_scope_value,
-            target_section=target_section,
-            target_section_body=target_section_body,
-            source_summaries=source_summaries,
-            explicit_sources=explicit_sources,
-            explicit_materials=explicit_materials,
-            history_sources=history_sources,
-            history_materials=history_materials,
-            selected_text=selected_text,
-        )
-
-        # チャット履歴の構築（role="command" は "user" にマッピング）
-        messages: list[dict] = [{"role": "system", "content": system_content}]
-        for msg in history:
-            if msg.role == "command":
-                messages.append({"role": "user", "content": f"[コマンド実行] {msg.content}"})
-            else:
-                messages.append({"role": msg.role, "content": msg.content})
-        messages.append({"role": "user", "content": user_message})
-
-        return self._trim_history_by_size(messages)
-
     async def _chat_with_retry(self, client, call_kwargs: dict, max_retries: int = 3):
         """レートリミット(429)時に指数バックオフでリトライする。"""
         from openai import RateLimitError
 
-        wait = 1.0
+        wait = 5.0
         for attempt in range(max_retries):
             try:
                 return await client.chat.completions.create(**call_kwargs)
@@ -1200,7 +1134,7 @@ class LLMService:
             print(f"  [{i}] {msg.get('role', 'unknown')}:")
             content = msg.get("content", "")
             if content:
-                print(f"    {content[:200]}{'...' if len(str(content)) > 200 else ''}")
+                print(f"    {content[:3000]}{'...' if len(str(content)) > 3000 else ''}")
             if msg.get("tool_calls"):
                 print(f"    [tool_calls: {len(msg['tool_calls'])} 件]")
         print("=" * 60)
