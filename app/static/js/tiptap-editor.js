@@ -526,6 +526,7 @@ const ReferenceNumberExtension = Extension.create({
               if (num === undefined) return;
               const widget = document.createElement('span');
               widget.className = 'reference-ref-badge';
+              widget.setAttribute('data-ref-id', node.attrs.refId);
               widget.textContent = `[${num}]`;
               widget.contentEditable = 'false';
               decorations.push(Decoration.widget(pos, widget, { side: 1, key: `ref-num-${node.attrs.refId}-${pos}` }));
@@ -575,7 +576,7 @@ const TooltipExtension = Extension.create({
                 const summary = heading.getAttribute('data-summary');
                 if (summary) { showTooltip(summary); return false; }
               }
-              if (target.matches('span.reference-node')) {
+              if (target.matches('span.reference-node') || target.matches('span.reference-ref-badge')) {
                 const srcId = target.getAttribute('data-ref-id');
                 const src = ((window.TiptapEditor && window.TiptapEditor._sourcesData) || []).find(s => s.id === srcId);
                 if (src) { showTooltip(src.bibliography?.title || src.name); return false; }

@@ -1,64 +1,31 @@
-{# userメッセージに注入する動的コンテキスト情報 #}
-{% if selected_text %}
+{# Dynamic context information injected into the user message #}
 
-## 選択されたテキスト（ユーザーが指定した文脈）
-
-ユーザーが以下のテキストを選択した状態でリクエストしました。このテキストを考慮してください：
-
-> {{ selected_text }}
-
-{% endif %}
 {% if target_section %}
-
-## 対象セクション
-
-現在編集中のセクション（ID: {{ target_section.id }}）：
-{{ target_section.title }}: {{ target_section.summary or '(概要なし)' }}
-
-**本文**:
-{{ target_section_body or '(本文なし)' }}
-
+## Target Section
+Currently editing section (ID: {{ target_section.id }}):
+{{ target_section.title }}: {{ target_section.summary or '(no summary)' }}
+**Body:**
+{{ target_section_body or '(no body)' }}
 {% endif %}
+
 {% if explicit_sources %}
-
-## 指定されたソース（全文参照）
-
-以下のソースを優先的に参照してください：
-
+## Specified Sources
+Refer to the following sources with priority:
 {% for source in explicit_sources %}
 ### [^{{ source.id }}] {{ source.name }}
-
-{{ source.full_text[:5000] }}
-
 {% endfor %}
 {% endif %}
+
 {% if explicit_materials %}
-
-## 指定されたマテリアル
-
-以下のマテリアルを参照してください：
-
+## Specified Materials
+Refer to the following materials:
 {% for mat in explicit_materials %}
-- {{ mat.name }} ({{ mat.type }}): {{ mat.caption or '(キャプションなし)' }}
+- {{ mat.name }} ({{ mat.type }}): {{ mat.caption or '(no caption)' }}
 {% endfor %}
-
 {% endif %}
-{% if history_sources %}
 
-## 会話中に参照されたソース（現在の状態）
-
-以下のソースはこの会話の過去のターンで参照されました。ソース内容はその後更新されている可能性があります：
-{% for source in history_sources %}
-- [^{{ source.id }}] {{ source.name }}: {{ source.summary or '(要約なし)' }}
-{% endfor %}
-
-{% endif %}
-{% if history_materials %}
-
-## 会話中に参照されたマテリアル（現在の状態）
-
-{% for mat in history_materials %}
-- {{ mat.name }} ({{ mat.type }}): {{ mat.caption or '(キャプションなし)' }}
-{% endfor %}
-
+{% if selected_text %}
+## Selected Text (user-specified context)
+The user made this request with the following text selected. Take this text into account:
+> {{ selected_text }}
 {% endif %}

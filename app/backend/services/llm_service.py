@@ -1111,11 +1111,14 @@ class LLMService:
     def _resolve_source_full_texts(self, project: Project, source_ids: list[str]) -> str:
         """ソースIDリストを詳細サマリー（なければ全文冒頭）に解決する。"""
         src_by_id = {s.id: s for s in project.sources}
+        logger.info("fetch_sources: 要求されたIDs=%s, 利用可能IDs=%s", source_ids, list(src_by_id.keys()))
         texts = []
         for sid in source_ids[:4]:
-            src = src_by_id.get(sid)
+            src = src_by_id.get(sid) or src_by_id.get(f"ref-{sid}")
             if not src:
+                logger.warning("fetch_sources: ID=%s が見つかりません", sid)
                 continue
+            logger.info("fetch_sources: ID=%s, extended_summary=%d文字, full_text=%d文字", sid, len(src.extended_summary), len(src.full_text))
             if src.extended_summary:
                 texts.append(f"### [^{src.id}] {src.name}\n\n{src.extended_summary}")
             elif src.full_text:
@@ -1134,7 +1137,7 @@ class LLMService:
             print(f"  [{i}] {msg.get('role', 'unknown')}:")
             content = msg.get("content", "")
             if content:
-                print(f"    {content[:3000]}{'...' if len(str(content)) > 3000 else ''}")
+                print(f"    {content[:5000]}{'...' if len(str(content)) > 5000 else ''}")
             if msg.get("tool_calls"):
                 print(f"    [tool_calls: {len(msg['tool_calls'])} 件]")
         print("=" * 60)
