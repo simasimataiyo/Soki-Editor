@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import secrets as _secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.backend.routers import llm, materials, projects, rules, sections, settings, sources
+import app.backend.security as _app_security
 
 logger = logging.getLogger(__name__)
 
@@ -32,14 +34,33 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Soki Editor API", version="0.1.0", lifespan=lifespan)
 
 # ─── CORS（pywebview は null オリジンで送信）─────────────────
+# 本番モードでは null オリジン（pywebview）のみ許可し、ブラウザからのアクセスを遮断する。
+# 開発モードでは localhost/127.0.0.1 も許可してブラウザ直アクセスを可能にする。
+_dev = _app_security.DEV_MODE
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["null", "http://127.0.0.1", "http://localhost"],
-    allow_origin_regex=r"http://(127\.0\.0\.1|localhost):\d+",
+    allow_origins=["null", "http://127.0.0.1", "http://localhost"] if _dev else ["null"],
+    allow_origin_regex=r"http://(127\.0\.0\.1|localhost):\d+" if _dev else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ─── トークン認証ミドルウェア ──────────────────────────────────
+@app.middleware("http")
+async def token_auth_middleware(request: Request, call_next):
+    """WebView 以外からの /api/* アクセスを 403 で拒否する。
+
+    開発モード（DEV_MODE=True）または OPTIONS リクエストはスキップする。
+    """
+    if _app_security.DEV_MODE or request.method == "OPTIONS":
+        return await call_next(request)
+    if request.url.path.startswith("/api/"):
+        token = request.headers.get("X-App-Token", "")
+        if not _secrets.compare_digest(token, _app_security.APP_TOKEN):
+            return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+    return await call_next(request)
 
 # ─── 静的ファイル ─────────────────────────────────────────────
 if _STATIC_DIR.exists():
@@ -102,9 +123,34 @@ async def serve_local_file(path: str, project_id: str) -> FileResponse:
 
 
 # ─── 初期ページ配信 ───────────────────────────────────────────
+_CSP = (
+    "default-src 'self'; "
+    "connect-src 'self'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; "
+    "font-src 'self' data:; "
+    "object-src 'none'; "
+    "base-uri 'self'"
+)
+
+
 @app.get("/")
-async def index(request: Request):
+async def index_root():
+    """ルートへの直アクセスは 404 にして推測を困難にする。"""
+    raise HTTPException(status_code=404, detail="Not Found")
+
+
+@app.get("/launch/{launch_token}")
+async def index(request: Request, launch_token: str):
+    """起動トークン付きURLのみアプリを配信する。トークン不一致は 404。"""
+    if not _secrets.compare_digest(launch_token, _app_security.APP_TOKEN):
+        raise HTTPException(status_code=404, detail="Not Found")
     template_path = _TEMPLATE_DIR / "index.html"
     if template_path.exists():
-        return templates.TemplateResponse("index.html", {"request": request})
+        response = templates.TemplateResponse(
+            "index.html", {"request": request, "app_token": _app_security.APP_TOKEN}
+        )
+        response.headers["Content-Security-Policy"] = _CSP
+        return response
     return JSONResponse({"message": "Soki Editor API is running"})

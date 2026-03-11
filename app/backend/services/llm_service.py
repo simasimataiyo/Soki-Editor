@@ -9,10 +9,32 @@ import logging
 import time
 from pathlib import Path
 from typing import AsyncGenerator
+from urllib.parse import urlparse
+
+import httpx
 
 from app.backend.models import LLMSettings, Project
 
 logger = logging.getLogger(__name__)
+
+
+class _AllowlistTransport(httpx.AsyncBaseTransport):
+    """設定済みLLMエンドポイント以外への外部通信をブロックするhttpxトランスポート。"""
+
+    def __init__(self, inner: httpx.AsyncBaseTransport, get_allowed_url):
+        self._inner = inner
+        self._get_allowed_url = get_allowed_url
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        allowed = self._get_allowed_url() or "https://api.openai.com"
+        allowed_netloc = urlparse(allowed).netloc
+        req_netloc = urlparse(str(request.url)).netloc
+        if req_netloc != allowed_netloc:
+            raise ValueError(f"外部通信がブロックされました: {req_netloc}")
+        return await self._inner.handle_async_request(request)
+
+    async def aclose(self) -> None:
+        await self._inner.aclose()
 
 
 def _sort_sections_hierarchically(sections: list) -> list:
@@ -294,7 +316,11 @@ class LLMService:
     def _make_client(self, settings: LLMSettings):
         from openai import AsyncOpenAI
 
-        kwargs = {"api_key": settings.api_key or "dummy"}
+        inner = httpx.AsyncHTTPTransport()
+        transport = _AllowlistTransport(inner, lambda: settings.endpoint_url or "")
+        http_client = httpx.AsyncClient(transport=transport)
+
+        kwargs = {"api_key": settings.api_key or "dummy", "http_client": http_client}
         if settings.endpoint_url:
             kwargs["base_url"] = settings.endpoint_url
         return AsyncOpenAI(**kwargs)

@@ -13,6 +13,7 @@ class ApiError extends Error {
 
 const ApiClient = (() => {
   const BASE = '';  // 同一オリジン
+  const _TOKEN = window.__APP_TOKEN__ || '';
 
   // 保存状態管理
   function _setSaveStatus(status, message) {
@@ -25,7 +26,7 @@ const ApiClient = (() => {
   async function _fetch(method, path, body) {
     const opts = {
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-App-Token': _TOKEN },
     };
     if (body !== undefined) opts.body = JSON.stringify(body);
 
@@ -73,7 +74,7 @@ const ApiClient = (() => {
       try {
         const res = await fetch(BASE + path, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-App-Token': _TOKEN },
           body: JSON.stringify(body),
           signal: ctrl.signal,
         });
