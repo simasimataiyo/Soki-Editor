@@ -960,7 +960,12 @@ class LLMService:
             )
 
         source_summaries = [
-            {"id": s.id, "name": s.name, "summary": s.summary}
+            {
+                "id": s.id,
+                "name": s.name,
+                "summary": s.summary,
+                "include_in_references": s.bibliography.include_in_references,
+            }
             for s in project.sources
             if s.summary
         ]

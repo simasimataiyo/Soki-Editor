@@ -36,6 +36,7 @@ When citing information in the body text, insert citation markers in the followi
 - Insert immediately after the cited claim
 - Multiple sources: `[^ref-001][^ref-005]`
 - Only cite factual claims; no citation needed for general knowledge or your own reasoning
+- Important: Do NOT insert citation tags for sources marked with "Do not cite in text". You can use their information, but do not generate a `[^ref-xxx]` tag for them.
 
 {% if enabled_rules %}
 ## Rules
@@ -61,7 +62,7 @@ The document structure is as follows:
 
 Available references (current state):
 {% for source in source_summaries %}
-- ID: {{ source.id }}, Title: {{ source.name }}, Summary: {{ source.summary or '(no summary)' }}
+- ID: {{ source.id }}, Title: {{ source.name }}, Summary: {{ source.summary or '(no summary)' }}{% if not source.include_in_references %}, Do not cite in text (use for information only){% endif %}
 {% endfor %}
 {% endif %}
 

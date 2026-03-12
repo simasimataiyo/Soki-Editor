@@ -179,6 +179,7 @@ Start new section `order` from the current maximum order + 1.
 **Source utilization (important):**
 If a reference summary list is provided, use `fetch_sources` to retrieve full text of relevant sources before writing.
 Write evidence-based content grounded in source material and insert appropriate citation tags `[^ref-xxx]`.
+**Important**: Do NOT insert citation tags for sources marked with "Do not cite in text". However, you can still use their information as context.
 
 **Critical constraints (must be followed):**
 - `create_section`, `delete_section`, `move_section`, `set_document_structure`, `create_document_structure`, `create_sections_under_parent` are **absolutely forbidden**
@@ -223,6 +224,7 @@ Use `update_section` to set the body.
 **Source utilization:**
 If a reference summary list is provided, use `fetch_sources` to retrieve full text of relevant sources before rewriting.
 Rewrite in alignment with source content and supplement citation tags `[^ref-xxx]` as needed.
+**Important**: Do NOT insert citation tags for sources marked with "Do not cite in text". However, you can still use their information as context.
 
 **Critical constraints (must be followed):**
 - `create_section`, `delete_section`, `move_section`, `set_document_structure`, `create_document_structure`, `create_sections_under_parent` are **absolutely forbidden**
@@ -324,6 +326,7 @@ Analyze the body of section "{{ target_section.title }}" and insert citation tag
 - Do not modify existing `[^ref-xxx]` tags
 - Insert citation tags immediately after the claim (before punctuation): `claim[^ref-xxx].`
 - Only use source IDs listed in "Reference Summaries" below (IDs starting with `ref-`)
+- Do NOT insert citation tags for sources marked with "Do not cite in text"
 - Only insert for factual claims with supporting evidence; do not cite general knowledge or reasoning
 - For multiple sources on one claim: `[^ref-001][^ref-005]`
 - Do not insert if no appropriate source exists for a claim
