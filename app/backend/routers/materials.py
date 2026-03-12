@@ -96,8 +96,11 @@ async def upload_material_file(
     if not (file.content_type or "").startswith("image/"):
         raise HTTPException(status_code=400, detail="画像ファイル（jpg, png, bmp など）のみアップロードできます")
 
-    # ファイルを data_dir/materials/ に保存
-    materials_dir = Path(project.data_dir) / "materials"
+    # v2: プロジェクトフォルダ直下の materials/ に保存、v1: data_dir/materials/
+    if project.format_version >= 2:
+        materials_dir = Path(project.json_file_path).parent / "materials"
+    else:
+        materials_dir = Path(project.data_dir) / "materials"
     materials_dir.mkdir(parents=True, exist_ok=True)
     suffix = Path(file.filename).suffix if file.filename else ".bin"
     dest_path = materials_dir / f"{mat_id}{suffix}"

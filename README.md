@@ -54,6 +54,12 @@ npx esbuild app/static/js/tiptap-editor.js --bundle --outfile=app/static/js/tipt
 
 ## 起動
 
+開発モード
+```bash
+python main.py --dev
+```
+
+本番モード
 ```bash
 python main.py
 ```

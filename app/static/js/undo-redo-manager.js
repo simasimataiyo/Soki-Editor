@@ -15,7 +15,6 @@ const UndoRedoManager = (() => {
     undoStack.push(operation);
     if (undoStack.length > MAX_STACK) undoStack.shift();
     redoStack = [];
-    _updateButtons();
   }
 
   async function undo() {
@@ -23,7 +22,6 @@ const UndoRedoManager = (() => {
     const op = undoStack.pop();
     await op.undo();
     redoStack.push(op);
-    _updateButtons();
   }
 
   async function redo() {
@@ -31,20 +29,15 @@ const UndoRedoManager = (() => {
     const op = redoStack.pop();
     await op.do();
     undoStack.push(op);
-    _updateButtons();
   }
 
   function canUndo() { return undoStack.length > 0; }
   function canRedo() { return redoStack.length > 0; }
 
   function clear() {
+    // キーボードショートカットのみで管理するためボタン更新は不要
     undoStack = [];
     redoStack = [];
-    _updateButtons();
-  }
-
-  function _updateButtons() {
-    // キーボードショートカットのみで管理するためここでは何もしない
   }
 
   // Ctrl+Z / Ctrl+Shift+Z / Ctrl+S

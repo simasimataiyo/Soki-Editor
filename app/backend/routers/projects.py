@@ -1,10 +1,13 @@
 """プロジェクト管理・ダイアログ API ルーター"""
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 from app.backend.models import (
+    CitationToken,
     DataDirUpdate,
     Project,
     ProjectCreate,
@@ -34,24 +37,25 @@ def set_service(svc: ProjectService) -> None:
 @router.post("/projects", response_model=Project)
 async def create_project(body: ProjectCreate) -> Project:
     svc = get_service()
-    from pathlib import Path
 
-    data_dir = body.data_dir
-    if data_dir is None:
+    # v2: project_dir が指定されていればフォルダ形式で作成
+    if body.project_dir:
+        project_dir = Path(body.project_dir)
+        json_file_path = str(project_dir / "project.json")
+        data_dir = str(project_dir / "data")
+    elif body.json_file_path:
+        # 後方互換: json_file_path 指定の場合（v1形式として扱う）
         p = Path(body.json_file_path)
-        project_id_placeholder = p.stem
-        data_dir = str(p.parent / project_id_placeholder / "data")
+        json_file_path = body.json_file_path
+        data_dir = body.data_dir or str(p.parent / p.stem / "data")
+    else:
+        raise HTTPException(status_code=422, detail="project_dir または json_file_path が必要です")
 
-    project = await svc.create_project(body.name, body.json_file_path, data_dir)
-    # data_dir をプロジェクト ID ベースに修正（作成後に ID が確定）
-    if body.data_dir is None:
-        from pathlib import Path as _Path
+    project = await svc.create_project(body.name, json_file_path, data_dir)
 
-        actual_data_dir = str(
-            _Path(body.json_file_path).parent / project.id / "data"
-        )
-        await svc.update_data_dir(project.id, actual_data_dir)
-        project = await svc.get_project(project.id)
+    # v2 フォルダ形式の場合は format_version を 2 に設定
+    if body.project_dir:
+        project.format_version = 2
 
     # デフォルトルールカテゴリを追加
     for cat_name in ["表現方法", "心構え", "その他"]:
@@ -65,8 +69,6 @@ async def create_project(body: ProjectCreate) -> Project:
 @router.post("/projects/open-upload", response_model=Project)
 async def open_project_upload(file: UploadFile) -> Project:
     """ブラウザからアップロードされたプロジェクトJSONファイルを開く。"""
-    from pathlib import Path
-
     content = await file.read()
     save_dir = Path.home() / "soki-projects"
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -83,12 +85,10 @@ async def open_project_upload(file: UploadFile) -> Project:
 
 @router.get("/projects/suggest-path")
 async def suggest_project_path(name: str = "project") -> dict:
-    """新規プロジェクトのデフォルト保存パスを提案する。"""
-    from pathlib import Path
-
+    """新規プロジェクトのデフォルトフォルダパスを提案する。"""
     safe_name = "".join(c for c in name if c.isalnum() or c in " _-").strip() or "project"
-    path = Path.home() / "soki-projects" / f"{safe_name}.json"
-    return {"path": str(path)}
+    project_dir = Path.home() / "soki-projects" / safe_name
+    return {"path": str(project_dir / "project.json"), "project_dir": str(project_dir)}
 
 
 @router.post("/projects/open", response_model=Project)
@@ -136,6 +136,40 @@ async def update_references_section(project_id: str, body: dict) -> dict:
         await svc.update_references_section_enabled(project_id, enabled)
         await svc.flush(project_id)
         return {"enabled": enabled}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="プロジェクトが見つかりません")
+
+
+@router.put("/projects/{project_id}/citation-formats")
+async def update_citation_formats(project_id: str, body: dict) -> dict:
+    """種類ごとの参考文献フォーマット（CitationToken リスト）を更新する。
+    body: { "type": str, "tokens": list[dict] }
+    """
+    svc = get_service()
+    try:
+        proj = await svc.get_project(project_id)
+        bib_type = body.get("type")
+        tokens_raw = body.get("tokens", [])
+        if not bib_type:
+            raise HTTPException(status_code=400, detail="type は必須です")
+        tokens = [CitationToken(**t) for t in tokens_raw]
+        proj.citation_formats[bib_type] = tokens
+        await svc.flush(project_id)
+        return {"type": bib_type, "tokens": [t.model_dump() for t in tokens]}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="プロジェクトが見つかりません")
+
+
+@router.get("/projects/{project_id}/citation-formats")
+async def get_citation_formats(project_id: str) -> dict:
+    """種類ごとの参考文献フォーマットを返す。"""
+    svc = get_service()
+    try:
+        proj = await svc.get_project(project_id)
+        result = {}
+        for bib_type, tokens in (proj.citation_formats or {}).items():
+            result[bib_type] = [t.model_dump() for t in tokens]
+        return {"citation_formats": result}
     except KeyError:
         raise HTTPException(status_code=404, detail="プロジェクトが見つかりません")
 
@@ -228,14 +262,12 @@ def dialog_save_file(body: dict = {}) -> dict:
 @router.post("/dialog/write-file")
 def dialog_write_file(body: dict) -> dict:
     """指定パスにコンテンツを書き込む。"""
-    import pathlib
-
     path = body.get("path", "")
     content = body.get("content", "")
     if not path:
         return {"ok": False, "error": "path is required"}
     try:
-        pathlib.Path(path).write_text(content, encoding="utf-8-sig")
+        Path(path).write_text(content, encoding="utf-8-sig")
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -256,8 +288,6 @@ def dialog_open_directory() -> dict:
 @router.get("/filesystem/browse")
 def browse_filesystem(dir: str = "") -> dict:
     """ディレクトリ内容を返す（ブラウザモードのファイル選択用）。"""
-    from pathlib import Path
-
     if not dir:
         base = Path.home()
     else:
@@ -277,8 +307,13 @@ def browse_filesystem(dir: str = "") -> dict:
             if item.name.startswith("."):
                 continue
             if item.is_dir():
-                dirs.append({"name": item.name, "path": str(item)})
-            elif item.suffix.lower() == ".json":
+                # project.json を持つフォルダはプロジェクトとして直接表示
+                project_json = item / "project.json"
+                if project_json.exists():
+                    files.append({"name": item.name, "path": str(project_json)})
+                else:
+                    dirs.append({"name": item.name, "path": str(item)})
+            elif item.suffix.lower() == ".json" and item.name != "project.json":
                 files.append({"name": item.name, "path": str(item)})
     except PermissionError:
         pass

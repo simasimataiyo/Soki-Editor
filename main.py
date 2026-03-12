@@ -4,10 +4,10 @@ from __future__ import annotations
 import asyncio
 import os
 import socket
+import sys
 import threading
 import time
 import logging
-import sys
 
 logging.basicConfig(
     level=logging.INFO,
@@ -129,6 +129,16 @@ def _save_all_and_exit() -> None:
 
 
 def main() -> None:
+    # 開発モード判定: --dev フラグ or SOKI_DEV=1 環境変数、ただし frozen exe では常に False
+    import app.backend.security as _security
+    is_frozen = getattr(sys, "frozen", False)
+    is_dev = not is_frozen and (
+        "--dev" in sys.argv or os.environ.get("SOKI_DEV") == "1"
+    )
+    _security.DEV_MODE = is_dev
+    if is_dev:
+        logger.info("開発モード: トークン認証を無効化します")
+
     port = _find_free_port()
     logger.info("起動ポート: %d", port)
 
@@ -155,9 +165,10 @@ def main() -> None:
         from app.backend.services.global_settings_service import GlobalSettingsService
 
         ws = GlobalSettingsService().get().window_state
+        launch_url = f"http://127.0.0.1:{port}/launch/{_security.APP_TOKEN}"
         window = webview.create_window(
             title="Soki Editor",
-            url=f"http://127.0.0.1:{port}/",
+            url=launch_url,
             width=ws.width,
             height=ws.height,
             x=ws.x,
@@ -170,7 +181,7 @@ def main() -> None:
         window.events.closing += _save_window_state  # ウィンドウが閉じる前（GUI存在中）に保存
         window.events.closed += _save_all_and_exit
         try:
-            webview.start(debug=True)
+            webview.start(debug=_security.DEV_MODE)
         finally:
             _save_all_and_exit()
     except ImportError:

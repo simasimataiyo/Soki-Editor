@@ -22,12 +22,21 @@ class LLMSettings(BaseModel):
     endpoint_url: Optional[str] = None
     model: str = "gpt-4o"
     pdf_page_dpi: int = 96  # PDF等倍画像のDPI（設定画面から変更可能）
+    max_fetch_source_count: int = 4 # 最大同時取得ソース件数
     left_panel_width: int = 280  # 左パネル標準幅（px）
     history_panel_width: int = 280  # チャット履歴右パネル標準幅（px）
     outline_panel_width: int = 280  # アウトライン左パネル幅（px）
     review_max_comments: int = 0    # レビューコメントの最大件数（0=無制限）
     auto_process_on_drop: bool = True  # ファイルドロップ時に自動要約・文献情報抽出を実行
     window_state: WindowState = Field(default_factory=WindowState)
+
+
+class CitationToken(BaseModel):
+    """参考文献フォーマットの1要素。field値のフィールドを prefix/suffix で囲んで出力する。
+    field="literal" の場合は prefix を固定文字列として出力する。"""
+    field: str        # "author" | "title" | "year" | ... | "literal"
+    prefix: str = ""  # フィールド値の前に付ける文字列
+    suffix: str = ""  # フィールド値の後に付ける文字列
 
 
 class Bibliography(BaseModel):
@@ -57,6 +66,7 @@ class Source(BaseModel):
     file_type: Optional[str] = None  # "pdf" | "image" | "text" | None
     full_text: str = ""
     summary: str = ""
+    extended_summary: str = ""  # 構造化詳細サマリー（主張・数値・固有名詞・引用候補）
     bibliography: Bibliography = Field(default_factory=Bibliography)
 
 
@@ -123,6 +133,7 @@ class ReviewComment(BaseModel):
 class Project(BaseModel):
     id: str
     name: str
+    format_version: int = 1  # 1=旧形式(単一JSON), 2=新形式(フォルダ分割)
     created_at: datetime
     updated_at: datetime
     json_file_path: str  # プロジェクト JSON の保存先絶対パス
@@ -138,6 +149,7 @@ class Project(BaseModel):
     review_system_prompt: str = ""
     review_comments: list[ReviewComment] = []
     references_section_enabled: bool = False
+    citation_formats: dict[str, list[CitationToken]] = {}  # type → token list
     saved_review_prompts: dict[str, str] = {}  # name → prompt text
 
 
@@ -146,7 +158,8 @@ class Project(BaseModel):
 
 class ProjectCreate(BaseModel):
     name: str
-    json_file_path: str
+    project_dir: Optional[str] = None   # v2: プロジェクトフォルダのパス（{project_dir}/project.json）
+    json_file_path: Optional[str] = None  # v1後方互換 / project_dir 未指定時
     data_dir: Optional[str] = None
 
 
@@ -230,6 +243,7 @@ class SourceUpdate(BaseModel):
     file_type: Optional[str] = None
     full_text: Optional[str] = None
     summary: Optional[str] = None
+    extended_summary: Optional[str] = None
     bibliography: Optional[Bibliography] = None
 
 

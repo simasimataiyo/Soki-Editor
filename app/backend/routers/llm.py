@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from typing import AsyncGenerator
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response, StreamingResponse
@@ -35,6 +36,8 @@ async def chat_stream(project_id: str, body: ChatRequest) -> StreamingResponse:
         _not_found(project_id)
 
     global_settings = get_settings_service().get()
+    import logging as _logging
+    _logging.getLogger(__name__).info("chat request: explicit_refs=%s, user_message=%r", body.explicit_refs, body.user_message[:100] if body.user_message else "")
 
     async def _stream_with_history() -> AsyncGenerator[str, None]:
         # ユーザーメッセージ・コマンドをストリーム開始前に保存
@@ -268,7 +271,6 @@ async def export_markdown(project_id: str) -> Response:
         _not_found(project_id)
 
     md_content = _export_service.export_to_markdown(project)
-    from urllib.parse import quote
     filename_encoded = quote(f"{project.name}.md", safe="")
     return Response(
         content=md_content.encode("utf-8"),

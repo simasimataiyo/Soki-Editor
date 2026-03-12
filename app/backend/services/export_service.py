@@ -2,12 +2,8 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    pass
-
-from app.backend.models import Project, SectionPreview
+from app.backend.models import CitationToken, Project, SectionPreview
 
 
 class ExportService:
@@ -16,9 +12,11 @@ class ExportService:
     # [^ref-xxx] マッチパターン
     _REF_PATTERN = re.compile(r"\[\^(ref-[^\]]+)\]")
     # ![caption](path "fig-xxx") マッチパターン
-    _FIG_PATTERN = re.compile(r'!\[([^\]]*)\]\([^)]*\s+"(fig-[^"]+)"\)')
+    _FIG_PATTERN = re.compile(r'!\[([^\]]*)\]\([^)]*?"(fig-[^"]+)"\)')
     # soki-section マーカーパターン（新形式: JSON / 旧形式: UUID）
     _MARKER_PATTERN = re.compile(r'<!-- soki-section:(?:\{[^}]*\}|[a-f0-9-]+) -->\n?')
+    # fig-block コメントパターン
+    _FIG_BLOCK_PATTERN = re.compile(r'<!-- fig-block:(fig-[a-z0-9]+) -->')
 
     # ------------------------------------------------------------------
     # Public API
@@ -30,6 +28,10 @@ class ExportService:
 
         # マーカーを除去
         content = self._MARKER_PATTERN.sub('', project.content)
+
+        # fig-block を表Markdownに展開
+        mat_by_id = {m.id: m for m in project.materials}
+        content = self._expand_fig_blocks(content, mat_by_id)
 
         # 参照解決
         content = self.resolve_references(content, ref_map, fig_map)
@@ -47,7 +49,8 @@ class ExportService:
                     src = src_by_id.get(src_id)
                     if src:
                         bib = src.bibliography
-                        entry = self._format_bibliography(bib)
+                        tokens = (project.citation_formats or {}).get(bib.type)
+                        entry = self._format_bibliography(bib, tokens)
                         lines.append(f"[{num}] {entry}")
                 lines.append("")
                 return "\n".join(lines)
@@ -69,12 +72,11 @@ class ExportService:
             return m.group(0)
 
         def replace_fig(m: re.Match) -> str:
-            caption = m.group(1)
             fig_id = m.group(2)
             if fig_id in fig_map:
                 fig_type, num = fig_map[fig_id]
                 prefix = "図" if fig_type == "figure" else "表"
-                return f"{prefix}{num} {caption}"
+                return f"{prefix}{num}"
             return m.group(0)
 
         content = self._REF_PATTERN.sub(replace_ref, content)
@@ -142,7 +144,8 @@ class ExportService:
             for src_id, num in sorted(ref_map.items(), key=lambda x: x[1]):
                 src = src_by_id.get(src_id)
                 if src:
-                    bib_lines.append(f"[{num}] {self._format_bibliography(src.bibliography)}")
+                    tokens = (project.citation_formats or {}).get(src.bibliography.type)
+                    bib_lines.append(f"[{num}] {self._format_bibliography(src.bibliography, tokens)}")
             previews.append(
                 SectionPreview(
                     section_id="__references__",
@@ -155,17 +158,74 @@ class ExportService:
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _format_bibliography(self, bib) -> str:
-        """参考文献エントリを簡易テキスト形式にフォーマットする。"""
+    def _expand_fig_blocks(self, content: str, mat_by_id: dict) -> str:
+        """<!-- fig-block:fig-xxx --> を表マテリアルの table_content に展開する。
+        図マテリアルの場合はコメントをそのまま除去する。"""
+        def replace_fig_block(m: re.Match) -> str:
+            fig_id = m.group(1)
+            mat = mat_by_id.get(fig_id)
+            if mat and mat.type == "table" and mat.table_content:
+                caption = mat.caption or mat.name
+                return f"{mat.table_content.strip()}\n\n*{caption}*"
+            return ""
+
+        return self._FIG_BLOCK_PATTERN.sub(replace_fig_block, content)
+
+    # デフォルトの参考文献フォーマット（種類ごと）
+    DEFAULT_CITATION_FORMATS: dict[str, list[CitationToken]] = {
+        "paper": [
+            CitationToken(field="author"),
+            CitationToken(field="year", prefix="(", suffix=")"),
+            CitationToken(field="title", prefix="『", suffix="』"),
+            CitationToken(field="journal"),
+            CitationToken(field="volume"),
+            CitationToken(field="issue", prefix="(", suffix=")"),
+            CitationToken(field="pages", prefix=":"),
+        ],
+        "book": [
+            CitationToken(field="author"),
+            CitationToken(field="year", prefix="(", suffix=")"),
+            CitationToken(field="title", prefix="『", suffix="』"),
+            CitationToken(field="publisher"),
+            CitationToken(field="publication_place"),
+        ],
+        "book_chapter": [
+            CitationToken(field="author"),
+            CitationToken(field="year", prefix="(", suffix=")"),
+            CitationToken(field="title", prefix="『", suffix="』"),
+            CitationToken(field="editor", suffix="(編)"),
+            CitationToken(field="publisher"),
+            CitationToken(field="pages", prefix="pp."),
+        ],
+        "web": [
+            CitationToken(field="author"),
+            CitationToken(field="year", prefix="(", suffix=")"),
+            CitationToken(field="title"),
+            CitationToken(field="site_name"),
+            CitationToken(field="url"),
+            CitationToken(field="accessed_date", prefix="[参照: ", suffix="]"),
+        ],
+        "resource": [
+            CitationToken(field="author"),
+            CitationToken(field="year", prefix="(", suffix=")"),
+            CitationToken(field="title"),
+        ],
+    }
+
+    def _format_bibliography(self, bib, tokens: list[CitationToken] | None = None) -> str:
+        """参考文献エントリをトークンリストに従ってフォーマットする。
+        tokens が None の場合はデフォルトフォーマットを使用する。"""
+        if tokens is None:
+            tokens = self.DEFAULT_CITATION_FORMATS.get(bib.type, self.DEFAULT_CITATION_FORMATS["resource"])
+
         parts: list[str] = []
-        if bib.author:
-            parts.append(bib.author)
-        if bib.title:
-            parts.append(f"『{bib.title}』")
-        if bib.journal:
-            parts.append(bib.journal)
-        if bib.year:
-            parts.append(f"({bib.year})")
-        if bib.url:
-            parts.append(bib.url)
+        for tok in tokens:
+            if tok.field == "literal":
+                if tok.prefix:
+                    parts.append(tok.prefix)
+                continue
+            value = getattr(bib, tok.field, None) or ""
+            if value:
+                parts.append(f"{tok.prefix}{value}{tok.suffix}")
+
         return " ".join(parts) if parts else "(文献情報なし)"

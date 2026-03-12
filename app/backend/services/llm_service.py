@@ -9,10 +9,32 @@ import logging
 import time
 from pathlib import Path
 from typing import AsyncGenerator
+from urllib.parse import urlparse
+
+import httpx
 
 from app.backend.models import LLMSettings, Project
 
 logger = logging.getLogger(__name__)
+
+
+class _AllowlistTransport(httpx.AsyncBaseTransport):
+    """設定済みLLMエンドポイント以外への外部通信をブロックするhttpxトランスポート。"""
+
+    def __init__(self, inner: httpx.AsyncBaseTransport, get_allowed_url):
+        self._inner = inner
+        self._get_allowed_url = get_allowed_url
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        allowed = self._get_allowed_url() or "https://api.openai.com"
+        allowed_netloc = urlparse(allowed).netloc
+        req_netloc = urlparse(str(request.url)).netloc
+        if req_netloc != allowed_netloc:
+            raise ValueError(f"外部通信がブロックされました: {req_netloc}")
+        return await self._inner.handle_async_request(request)
+
+    async def aclose(self) -> None:
+        await self._inner.aclose()
 
 
 def _sort_sections_hierarchically(sections: list) -> list:
@@ -294,7 +316,11 @@ class LLMService:
     def _make_client(self, settings: LLMSettings):
         from openai import AsyncOpenAI
 
-        kwargs = {"api_key": settings.api_key or "dummy"}
+        inner = httpx.AsyncHTTPTransport()
+        transport = _AllowlistTransport(inner, lambda: settings.endpoint_url or "")
+        http_client = httpx.AsyncClient(transport=transport)
+
+        kwargs = {"api_key": settings.api_key or "dummy", "http_client": http_client}
         if settings.endpoint_url:
             kwargs["base_url"] = settings.endpoint_url
         return AsyncOpenAI(**kwargs)
@@ -351,18 +377,13 @@ class LLMService:
         """
         client = self._make_client(settings)
 
-        if command:
-            messages = self._build_command_messages(
-                project, user_message, context_scope,
-                command, command_args or [], explicit_refs or [],
-                selected_text=selected_text,
-            )
-        else:
-            messages = self._build_chat_messages(
-                project, user_message, context_scope,
-                explicit_refs=explicit_refs,
-                selected_text=selected_text,
-            )
+        messages = self._build_messages(
+            project, settings, user_message, context_scope,
+            command=command,
+            command_args=command_args or [],
+            explicit_refs=explicit_refs or [],
+            selected_text=selected_text,
+        )
 
         start = time.time()
         is_review_command = command and self._normalize_command(command, command_args or [])["base_command"] == "review"
@@ -385,16 +406,25 @@ class LLMService:
             use_tools = self._supports_tool_calling(settings.model)
             if use_tools:
                 # デフォルトではすべてのツールを渡す
-                call_kwargs["tools"] = TOOLS
+                import copy
+                tools_copy = copy.deepcopy(TOOLS)
+                for t in tools_copy:
+                    if t["function"]["name"] == "fetch_sources":
+                        desc = f"参考文献の全文を取得する。参考文献の概要一覧を確認し、タスクの実行に必要なソースのIDを最大{settings.max_fetch_source_count}つまで指定してください。"
+                        t["function"]["description"] = desc  # type: ignore
+                        t["function"]["parameters"]["properties"]["source_ids"]["maxItems"] = settings.max_fetch_source_count  # type: ignore
+                        t["function"]["parameters"]["properties"]["source_ids"]["description"] = f"取得するソースのIDリスト（最大{settings.max_fetch_source_count}つ）"  # type: ignore
+
+                call_kwargs["tools"] = tools_copy
                 call_kwargs["tool_choice"] = "auto"
 
                 # 特定の /structure 系コマンドの場合は、ツールを制限する
-                if command and command.startswith("structure"):
+                if command and isinstance(command, str) and command.startswith("structure"):
                     command_mode = self._normalize_command(command, command_args or [])
                     mode = command_mode["mode"]
                     if mode == "replace":
                         target_tool_name = "set_document_structure"
-                        call_kwargs["tools"] = [t for t in TOOLS if t["function"]["name"] == target_tool_name]
+                        call_kwargs["tools"] = [t for t in tools_copy if t["function"]["name"] == target_tool_name]
                         call_kwargs["tool_choice"] = {
                             "type": "function",
                             "function": {"name": target_tool_name}
@@ -405,15 +435,15 @@ class LLMService:
                             "update_section_title", "update_section_summary",
                             "create_section", "delete_section", "move_section"
                         ]
-                        call_kwargs["tools"] = [t for t in TOOLS if t["function"]["name"] in structure_section_tools]
+                        call_kwargs["tools"] = [t for t in tools_copy if t["function"]["name"] in structure_section_tools]
                         call_kwargs["tool_choice"] = "auto"
                     elif mode == "summary":
                         # structure-summary: 概要のみ更新
-                        call_kwargs["tools"] = [t for t in TOOLS if t["function"]["name"] == "update_section_summary"]
+                        call_kwargs["tools"] = [t for t in tools_copy if t["function"]["name"] == "update_section_summary"]
                         call_kwargs["tool_choice"] = "auto"
                     else:  # add
                         target_tool_name = "create_sections_under_parent"
-                        call_kwargs["tools"] = [t for t in TOOLS if t["function"]["name"] == target_tool_name]
+                        call_kwargs["tools"] = [t for t in tools_copy if t["function"]["name"] == target_tool_name]
                         call_kwargs["tool_choice"] = {
                             "type": "function",
                             "function": {"name": target_tool_name}
@@ -473,7 +503,7 @@ class LLMService:
                     }
                 )
                 for tc in source_fetches:
-                    ids = tc["args"].get("source_ids", [])[:4]
+                    ids = tc["args"].get("source_ids", [])[:settings.max_fetch_source_count]
                     messages.append(
                         {
                             "role": "tool",
@@ -634,6 +664,40 @@ class LLMService:
             elapsed = time.time() - start
             logger.info(
                 "要約生成完了: model=%s, elapsed=%.2fs", settings.model, elapsed
+            )
+
+    async def generate_extended_summary(
+        self, full_text: str, settings: LLMSettings
+    ) -> str:
+        """全文テキストから構造化詳細サマリーを生成する。
+        LLMが fetch_sources を呼んだ際に返す内容として使用する。
+        主張・重要数値・固有名詞・引用候補フレーズを含む2000字程度のサマリー。
+        """
+        client = self._make_client(settings)
+        start = time.time()
+        system_prompt = (
+            "以下のテキストから、論文・報告書の執筆支援に役立つ構造化サマリーを2000字程度で生成してください。\n"
+            "以下の要素を漏れなく含めてください（見出しは使用してください）:\n"
+            "1. 主要な主張・結論（箇条書き）\n"
+            "2. 重要な数値・統計データ（具体的な数字を含む）\n"
+            "3. 重要な固有名詞（人名・地名・概念・手法名など）\n"
+            "4. 引用候補となるキーフレーズ（そのまま引用できる文章断片）\n"
+            "5. 著者の立場・限界・今後の課題（あれば）\n"
+        )
+        try:
+            response = await client.chat.completions.create(
+                model=settings.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": full_text[:12000]},
+                ],
+            )
+            extended_summary = response.choices[0].message.content or ""
+            return extended_summary
+        finally:
+            elapsed = time.time() - start
+            logger.info(
+                "詳細サマリー生成完了: model=%s, elapsed=%.2fs", settings.model, elapsed
             )
 
     async def extract_bibliography(
@@ -864,112 +928,138 @@ class LLMService:
         m = pattern.search(project_content)
         return m.group(1).strip() if m else ''
 
-    def _build_command_messages(
+    def _build_messages(
         self,
         project: Project,
+        settings: LLMSettings,
         user_message: str,
         context_scope: str,
-        command: str,
-        command_args: list[str],
-        explicit_refs: list[str],
+        command: str | None = None,
+        command_args: list[str] | None = None,
+        explicit_refs: list[str] | None = None,
         selected_text: str | None = None,
     ) -> list[dict]:
-        """コマンド専用のシステムプロンプトを構築する。"""
-        template = self._load_template("command_system.jinja2")
+        """チャット・コマンド共通のメッセージリストを構築する。
+
+        - system: chat_system.jinja2 （全モード共通・固定）
+        - history: 通常チャット(user/assistant)ペアのみ。コマンド実行ペアは除外し
+                   要約テキスト(assistant)のみ残す
+        - user: ユーザー入力。コマンド時はタスク指示を末尾に注入する
+        """
+        refs = explicit_refs or []
+        args = command_args or []
 
         enabled_rules = [r for r in project.rules if r.enabled]
         sorted_sections = _sort_sections_hierarchically(project.sections)
 
         if context_scope == "all":
             target_section = None
-            context_scope_value = "all"
         else:
             target_section = next(
                 (s for s in sorted_sections if s.id == context_scope), None
             )
-            context_scope_value = "section"
 
         source_summaries = [
-            {"id": s.id, "name": s.name, "summary": s.summary}
+            {
+                "id": s.id,
+                "name": s.name,
+                "summary": s.summary,
+                "include_in_references": s.bibliography.include_in_references,
+            }
             for s in project.sources
-            if s.summary and s.bibliography and s.bibliography.include_in_references
+            if s.summary
         ]
 
-        # 明示参照されたソース・マテリアルを解決
         src_by_id = {s.id: s for s in project.sources}
         mat_by_id = {m.id: m for m in project.materials}
-        explicit_sources = [
-            src_by_id[rid] for rid in explicit_refs if rid in src_by_id
-        ]
-        explicit_materials = [
-            mat_by_id[rid] for rid in explicit_refs if rid in mat_by_id
-        ]
+        explicit_sources = [src_by_id[rid] for rid in refs if rid in src_by_id]
+        explicit_materials = [mat_by_id[rid] for rid in refs if rid in mat_by_id]
 
-        # 全体の履歴を取得
         history = project.chat_history
-
-        # 履歴中で明示参照されたソース/マテリアルの現在の状態を収集
         history_ref_ids: set[str] = set()
         for msg in history:
             history_ref_ids.update(getattr(msg, "explicit_refs", []))
-        # 今回のコマンドで明示参照されたものは explicit_sources/materials に含まれるので除外
-        history_ref_ids -= set(explicit_refs)
+        history_ref_ids -= set(refs)
         history_sources = [src_by_id[rid] for rid in history_ref_ids if rid in src_by_id]
         history_materials = [mat_by_id[rid] for rid in history_ref_ids if rid in mat_by_id]
 
-        # コマンド名の正規化（ハイフン区切り形式を内部形式に変換）
-        command_mode = self._normalize_command(command, command_args)
-
-        # セクション本文の取得（project.content から抽出）
+        # セクション本文の取得
         target_section_body = None
         if target_section:
             target_section_body = self._extract_section_body(
                 project.content, target_section.id
             )
-        # review/rewrite/structure-summary/structure-section コマンドで全セクションの本文も必要な場合
-        section_bodies_by_id = {}
-        _needs_bodies = command_mode["base_command"] in ("rewrite", "review") or \
-            (command_mode["base_command"] == "structure" and command_mode["mode"] in ("summary", "section"))
-        if _needs_bodies:
-            for sec in sorted_sections:
-                section_bodies_by_id[sec.id] = self._extract_section_body(
-                    project.content, sec.id
-                )
 
-        system_content = template.render(
-            command=command_mode["base_command"],
-            command_mode=command_mode["mode"],
+        # system プロンプト（全モード共通・安定化）
+        system_template = self._load_template("chat_system.jinja2")
+        system_content = system_template.render(
             enabled_rules=enabled_rules,
             sections=sorted_sections,
-            context_scope=context_scope_value,
+            source_summaries=source_summaries,
+            max_fetch_source_count=settings.max_fetch_source_count,
+        )
+
+        # 履歴の構築:
+        #   - 通常チャット (user/assistant) → そのまま含める
+        #   - コマンド実行 (role="command") → 除外（次のassistantが要約テキスト）
+        #   - コマンド後の要約 (role="assistant" で直前がcommand) → 保持
+        history_messages: list[dict] = []
+        for msg in history:
+            if msg.role == "command":
+                # コマンド実行メッセージ自体は除外。次のassistant要約は保持するためフラグを立てない
+                # （要約はLLMに渡すべき事実として保持）
+                continue
+            elif msg.role == "assistant":
+                history_messages.append({"role": "assistant", "content": msg.content})
+            elif msg.role == "user":
+                history_messages.append({"role": "user", "content": msg.content})
+
+        # 動的コンテキスト（対象セクション・指定ソース等）をuserメッセージに注入（常時）
+        context_template = self._load_template("user_context.jinja2")
+        context_injection = context_template.render(
             target_section=target_section,
             target_section_body=target_section_body,
-            section_bodies_by_id=section_bodies_by_id,
-            source_summaries=source_summaries,
+            selected_text=selected_text,
             explicit_sources=explicit_sources,
             explicit_materials=explicit_materials,
             history_sources=history_sources,
             history_materials=history_materials,
-            user_message=user_message,
-            selected_text=selected_text,
-        )
+        ).strip()
 
-        # 同一スコープの履歴（チャット履歴をコンテキストに追加）
-        history_messages = []
-        for msg in history:
-            if msg.role == "user":
-                history_messages.append({"role": "user", "content": msg.content})
-            elif msg.role == "assistant":
-                history_messages.append({"role": "assistant", "content": msg.content})
-            elif msg.role == "command":
-                # コマンド履歴も含める（ユーザーメッセージと区別するためプレフィックス付与）
-                history_messages.append({"role": "user", "content": f"[コマンド実行] {msg.content}"})
+        # userメッセージの構築
+        if command:
+            command_mode = self._normalize_command(command, args)
+            # コマンド時: 全セクション本文が必要なケース
+            section_bodies_by_id: dict[str, str] = {}
+            _needs_bodies = command_mode["base_command"] in ("rewrite", "review") or \
+                (command_mode["base_command"] == "structure" and command_mode["mode"] in ("summary", "section"))
+            if _needs_bodies:
+                for sec in sorted_sections:
+                    section_bodies_by_id[sec.id] = self._extract_section_body(
+                        project.content, sec.id
+                    )
 
-        # コマンドの場合もチャット履歴を含める（文脈を保持）
+            # タスク指示をユーザーメッセージに注入（コンテキスト → タスク指示の順）
+            task_template = self._load_template("command_system.jinja2")
+            task_injection = task_template.render(
+                command=command_mode["base_command"],
+                command_mode=command_mode["mode"],
+                sections=sorted_sections,
+                target_section=target_section,
+                target_section_body=target_section_body,
+                section_bodies_by_id=section_bodies_by_id,
+                source_summaries=source_summaries,
+                max_fetch_source_count=settings.max_fetch_source_count,
+            ).strip()
+            parts = [p for p in [user_message, context_injection, task_injection] if p]
+            final_user_message = "\n".join(parts)
+        else:
+            parts = [p for p in [user_message, context_injection] if p]
+            final_user_message = "\n".join(parts)
+
         messages: list[dict] = [{"role": "system", "content": system_content}]
         messages.extend(history_messages)
-        if user_message:
-            messages.append({"role": "user", "content": user_message})
+        messages.append({"role": "user", "content": final_user_message})
         return self._trim_history_by_size(messages)
 
     @staticmethod
@@ -997,90 +1087,11 @@ class LLMService:
 
         return {"base_command": command, "mode": ""}
 
-    def _build_chat_messages(
-        self,
-        project: Project,
-        user_message: str,
-        context_scope: str,
-        explicit_refs: list[str] | None = None,
-        selected_text: str | None = None,
-    ) -> list[dict]:
-        """Jinja2テンプレートを使用してシステムプロンプトを構築する。"""
-        template = self._load_template("chat_system.jinja2")
-
-        # テンプレート変数の準備
-        enabled_rules = [r for r in project.rules if r.enabled]
-        sorted_sections = _sort_sections_hierarchically(project.sections)
-
-        if context_scope == "all":
-            target_section = None
-            context_scope_value = "all"
-        else:
-            target_section = next((s for s in sorted_sections if s.id == context_scope), None)
-            context_scope_value = "section"
-
-        source_summaries = [
-            {"id": s.id, "name": s.name, "summary": s.summary}
-            for s in project.sources if s.summary
-        ]
-
-        # 明示参照されたソース・マテリアルを解決
-        refs = explicit_refs or []
-        src_by_id = {s.id: s for s in project.sources}
-        mat_by_id = {m.id: m for m in project.materials}
-        explicit_sources = [src_by_id[rid] for rid in refs if rid in src_by_id]
-        explicit_materials = [mat_by_id[rid] for rid in refs if rid in mat_by_id]
-
-        # チャット履歴の取得
-        history = project.chat_history
-
-        # 履歴中で明示参照されたソース/マテリアルの現在の状態を収集
-        history_ref_ids: set[str] = set()
-        for msg in history:
-            history_ref_ids.update(getattr(msg, "explicit_refs", []))
-        # 今回明示参照されたものは explicit_sources/materials に含まれるので除外
-        history_ref_ids -= set(refs)
-        history_sources = [src_by_id[rid] for rid in history_ref_ids if rid in src_by_id]
-        history_materials = [mat_by_id[rid] for rid in history_ref_ids if rid in mat_by_id]
-
-        # セクション本文の取得（project.content から抽出）
-        target_section_body = None
-        if target_section:
-            target_section_body = self._extract_section_body(
-                project.content, target_section.id
-            )
-
-        # システムプロンプトの生成
-        system_content = template.render(
-            enabled_rules=enabled_rules,
-            sections=sorted_sections,
-            context_scope=context_scope_value,
-            target_section=target_section,
-            target_section_body=target_section_body,
-            source_summaries=source_summaries,
-            explicit_sources=explicit_sources,
-            explicit_materials=explicit_materials,
-            history_sources=history_sources,
-            history_materials=history_materials,
-            selected_text=selected_text,
-        )
-
-        # チャット履歴の構築（role="command" は "user" にマッピング）
-        messages: list[dict] = [{"role": "system", "content": system_content}]
-        for msg in history:
-            if msg.role == "command":
-                messages.append({"role": "user", "content": f"[コマンド実行] {msg.content}"})
-            else:
-                messages.append({"role": msg.role, "content": msg.content})
-        messages.append({"role": "user", "content": user_message})
-
-        return self._trim_history_by_size(messages)
-
     async def _chat_with_retry(self, client, call_kwargs: dict, max_retries: int = 3):
         """レートリミット(429)時に指数バックオフでリトライする。"""
         from openai import RateLimitError
 
-        wait = 1.0
+        wait = 5.0
         for attempt in range(max_retries):
             try:
                 return await client.chat.completions.create(**call_kwargs)
@@ -1141,13 +1152,20 @@ class LLMService:
                 tool_calls_acc.clear()
 
     def _resolve_source_full_texts(self, project: Project, source_ids: list[str]) -> str:
-        """ソースIDリストを全文テキストに解決する。"""
+        """ソースIDリストを詳細サマリー（なければ全文冒頭）に解決する。"""
         src_by_id = {s.id: s for s in project.sources}
+        logger.info("fetch_sources: 要求されたIDs=%s, 利用可能IDs=%s", source_ids, list(src_by_id.keys()))
         texts = []
         for sid in source_ids[:4]:
-            src = src_by_id.get(sid)
-            if src and src.full_text:
-                texts.append(f"### [^{src.id}] {src.name}\n\n{src.full_text[:5000]}")
+            src = src_by_id.get(sid) or src_by_id.get(f"ref-{sid}")
+            if not src:
+                logger.warning("fetch_sources: ID=%s が見つかりません", sid)
+                continue
+            logger.info("fetch_sources: ID=%s, extended_summary=%d文字, full_text=%d文字", sid, len(src.extended_summary), len(src.full_text))
+            if src.extended_summary:
+                texts.append(f"### ID: {src.id} | {src.name}\n\n{src.extended_summary}")
+            elif src.full_text:
+                texts.append(f"### ID: {src.id} | {src.name}\n\n{src.full_text[:3000]}")
         if not texts:
             return "指定されたソースは見つかりませんでした。"
         return "\n\n---\n\n".join(texts)
@@ -1162,7 +1180,7 @@ class LLMService:
             print(f"  [{i}] {msg.get('role', 'unknown')}:")
             content = msg.get("content", "")
             if content:
-                print(f"    {content[:200]}{'...' if len(str(content)) > 200 else ''}")
+                print(f"    {content[:5000]}{'...' if len(str(content)) > 5000 else ''}")
             if msg.get("tool_calls"):
                 print(f"    [tool_calls: {len(msg['tool_calls'])} 件]")
         print("=" * 60)

@@ -19,10 +19,38 @@ const MaterialTab = (() => {
   let _materialDragState = null; // { draggedId, targetId, position, draggedGroupType }
   let _isDraggingItem = false;
 
+  // 保存タイマー（モジュールレベル、一元管理）
+  let _pendingSaveTimer = null;
+  let _pendingSaveId = null;
+  let _nameTimer = null;
+
   const MAT_TYPE_LABELS = { figure: '図', table: '表' };
   const MAT_TYPES_ORDER = ['figure', 'table'];
 
+  /** デバウンス保存をスケジュール */
+  function _scheduleSave(matId) {
+    if (_pendingSaveTimer) clearTimeout(_pendingSaveTimer);
+    _pendingSaveId = matId;
+    _pendingSaveTimer = setTimeout(() => {
+      _pendingSaveTimer = null;
+      _pendingSaveId = null;
+      _saveMaterial(matId);
+    }, 2000);
+  }
+
+  /** 保留中の保存を即時フラッシュ（DOM切替前に呼ぶこと） */
+  function _flushPendingSave() {
+    if (_pendingSaveTimer) {
+      clearTimeout(_pendingSaveTimer);
+      _pendingSaveTimer = null;
+      const id = _pendingSaveId;
+      _pendingSaveId = null;
+      if (id) _saveMaterial(id);
+    }
+  }
+
   function render(project) {
+    _flushPendingSave();
     _project = project;
     _renderList();
     if (_activeId) _renderDetail(_activeId);
@@ -103,6 +131,7 @@ const MaterialTab = (() => {
 
     li.addEventListener('click', (e) => {
       if (e.target.closest('.material-drag-handle')) return;
+      _flushPendingSave();
       _activeId = mat.id;
       window.appState.setState({ activeMaterialId: mat.id });
       _renderList();
@@ -419,23 +448,17 @@ const MaterialTab = (() => {
     }
 
     // 自動保存
-    let saveTimer;
-    const autoSave = () => {
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(() => _saveMaterial(mat.id), 2000);
-    };
     pane.querySelectorAll('input:not([readonly]), textarea').forEach(el => {
-      el.addEventListener('input', autoSave);
-      el.addEventListener('change', autoSave);
+      el.addEventListener('input', () => _scheduleSave(mat.id));
+      el.addEventListener('change', () => _scheduleSave(mat.id));
     });
 
     // 名前フィールドの即時反映（常に最新のプロジェクトからマテリアルを参照）
     const nameEl = document.getElementById('mat-name');
     if (nameEl) {
-      let nameTimer;
       nameEl.addEventListener('input', () => {
-        clearTimeout(nameTimer);
-        nameTimer = setTimeout(() => {
+        clearTimeout(_nameTimer);
+        _nameTimer = setTimeout(() => {
           // 常に最新のプロジェクトからマテリアルを参照
           const project = window.appState.getProject();
           const currentMat = project.materials.find(m => m.id === mat.id);
@@ -605,6 +628,7 @@ const MaterialTab = (() => {
   }
 
   function reset() {
+    if (_pendingSaveTimer) { clearTimeout(_pendingSaveTimer); _pendingSaveTimer = null; _pendingSaveId = null; }
     _project = null;
     _activeId = null;
     _sectionCollapsed = {};

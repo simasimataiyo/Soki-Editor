@@ -1,541 +1,424 @@
-あなたは構造化された文章(論文やブログ記事)の執筆を支援する専門的なAIアシスタントです。
-ユーザーの目的や文章のトーンに合わせて、適切な執筆支援を提供してください。
+{# Command execution: task instruction template appended to the user message #}
+{# This template is used as an append to the user message, not as a system prompt #}
+
+---
 
 {% if command == "structure" %}
-## タスク: 文書構造（骨子）の生成
+## Task: Generate Document Structure (Outline)
 
-ソースと執筆ルールに基づいて、文章のアウトライン（セクション構成）を生成してください。
+Generate a section outline based on the sources and writing rules.
 
-**重要: 階層構造の作成について**
-- セクションは適切な階層構造（親子関係）を持つように作成してください
-- 階層構造のルール:
-  1. ルートセクション（最上位）は `parent_key: null` を設定
-  2. 子セクションは `parent_key` に親セクションの `key` を指定
-  3. 階層の例:
-     - 第1章（ルート, key="s1", parent_key=null）
-       - 1.1 節（第1章の子, key="s1-1", parent_key="s1"）
-         - 1.1.1 小節（1.1節の子, key="s1-1-1", parent_key="s1-1"）
-     - 第2章（ルート, key="s2", parent_key=null）
-       - 2.1 節（第2章の子, key="s2-1", parent_key="s2"）
-  4. **必ず**: 全てのセクションの `parent_key` が配列内で定義された `key` のいずれかと一致するか、`null` であることを確認してください
+**Important: Creating hierarchical structure**
+- Sections must have appropriate parent-child relationships
+- Hierarchy rules:
+  1. Root sections (top-level) use `parent_key: null`
+  2. Child sections reference their parent's `key` in `parent_key`
+  3. Example hierarchy:
+     - Chapter 1 (root, key="s1", parent_key=null)
+       - Section 1.1 (child of Ch1, key="s1-1", parent_key="s1")
+         - Section 1.1.1 (child of 1.1, key="s1-1-1", parent_key="s1-1")
+     - Chapter 2 (root, key="s2", parent_key=null)
+       - Section 2.1 (child of Ch2, key="s2-1", parent_key="s2")
+  4. **Always verify**: every section's `parent_key` matches a `key` defined elsewhere in the array, or is `null`
 
-**parent_key に関する厳格なルール（違反すると親子構造が崩壊します）:**
-- `parent_key` に指定できる値は **① この配列内の他要素の `key`** または **② `null`** のみ
-- ❌ 禁止: 実際のセクションIDを `parent_key` に指定すること（例: "sec-abc123"）
-- ❌ 禁止: 定義されていない `key` を `parent_key` に指定すること
-- ❌ 禁止: `parent_key` フィールドを省略すること（必ず明示的に `null` または key を指定）
-- ✅ 必須: 親が子より先に配列に出現していること
+**Strict rules for `parent_key` (violations will break the hierarchy):**
+- `parent_key` may only be **① a `key` of another element in this array** or **② `null`**
+- Forbidden: using an actual section ID as `parent_key` (e.g., "sec-abc123")
+- Forbidden: referencing an undefined `key` in `parent_key`
+- Forbidden: omitting the `parent_key` field (always set explicitly to `null` or a key)
+- Required: parents must appear before their children in the array
 
-各セクションについて:
-- 適切なタイトルを設定する
-- 約150文字の概要（summary）を記述する
-- **親子関係（parent_key）を正しく設定して階層を作る**
+For each section:
+- Set an appropriate title
+- Write a ~150-character summary
+- **Set parent_key correctly to establish the hierarchy**
 
-提供されたツールを使用して、階層構造を一括で作成してください。
+Use the provided tools to create the hierarchical structure in bulk.
 
 {% if command_mode == "replace" %}
-### モード: 全体再生成
-既存のセクション構造をすべて破棄して新たに生成します。
-提供されたツールを **1回** 呼び出すだけで、全削除と新規作成を一括で行えます。
+### Mode: Full Regeneration
+Discard all existing sections and generate a new structure.
+Call the provided tool **once** to delete everything and create the new structure in bulk.
 
-**key の命名規則:**
-- ルート: "s1", "s2", "s3", ... （連番）
-- 第2階層: "s1-1", "s1-2", "s2-1", ...
-- 第3階層: "s1-1-1", "s1-1-2", ...
-- 原則: 親のkey + "-" + 連番
+**Key naming conventions:**
+- Root: "s1", "s2", "s3", ... (sequential)
+- Level 2: "s1-1", "s1-2", "s2-1", ...
+- Level 3: "s1-1-1", "s1-1-2", ...
+- Rule: parent key + "-" + sequential number
 
-sections 配列の各要素:
-- `key`: 親参照用の一時キー（例: "s1", "s1-1", "s1-1-1"）
-- `title`: セクションタイトル
-- `summary`: 約150文字の概要
-- `parent_key`: 親セクションの key（ルートは null）。**必ず正しい親キーを指定してください**
-- `order`: 同じ親内での表示順（0始まり）
+Each element in the sections array:
+- `key`: temporary key for parent reference (e.g., "s1", "s1-1", "s1-1-1")
+- `title`: section title
+- `summary`: ~150-character summary
+- `parent_key`: parent section's key (null for root). **Always specify the correct parent key**
+- `order`: display order within the same parent (0-indexed)
 
-**`order` フィールドの厳格なルール:**
-- `order` は「**同じ `parent_key` を持つセクション内での連番**」です
-- 親が変わるたびに **必ず 0 からリセット** してください
-- 配列全体の通し番号ではありません
+**Strict rules for `order`:**
+- `order` is a **sequential number within sections sharing the same `parent_key`**
+- **Always reset to 0** when the parent changes
+- It is NOT a global sequential number across the entire array
 
-✅ 正しい例（親ごとにリセット）:
-  s1       (parent: null,  order: 0)  ← ルートの1番目
-  s2       (parent: null,  order: 1)  ← ルートの2番目
-  s1-1     (parent: s1,    order: 0)  ← s1の子の1番目 ★0にリセット
-  s1-2     (parent: s1,    order: 1)  ← s1の子の2番目
-  s1-1-1   (parent: s1-1,  order: 0)  ← s1-1の子の1番目 ★0にリセット
-  s2-1     (parent: s2,    order: 0)  ← s2の子の1番目 ★0にリセット
+✅ Correct example (reset per parent):
+  s1       (parent: null,  order: 0)  ← 1st root
+  s2       (parent: null,  order: 1)  ← 2nd root
+  s1-1     (parent: s1,    order: 0)  ← 1st child of s1 ★reset to 0
+  s1-2     (parent: s1,    order: 1)  ← 2nd child of s1
+  s1-1-1   (parent: s1-1,  order: 0)  ← 1st child of s1-1 ★reset to 0
+  s2-1     (parent: s2,    order: 0)  ← 1st child of s2 ★reset to 0
 
-❌ よくある間違い（通し番号になっている）:
+❌ Common mistake (using global sequential numbers):
   s1       (parent: null,  order: 0)
-  s1-1     (parent: s1,    order: 1)  ← ❌ 0であるべき
-  s1-1-1   (parent: s1-1,  order: 2)  ← ❌ 0であるべき
-  s1-2     (parent: s1,    order: 3)  ← ❌ 1であるべき
-  s2       (parent: null,  order: 4)  ← ❌ 1であるべき
+  s1-1     (parent: s1,    order: 1)  ← ❌ should be 0
+  s1-1-1   (parent: s1-1,  order: 2)  ← ❌ should be 0
+  s1-2     (parent: s1,    order: 3)  ← ❌ should be 1
+  s2       (parent: null,  order: 4)  ← ❌ should be 1
 
-**階層構造の完全な例:**
+**Complete hierarchical structure example:**
 ```json
 {
   "sections": [
-    {"key": "s1", "title": "第1章 緒言", "summary": "本研究の背景と目的を概説する。", "parent_key": null, "order": 0},
-    {"key": "s1-1", "title": "1.1 研究背景", "summary": "関連研究の現状と課題を整理する。", "parent_key": "s1", "order": 0},
-    {"key": "s1-1-1", "title": "1.1.1 課題の詳細", "summary": "具体的な技術的課題を述べる。", "parent_key": "s1-1", "order": 0},
-    {"key": "s1-1-2", "title": "1.1.2 既存手法の限界", "summary": "従来手法の問題点を分析する。", "parent_key": "s1-1", "order": 1},
-    {"key": "s1-2", "title": "1.2 研究目的", "summary": "本研究の目標と貢献を明示する。", "parent_key": "s1", "order": 1},
-    {"key": "s2", "title": "第2章 関連研究", "summary": "関連分野の研究動向をレビューする。", "parent_key": null, "order": 1},
-    {"key": "s2-1", "title": "2.1 技術Aの動向", "summary": "技術Aに関する最新研究を概観する。", "parent_key": "s2", "order": 0},
-    {"key": "s2-2", "title": "2.2 技術Bの動向", "summary": "技術Bに関する最新研究を概観する。", "parent_key": "s2", "order": 1}
+    {"key": "s1", "title": "Chapter 1: Introduction", "summary": "Overview of research background and objectives.", "parent_key": null, "order": 0},
+    {"key": "s1-1", "title": "1.1 Research Background", "summary": "Survey of related work and current challenges.", "parent_key": "s1", "order": 0},
+    {"key": "s1-1-1", "title": "1.1.1 Problem Details", "summary": "Specific technical challenges.", "parent_key": "s1-1", "order": 0},
+    {"key": "s1-1-2", "title": "1.1.2 Limitations of Existing Methods", "summary": "Analysis of problems with conventional approaches.", "parent_key": "s1-1", "order": 1},
+    {"key": "s1-2", "title": "1.2 Research Objectives", "summary": "Goals and contributions of this research.", "parent_key": "s1", "order": 1},
+    {"key": "s2", "title": "Chapter 2: Related Work", "summary": "Review of related research trends.", "parent_key": null, "order": 1},
+    {"key": "s2-1", "title": "2.1 Trends in Technology A", "summary": "Overview of recent research on Technology A.", "parent_key": "s2", "order": 0},
+    {"key": "s2-2", "title": "2.2 Trends in Technology B", "summary": "Overview of recent research on Technology B.", "parent_key": "s2", "order": 1}
   ]
 }
 ```
 
 {% elif command_mode == "section" %}
-### モード: 選択セクションの構造編集
+### Mode: Edit Selected Section Structure
 
 {% if target_section %}
-選択セクション「{{ target_section.title }}」(ID: {{ target_section.id }}) の**タイトル・概要・子セクション構造**を編集してください。
+Edit the **title, summary, and child section structure** of section "{{ target_section.title }}" (ID: {{ target_section.id }}).
 
-**使用できるツール:**
-- `update_section_title`: セクションのタイトルを変更する
-- `update_section_summary`: セクションの概要を更新する
-- `create_section`: 新しい子セクションを追加する（`parent_id` に `{{ target_section.id }}` を指定）
-- `delete_section`: 不要な子セクションを削除する
-- `move_section`: 子セクションを並べ替えまたは階層変更する
+**Available tools:**
+- `update_section_title`: Rename the section
+- `update_section_summary`: Update the section summary
+- `create_section`: Add a new child section (set `parent_id` to `{{ target_section.id }}`)
+- `delete_section`: Delete unnecessary child sections
+- `move_section`: Reorder or reparent child sections
 
-**絶対厳守の制約:**
-- 本文（content）は変更しないでください — `update_section` ツールは使用禁止です
-- 対象セクション外のセクションは変更しないでください
+**Absolute constraints:**
+- Do NOT modify body content — the `update_section` tool is forbidden here
+- Do NOT modify sections outside the target section
 
-現在の子セクション:
+Current child sections:
 {% for section in sections %}{% if section.parent_id == target_section.id %}
-- ID: {{ section.id }} | {{ section.title }}: {{ section.summary or '(概要なし)' }}
-  {% set body = section_bodies_by_id.get(section.id, '') if section_bodies_by_id else '' %}{% if body %}(本文あり){% endif %}
+- ID: {{ section.id }} | {{ section.title }}: {{ section.summary or '(no summary)' }}
+  {% set body = section_bodies_by_id.get(section.id, '') if section_bodies_by_id else '' %}{% if body %}(has body){% endif %}
 {% endif %}{% endfor %}
 {% else %}
-対象セクションが選択されていません。セクションを選択してから `/structure-section` を実行してください。
+No section is selected. Please select a section before running `/structure-section`.
 {% endif %}
 
 {% elif command_mode == "summary" %}
-### モード: 概要（サマリー）の更新
+### Mode: Update Summaries
 
 {% if target_section %}
-対象セクション「{{ target_section.title }}」(ID: {{ target_section.id }}) およびその直下の子セクションの概要（summary）を更新してください。
+Update the summary of section "{{ target_section.title }}" (ID: {{ target_section.id }}) and its direct children.
 
-更新対象:
-- ID: {{ target_section.id }} | {{ target_section.title }}: 現在の概要: {{ target_section.summary or '(なし)' }}
+Targets:
+- ID: {{ target_section.id }} | {{ target_section.title }}: current summary: {{ target_section.summary or '(none)' }}
 {% for section in sections %}{% if section.parent_id == target_section.id %}
-- ID: {{ section.id }} | {{ section.title }}: 現在の概要: {{ section.summary or '(なし)' }}
-  {% set body = section_bodies_by_id.get(section.id, '') if section_bodies_by_id else '' %}{% if body %}本文（先頭200文字）: {{ body[:200] }}{% endif %}
+- ID: {{ section.id }} | {{ section.title }}: current summary: {{ section.summary or '(none)' }}
+  {% set body = section_bodies_by_id.get(section.id, '') if section_bodies_by_id else '' %}{% if body %}Body (first 200 chars): {{ body[:200] }}{% endif %}
 {% endif %}{% endfor %}
 {% else %}
-全セクションの概要を更新してください。
+Update the summaries for all sections.
 
-更新対象:
+Targets:
 {% for section in sections %}
-- ID: {{ section.id }} | {{ section.title }}: 現在の概要: {{ section.summary or '(なし)' }}
-  {% set body = section_bodies_by_id.get(section.id, '') if section_bodies_by_id else '' %}{% if body %}本文（先頭200文字）: {{ body[:200] }}{% endif %}
+- ID: {{ section.id }} | {{ section.title }}: current summary: {{ section.summary or '(none)' }}
+  {% set body = section_bodies_by_id.get(section.id, '') if section_bodies_by_id else '' %}{% if body %}Body (first 200 chars): {{ body[:200] }}{% endif %}
 {% endfor %}
 {% endif %}
 
-**制約:**
-- 本文（content）は絶対に変更しないでください
-- `update_section_summary` のみ使用してください
-- 概要は約150文字程度で、本文の内容を正確に反映してください
-- 本文がないセクションはスキップして構いません
+**Constraints:**
+- Do NOT modify body content under any circumstances
+- Use only `update_section_summary`
+- Summaries should be ~150 characters and accurately reflect the body content
+- Skip sections with no body content
 
 {% else %}
-### モード: 子セクション追加（structure-add）
+### Mode: Add Child Sections (structure-add)
 
 {% if target_section %}
-選択中のセクション「{{ target_section.title }}」(ID: {{ target_section.id }}) の直下に子セクションを追加してください。
+Add child sections directly under "{{ target_section.title }}" (ID: {{ target_section.id }}).
 
-**ツール: `create_sections_under_parent`**
-- `parent_section_id`: `{{ target_section.id }}` を必ず指定してください
-- 既存の子セクションは保持したまま追加します
+**Tool: `create_sections_under_parent`**
+- `parent_section_id`: must be set to `{{ target_section.id }}`
+- Existing child sections are preserved
 
-既存の子セクション（order の続きから追加）:
+Existing child sections (add after the highest order):
 {% for section in sections %}{% if section.parent_id == target_section.id %}
 - ID: {{ section.id }} | {{ section.title }} (order: {{ section.order }})
 {% endif %}{% endfor %}
 {% else %}
-セクションが選択されていません。ルートレベルに新しいセクションを追加してください。
+No section is selected. Add sections at the root level.
 
-**ツール: `create_sections_under_parent`**
-- `parent_section_id`: `null` を指定してください
+**Tool: `create_sections_under_parent`**
+- `parent_section_id`: set to `null`
 
-現在のルートセクション:
+Current root sections:
 {% for section in sections %}{% if not section.parent_id %}
 - ID: {{ section.id }} | {{ section.title }} (order: {{ section.order }})
 {% endif %}{% endfor %}
 {% endif %}
 
-新規セクションの order は既存の最大 order + 1 から始めてください。
+Start new section `order` from the current maximum order + 1.
 
 {% endif %}
 
 {% elif command == "draft" %}
-## タスク: 本文の執筆
+## Task: Write Body Content
 
-**重要な制約（必ず守ること）:**
-- `create_section`、`delete_section`、`move_section`、`set_document_structure`、`create_document_structure`、`create_sections_under_parent` は **絶対に使用しないでください**
-- セクションの追加・削除・移動・構造変更は一切禁止です
-- `section_id` には必ず以下に列挙した既存セクションIDのみを使用してください
+**Source utilization (important):**
+If a reference summary list is provided, use `fetch_sources` to retrieve full text of relevant sources before writing.
+Write evidence-based content grounded in source material and insert appropriate citation tags `[^ref-xxx]`.
+**Important**: Do NOT insert citation tags for sources marked with "Do not cite in text". However, you can still use their information as context.
+
+**Critical constraints (must be followed):**
+- `create_section`, `delete_section`, `move_section`, `set_document_structure`, `create_document_structure`, `create_sections_under_parent` are **absolutely forbidden**
+- Adding, deleting, moving, or restructuring sections is prohibited
+- For `section_id`, use only the existing section IDs listed below
 
 {% if command_mode == "all" %}
 {% if target_section %}
-対象セクション「{{ target_section.title }}」およびその配下の子セクションについて、それぞれの概要に基づいて学術的な本文を一括執筆してください。
+Write academic body content for section "{{ target_section.title }}" and its child sections based on each section's summary.
 
-執筆対象のセクション（これ以外のIDは使用禁止）:
-- ID: {{ target_section.id }} | {{ target_section.title }}: {{ target_section.summary or '(概要なし)' }}
+Target sections (no other IDs allowed):
+- ID: {{ target_section.id }} | {{ target_section.title }}: {{ target_section.summary or '(no summary)' }}
 {% for child in sections %}{% if child.parent_id == target_section.id %}
-- ID: {{ child.id }} | {{ child.title }}: {{ child.summary or '(概要なし)' }}
+- ID: {{ child.id }} | {{ child.title }}: {{ child.summary or '(no summary)' }}
 {% endif %}{% endfor %}
-各セクションの本文は最大500文字程度としてください。
-`update_multiple_sections` ツールを使用して、上記セクションIDの本文（content）を一括更新してください。
+Keep each section's body to approximately 500 characters.
+Use `update_multiple_sections` to batch update the body (content) of the above section IDs.
 {% else %}
-全セクションについて、それぞれの概要に基づいて学術的な本文を一括執筆してください。
+Write academic body content for all sections based on each section's summary.
 
-執筆対象のセクション（これ以外のIDは使用禁止）:
+Target sections (no other IDs allowed):
 {% for sec in sections %}
-- ID: {{ sec.id }} | {{ sec.title }}: {{ sec.summary or '(概要なし)' }}
+- ID: {{ sec.id }} | {{ sec.title }}: {{ sec.summary or '(no summary)' }}
 {% endfor %}
-各セクションの本文は最大500文字程度としてください。
-`update_multiple_sections` ツールを使用して、各セクションの本文を一括更新してください。
+Keep each section's body to approximately 500 characters.
+Use `update_multiple_sections` to batch update each section's body.
 {% endif %}
 {% else %}
 {% if target_section %}
-対象セクション「{{ target_section.title }}」の概要に基づいて、学術的な本文を執筆してください。
+Write academic body content for section "{{ target_section.title }}" based on its summary.
 
-概要: {{ target_section.summary or '(概要なし)' }}
-
-`update_section` ツールを使用して、セクション ID `{{ target_section.id }}` の本文（content）を設定してください。
+Use `update_section` to set the body (content) for section ID `{{ target_section.id }}`.
 {% else %}
-現在選択されているセクションの概要に基づいて本文を執筆してください。
-`update_section` ツールを使用して本文を設定してください。
+Write body content for the currently selected section based on its summary.
+Use `update_section` to set the body.
 {% endif %}
 {% endif %}
 
 {% elif command == "rewrite" %}
-## タスク: 本文の書き直し
+## Task: Rewrite Body Content
 
-**重要な制約（必ず守ること）:**
-- `create_section`、`delete_section`、`move_section`、`set_document_structure`、`create_document_structure`、`create_sections_under_parent` は **絶対に使用しないでください**
-- 見出し(#,##,###,####,...)は絶対に使わないでください
-- セクションの追加・削除・移動・構造変更は一切禁止です
-- 既存のセクション構造（ID、タイトル、階層）は変更せず、**本文（content）のみ**を書き直してください
-- `section_id` には必ず以下に列挙した既存セクションIDのみを使用してください
+**Source utilization:**
+If a reference summary list is provided, use `fetch_sources` to retrieve full text of relevant sources before rewriting.
+Rewrite in alignment with source content and supplement citation tags `[^ref-xxx]` as needed.
+**Important**: Do NOT insert citation tags for sources marked with "Do not cite in text". However, you can still use their information as context.
+
+**Critical constraints (must be followed):**
+- `create_section`, `delete_section`, `move_section`, `set_document_structure`, `create_document_structure`, `create_sections_under_parent` are **absolutely forbidden**
+- Do NOT use headings (#, ##, ###, ####, ...)
+- Adding, deleting, moving, or restructuring sections is prohibited
+- Do not change the existing section structure (ID, title, hierarchy) — rewrite **only the body (content)**
+- For `section_id`, use only the existing section IDs listed below
 
 {% if command_mode == "all" %}
 {% if target_section %}
-対象セクション「{{ target_section.title }}」およびその配下の子セクションについて、既存の本文を内容を維持しつつより良い表現で一括で書き直してください。
+Rewrite the body of section "{{ target_section.title }}" and its child sections, preserving content while improving expression.
 
-更新対象のセクション（これ以外のIDは使用禁止）:
-- ID: {{ target_section.id }} | {{ target_section.title }}: {{ target_section_body or '(本文なし)' }}
+Target sections (no other IDs allowed):
+- ID: {{ target_section.id }} | {{ target_section.title }}: {{ target_section_body or '(no body)' }}
 {% for child in sections %}{% if child.parent_id == target_section.id %}
 {% set child_body = section_bodies_by_id.get(child.id, '') if section_bodies_by_id else '' %}
-- ID: {{ child.id }} | {{ child.title }}: {{ child_body or '(本文なし)' }}
+- ID: {{ child.id }} | {{ child.title }}: {{ child_body or '(no body)' }}
 {% endif %}{% endfor %}
 
-`update_multiple_sections` ツールを使用して、上記セクションIDの本文のみを更新してください。
+Use `update_multiple_sections` to update only the body of the above section IDs.
 {% else %}
-全セクションについて、既存の本文を内容を維持しつつより良い表現で一括で書き直してください。
+Rewrite the body of all sections, preserving content while improving expression.
 
-更新対象のセクション（これ以外のIDは使用禁止）:
+Target sections (no other IDs allowed):
 {% for sec in sections %}
 {% set sec_body = section_bodies_by_id.get(sec.id, '') if section_bodies_by_id else '' %}
-- ID: {{ sec.id }} | {{ sec.title }}: {{ sec_body or '(本文なし)' }}
+- ID: {{ sec.id }} | {{ sec.title }}: {{ sec_body or '(no body)' }}
 {% endfor %}
 
-`update_multiple_sections` ツールを使用して各セクションの本文を更新してください。
+Use `update_multiple_sections` to update each section's body.
 {% endif %}
 {% else %}
 {% if target_section %}
-対象セクション「{{ target_section.title }}」の既存の本文を、内容を維持しつつより良い表現で書き直してください。
+Rewrite the body of section "{{ target_section.title }}", preserving content while improving expression.
 
-現在の本文:
-{{ target_section_body or '(本文なし)' }}
-
-`update_section` ツールを使用して、セクション ID `{{ target_section.id }}` の本文を更新してください。
+Use `update_section` to update the body of section ID `{{ target_section.id }}`.
 {% else %}
-現在選択されているセクションの本文を書き直してください。
-`update_section` ツールを使用して本文を更新してください。
+Rewrite the body of the currently selected section.
+Use `update_section` to update the body.
 {% endif %}
 {% endif %}
 
 {% elif command == "expand" %}
-## タスク: 本文の拡張（加筆）
+## Task: Expand Body Content
 
-**重要な制約:** セクションの追加・削除・移動は禁止です。`update_section` で本文のみを更新してください。
+**Critical constraint:** Adding, deleting, or moving sections is forbidden. Use `update_section` to update body only.
 
 {% if target_section %}
-対象セクション「{{ target_section.title }}」の本文を拡張してください。
-内容の一貫性を保ちながら、詳細な説明、具体例、論拠の補強を追加してください。
-拡張量などの具体的な指示は、ユーザーの入力（フリーテキスト）に従ってください。
+Expand the body of section "{{ target_section.title }}".
+Maintain content consistency while adding detailed explanations, concrete examples, and supporting arguments.
+Follow the user's instructions above for specific expansion requirements.
 
-現在の本文:
-{{ target_section_body or '(本文なし)' }}
-
-`update_section` ツールを使用して、セクション ID `{{ target_section.id }}` の本文を更新してください。
+Use `update_section` to update the body of section ID `{{ target_section.id }}`.
 {% else %}
-現在選択されているセクションの本文を拡張してください。
-拡張量などの具体的な指示は、ユーザーの入力（フリーテキスト）に従ってください。
+Expand the body of the currently selected section.
+Follow the user's instructions above for specific expansion requirements.
 {% endif %}
 
 {% elif command == "shorten" %}
-## タスク: 本文の圧縮
+## Task: Shorten Body Content
 
-**重要な制約:** セクションの追加・削除・移動は禁止です。`update_section` で本文のみを更新してください。
+**Critical constraint:** Adding, deleting, or moving sections is forbidden. Use `update_section` to update body only.
 
 {% if target_section %}
-対象セクション「{{ target_section.title }}」の本文を圧縮してください。
-重要な内容を維持しながら、冗長な表現を削除してください。
-圧縮後の文字数などの具体的な指示は、ユーザーの入力（フリーテキスト）に従ってください。
+Shorten the body of section "{{ target_section.title }}".
+Preserve key content while removing redundant expressions.
+Follow the user's instructions above for specific length requirements.
 
-現在の本文（{{ (target_section_body or '') | length }}文字）:
-{{ target_section_body or '(本文なし)' }}
-
-`update_section` ツールを使用して、セクション ID `{{ target_section.id }}` の本文を更新してください。
+Use `update_section` to update the body of section ID `{{ target_section.id }}`.
 {% else %}
-現在選択されているセクションの本文を圧縮してください。
-圧縮後の文字数などの具体的な指示は、ユーザーの入力（フリーテキスト）に従ってください。
+Shorten the body of the currently selected section.
+Follow the user's instructions above for specific length requirements.
 {% endif %}
 
 {% elif command == "tone" %}
-## タスク: 文体の変更
+## Task: Change Writing Style
 
-**重要な制約:** セクションの追加・削除・移動は禁止です。`update_section` で本文のみを更新してください。
+**Critical constraint:** Adding, deleting, or moving sections is forbidden. Use `update_section` to update body only.
 
 {% if target_section %}
-対象セクション「{{ target_section.title }}」の文体を変更してください。
-内容は変更せず、表現のみを調整してください。
-文体の種類（フォーマル、カジュアルなど）は、ユーザーの入力（フリーテキスト）に従ってください。
+Change the writing style of section "{{ target_section.title }}".
+Do not change the content — adjust only the expression.
+Follow the user's instructions above for the target style (formal, casual, etc.).
 
-現在の本文:
-{{ target_section_body or '(本文なし)' }}
-
-`update_section` ツールを使用して、セクション ID `{{ target_section.id }}` の本文を更新してください。
+Use `update_section` to update the body of section ID `{{ target_section.id }}`.
 {% else %}
-現在選択されているセクションの文体を変更してください。
-文体の種類（フォーマル、カジュアルなど）は、ユーザーの入力（フリーテキスト）に従ってください。
+Change the writing style of the currently selected section.
+Follow the user's instructions above for the target style (formal, casual, etc.).
 {% endif %}
 
 {% elif command == "cite" %}
-## タスク: 引用タグの挿入
+## Task: Insert Citation Tags
 
 {% if target_section %}
-対象セクション「{{ target_section.title }}」の本文を分析し、適切な位置に引用タグ `[^ref-xxx]` を挿入してください。
+Analyze the body of section "{{ target_section.title }}" and insert citation tags `[^ref-xxx]` at appropriate positions.
 
-**現在の本文:**
-{{ target_section_body or '(本文なし)' }}
+**Strict rules:**
+- Do NOT change the prose content at all — only add citation tags
+- Do not modify existing `[^ref-xxx]` tags
+- Insert citation tags immediately after the claim (before punctuation): `claim[^ref-xxx].`
+- Only use source IDs listed in "Reference Summaries" below (IDs starting with `ref-`)
+- Do NOT insert citation tags for sources marked with "Do not cite in text"
+- Only insert for factual claims with supporting evidence; do not cite general knowledge or reasoning
+- For multiple sources on one claim: `[^ref-001][^ref-005]`
+- Do not insert if no appropriate source exists for a claim
 
-**厳格なルール:**
-- 文章（散文）の内容は一切変更しないでください。引用タグのみを追加します
-- 既に `[^ref-xxx]` タグが挿入されている箇所は変更しないでください
-- 引用タグは、その主張の直後（句読点の前）に挿入してください: `主張[^ref-xxx]。`
-- 使用できるのは下記「参考文献の概要」に記載されているソースIDのみです（`ref-` で始まるID）
-- 根拠のある事実的主張にのみ挿入し、一般的な知識や推論には挿入しないでください
-- 1つの主張に複数のソースが関連する場合は `[^ref-001][^ref-005]` のように連続して挿入してください
-- 適切な引用元が存在しない主張には挿入しないでください
-
-`update_section` ツールを使用して、セクション ID `{{ target_section.id }}` の本文（引用タグのみを追加したもの）を更新してください。
+Use `update_section` to update the body of section ID `{{ target_section.id }}` (with citation tags added only).
 {% else %}
-セクションが選択されていません。セクションを選択してから `/cite` を実行してください。
+No section is selected. Please select a section before running `/cite`.
 {% endif %}
 
 {% elif command == "review" %}
-## タスク: 原稿レビュー
+## Task: Manuscript Review
 
 {% if target_section %}
-対象セクション「{{ target_section.title }}」およびその配下の子セクションについてレビューを行ってください。
+Review section "{{ target_section.title }}" and its child sections.
 {% else %}
-原稿全体についてレビューを行ってください。
+Review the entire manuscript.
 {% endif %}
 
 {% if command_mode == "structure" %}
-**フォーカス: 文書構造**
-論理の破綻や飛躍、セクション間のつながり、構造的な整理が必要な部分にフォーカスしてレビューしてください。
+**Focus: Document Structure**
+Focus on logical gaps or jumps, connections between sections, and areas needing structural improvement.
 {% elif command_mode == "rule" %}
-**フォーカス: 執筆ルールの適用**
-「執筆ルール」が適切に守られているか、文体の不一致やルールの逸脱がないかにフォーカスしてレビューしてください。
+**Focus: Writing Rule Compliance**
+Focus on whether the "Writing Rules" are properly followed, and identify style inconsistencies or rule violations.
 {% elif command_mode == "source" %}
-**フォーカス: ソース/参考文献の活用**
-情報ソースやマテリアルが適切に活用されているか、客観的な根拠が不足している記述がないかにフォーカスしてレビューしてください。
+**Focus: Source/Reference Utilization**
+Focus on whether information sources and materials are used appropriately, and identify claims lacking objective evidence.
 {% else %}
-**フォーカス: 全体**
-原稿の質を向上させるための総合的な視点でレビューしてください。
+**Focus: Overall**
+Review from a comprehensive perspective to improve manuscript quality.
 {% endif %}
 
-**出力ルール:**
-- ツール (update_section等) は **使用しないでください**。
-- 各レビューコメントは以下の3フィールドで構成してください:
-  - `section`: レビュー対象のセクション名（例: "1.1 研究背景"）
-  - `problem`: 具体的に発見した問題点（1〜3文程度）
-  - `suggestion`: 問題を解決するための具体的な改善案（プロンプト入力欄に貼り付けて使えるような指示文として記述）
-- 複数の問題点は、それぞれ独立したコメントアイテムとして配列に追加してください。
-- 問題がない場合は空の配列を返してください。
-
-{% endif %}
-
-## 利用可能なツール
-
-**本文更新ツール（全コマンドで使用可）:**
-- `update_section`: セクションの本文（content）を単体で更新する
-- `update_multiple_sections`: 複数のセクションの本文（content）を一括で更新する
-
-**メタデータ更新ツール（`structure` コマンドのみ使用可）:**
-- `update_section_summary`: セクションの概要（summary）を更新する
-- `update_section_title`: セクションのタイトルを変更する（section_id, title）
-
-**構造変更ツール（`structure` コマンドのみ使用可 / `rewrite`・`draft`・`expand`・`shorten`・`tone` では絶対使用禁止）:**
-- `create_section`: 新しいセクションを1件作成する（title, summary, content, parent_id を指定）
-- `delete_section`: セクションを削除する
-- `move_section`: セクションを別の親・位置に移動する（section_id, parent_id, order）
-- `set_document_structure`: 全セクションを削除して新しい骨子を一括作成する
-- `create_document_structure`: 既存セクションを残したまま新しい骨子構造を一括追加する
-- `create_sections_under_parent`: 指定セクション配下に子セクションを一括追加する
-
-**ソース参照ツール:**
-- `fetch_sources`: 参考文献の全文を取得する（最大4つのソースIDを指定）
-
-**構造生成ツール使用時の注意:**
-- `sections` 配列内の `parent_key` は必ず配列内の他の要素の `key` と一致するか、`null` である必要があります
-- 親セクションが子セクションより先に定義されている必要はありません（フロントエンドで順序付けされます）
-
-**ソースの参照について:**
-参考文献の概要一覧が提供されています。タスクの実行にソースの全文が必要な場合は、
-`fetch_sources` ツールでソースIDを最大4つまで指定して全文を取得してください。
-「指定されたソース」セクションに既に全文が掲載されているソースについては `fetch_sources` は不要です。
-
-## 引用の挿入
-
-本文中で情報を引用する際は、以下の形式で引用マークを挿入してください：
-- `[^ref-xxx]` 形式（xxx はソースID）
-- 引用箇所の直後に挿入
-- 複数のソースを引用する場合: `[^ref-001][^ref-005]`
-- 引用は事実ベースの主張に対してのみ行い、一般的な知識や自身の推論には不要
-
-{% if selected_text %}
-## 選択されたテキスト（ユーザーが指定した文脈）
-
-ユーザーが以下のテキストを選択した状態でリクエストしました。このテキストを文脈として考慮してください：
-
-> {{ selected_text }}
-
-{% endif %}
-
-{% if enabled_rules %}
-## 執筆ルール
-
-この文章では以下の執筆ルールに従ってください：
-
-{% for rule in enabled_rules %}
-- {{ rule.content }}
-{% endfor %}
-{% endif %}
-
-{% if sections %}
-## 文書アウトライン
-
-文章の全体構造は以下の通りです：
-
-{% for section in sections %}
-- ID: {{ section.id }} | {{ section.title }}: {{ section.summary or '(概要なし)' }}
-{% endfor %}
-{% endif %}
+**Output rules:**
+- Do NOT use any tools (update_section, etc.).
+- Each review comment must have these 3 fields:
+  - `section`: name of the reviewed section (e.g., "1.1 Research Background")
+  - `problem`: specific problem found (1-3 sentences)
+  - `suggestion`: concrete improvement suggestion (written as an instruction that can be pasted into the prompt input)
+- Add multiple problems as separate comment items in the array.
+- Return an empty array if no problems are found.
 
 {% if target_section %}
-## 対象セクション
-
-現在編集中のセクション（ID: {{ target_section.id }}）：
-{{ target_section.title }}: {{ target_section.summary or '(概要なし)' }}
-
-{% if command not in ["rewrite", "expand", "shorten", "tone"] %}
-**本文**:
-{{ target_section_body or '(本文なし)' }}
-{% endif %}
-
-{% if command == "review" %}
-**配下の子セクションの本文**:
+**Body of child sections:**
 {% for child in sections %}{% if child.parent_id == target_section.id %}
 ### ID: {{ child.id }} | {{ child.title }}
 {% set child_body = section_bodies_by_id.get(child.id, '') if section_bodies_by_id else '' %}
-{{ child_body or '(本文なし)' }}
+{{ child_body or '(no body)' }}
 {% endif %}{% endfor %}
-{% endif %}
-
-{% elif command == "review" %}
-## 原稿全体の本文
+{% else %}
+## Full Manuscript Body
 {% for sec in sections %}
 ### ID: {{ sec.id }} | {{ sec.title }}
 {% set sec_body = section_bodies_by_id.get(sec.id, '') if section_bodies_by_id else '' %}
-{{ sec_body or '(本文なし)' }}
+{{ sec_body or '(no body)' }}
 {% endfor %}
 {% endif %}
 
-{% if source_summaries %}
-## 参考文献の概要
-
-利用可能な参考文献：
-{% for source in source_summaries %}
-- [^{{ source.id }}] {{ source.name }}: {{ source.summary or '(要約なし)' }}
-{% endfor %}
 {% endif %}
 
-{% if explicit_sources %}
-## 指定されたソース（全文参照）
+{# ----- Available Tools ----- #}
+## Available Tools
 
-以下のソースを優先的に参照してください：
+**Source retrieval:**
+- `fetch_sources`: Retrieve full text of references (specify up to {{ max_fetch_source_count }} source IDs)
 
-{% for source in explicit_sources %}
-### {{ source.name }}
+**Body update tools (usable in all commands):**
+- `update_section`: Update the body (content) of a single section
+- `update_multiple_sections`: Batch update the body (content) of multiple sections
 
-{{ source.full_text[:5000] }}
+**Metadata update tools (only for `structure` command):**
+- `update_section_summary`: Update the summary of a section
+- `update_section_title`: Rename a section (section_id, title)
 
-{% endfor %}
-{% endif %}
-
-{% if explicit_materials %}
-## 指定されたマテリアル
-
-以下のマテリアルを参照してください：
-
-{% for mat in explicit_materials %}
-- {{ mat.name }} ({{ mat.type }}): {{ mat.caption or '(キャプションなし)' }}
-{% endfor %}
-{% endif %}
-
-{% if history_sources %}
-## 会話中に参照されたソース（現在の状態）
-
-以下のソースはこの会話の過去のターンで参照されました。ソース内容はその後更新されている可能性があります：
-{% for source in history_sources %}
-- [^{{ source.id }}] {{ source.name }}: {{ source.summary or '(要約なし)' }}
-{% endfor %}
-{% endif %}
-
-{% if history_materials %}
-## 会話中に参照されたマテリアル（現在の状態）
-
-{% for mat in history_materials %}
-- {{ mat.name }} ({{ mat.type }}): {{ mat.caption or '(キャプションなし)' }}
-{% endfor %}
-{% endif %}
-
----
+**Structure change tools (only for `structure` command — absolutely forbidden in `rewrite`, `draft`, `expand`, `shorten`, `tone`):**
+- `create_section`: Create a new section (title, summary, content, parent_id)
+- `delete_section`: Delete a section
+- `move_section`: Move a section to a different parent/position (section_id, parent_id, order)
+- `set_document_structure`: Delete all sections and create a new outline in bulk
+- `create_document_structure`: Add a new outline structure while keeping existing sections
+- `create_sections_under_parent`: Add child sections in bulk under a specified section
 
 {% if command == "structure" %}
-**ツール呼び出し前の必須確認チェックリスト:**
-以下を順番に確認してから構造生成ツールを呼び出してください：
+**Pre-call checklist (verify before calling structure tools):**
 
-1. [ ] 全セクションに `key` が設定されているか
-2. [ ] 全セクションの `parent_key` が「この配列内の他の key」または「null」または「既存セクションID」のいずれかか
-3. [ ] ルートセクション（最上位）の `parent_key` が `null` になっているか
-4. [ ] 同じ親を持つセクションの `order` が 0 から連番になっているか
-5. [ ] 意図した階層の深さで parent_key が設定されているか（孫セクションが誤って親の子になっていないか）
-6. [ ] 同じ `parent_key` を持つセクション群のorderが、それぞれ独立して 0,1,2,... になっているか
-       （違う親のセクションと通し番号になっていないか）
+1. [ ] All sections have a `key` set
+2. [ ] All `parent_key` values are either a `key` of another element in the array, `null`, or an existing section ID
+3. [ ] Root sections (top-level) have `parent_key` set to `null`
+4. [ ] Sections with the same parent have `order` starting from 0 in sequence
+5. [ ] `parent_key` depth is correct (grandchild sections are not accidentally set as direct children)
+6. [ ] Sections sharing the same `parent_key` have independent sequential orders 0,1,2,... (not a global sequence)
 {% endif %}
 
-指示に基づいて、適切なツールを使用して処理を実行してください。
 {% if command != "review" %}
-
-ツール呼び出しの完了後、処理結果を**140文字以内の日本語で簡潔に**説明してください。
+After completing all tool calls, summarize the result **concisely in 140 characters or fewer** in the same language as the user's message.
 {% endif %}

@@ -28,6 +28,7 @@ const SettingsTab = (() => {
       document.getElementById('settings-endpoint').value = s.endpoint_url || '';
       document.getElementById('settings-model').value = s.model || 'gpt-4o';
       document.getElementById('settings-pdf-dpi').value = s.pdf_page_dpi ?? 96;
+      document.getElementById('settings-max-fetch-sources').value = s.max_fetch_source_count ?? 4;
       document.getElementById('settings-review-max-comments').value = s.review_max_comments ?? 0;
       const autoEl = document.getElementById('settings-auto-process-on-drop');
       if (autoEl) autoEl.checked = s.auto_process_on_drop ?? true;
@@ -72,6 +73,7 @@ const SettingsTab = (() => {
         endpoint_url: document.getElementById('settings-endpoint').value.trim() || null,
         model: document.getElementById('settings-model').value.trim() || 'gpt-4o',
         pdf_page_dpi: parseInt(document.getElementById('settings-pdf-dpi').value, 10) || 96,
+        max_fetch_source_count: parseInt(document.getElementById('settings-max-fetch-sources').value, 10) || 4,
         review_max_comments: parseInt(document.getElementById('settings-review-max-comments').value, 10) || 0,
         auto_process_on_drop: document.getElementById('settings-auto-process-on-drop')?.checked ?? true,
       };

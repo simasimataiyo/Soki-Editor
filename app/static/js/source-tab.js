@@ -40,6 +40,67 @@ const SourceTab = (() => {
   };
   const BIB_TYPES_ORDER = ['paper', 'book', 'book_chapter', 'web', 'resource'];
 
+  /** 参考文献フォーマットのデフォルト定義（サーバー側と同期すること） */
+  const DEFAULT_CITATION_FORMATS = {
+    paper: [
+      { field: 'author', prefix: '', suffix: '' },
+      { field: 'year', prefix: '(', suffix: ')' },
+      { field: 'title', prefix: '『', suffix: '』' },
+      { field: 'journal', prefix: '', suffix: '' },
+      { field: 'volume', prefix: '', suffix: '' },
+      { field: 'issue', prefix: '(', suffix: ')' },
+      { field: 'pages', prefix: ':', suffix: '' },
+    ],
+    book: [
+      { field: 'author', prefix: '', suffix: '' },
+      { field: 'year', prefix: '(', suffix: ')' },
+      { field: 'title', prefix: '『', suffix: '』' },
+      { field: 'publisher', prefix: '', suffix: '' },
+      { field: 'publication_place', prefix: '', suffix: '' },
+    ],
+    book_chapter: [
+      { field: 'author', prefix: '', suffix: '' },
+      { field: 'year', prefix: '(', suffix: ')' },
+      { field: 'title', prefix: '『', suffix: '』' },
+      { field: 'editor', prefix: '', suffix: '(編)' },
+      { field: 'publisher', prefix: '', suffix: '' },
+      { field: 'pages', prefix: 'pp.', suffix: '' },
+    ],
+    web: [
+      { field: 'author', prefix: '', suffix: '' },
+      { field: 'year', prefix: '(', suffix: ')' },
+      { field: 'title', prefix: '', suffix: '' },
+      { field: 'site_name', prefix: '', suffix: '' },
+      { field: 'url', prefix: '', suffix: '' },
+      { field: 'accessed_date', prefix: '[参照: ', suffix: ']' },
+    ],
+    resource: [
+      { field: 'author', prefix: '', suffix: '' },
+      { field: 'year', prefix: '(', suffix: ')' },
+      { field: 'title', prefix: '', suffix: '' },
+    ],
+  };
+
+  /** 参考文献フォーマットで選択可能なフィールドの選択肢 */
+  const CITATION_FIELD_OPTIONS = [
+    { value: 'author', label: '著者' },
+    { value: 'title', label: 'タイトル' },
+    { value: 'year', label: '出版年' },
+    { value: 'journal', label: '掲載誌' },
+    { value: 'volume', label: '巻数' },
+    { value: 'issue', label: '号数' },
+    { value: 'pages', label: 'ページ' },
+    { value: 'publisher', label: '出版社' },
+    { value: 'publication_place', label: '出版地' },
+    { value: 'editor', label: '編者' },
+    { value: 'url', label: 'URL' },
+    { value: 'site_name', label: 'サイト名' },
+    { value: 'accessed_date', label: '参照日' },
+    { value: 'created_date', label: '作成日' },
+    { value: 'other', label: 'その他' },
+    { value: 'literal', label: '固定テキスト' },
+  ];
+
   // 折りたたみ状態（右パネルセクション用）
   let _sectionCollapsed = {};
 
@@ -663,6 +724,7 @@ const SourceTab = (() => {
 
             <div class="source-actions" style="margin-top:8px">
               <button class="btn btn-secondary btn-sm" id="btn-extract-bib" ${bibProc ? 'disabled' : ''}>文献情報取得</button>
+              <button class="btn btn-secondary btn-sm" id="btn-citation-format" title="この種類の参考文献表記フォーマットを設定">表記設定</button>
             </div>
             <div id="bib-fields"></div>
           </div>
@@ -717,6 +779,10 @@ const SourceTab = (() => {
     });
     document.getElementById('btn-summarize').addEventListener('click', () => _summarize(src));
     document.getElementById('btn-extract-bib').addEventListener('click', () => _extractBibliography(src));
+    document.getElementById('btn-citation-format').addEventListener('click', () => {
+      const currentType = document.getElementById('src-bib-type')?.value || src.bibliography.type;
+      _showCitationFormatModal(currentType);
+    });
 
     // ─── ペイン全体ドラッグ&ドロップ ───────────────────────────
     const overlay = pane.querySelector('.pane-drag-overlay');
@@ -1798,6 +1864,217 @@ const SourceTab = (() => {
       _stopProcessing(src.id, 'bibliography');
       showToast('文献情報の抽出に失敗しました', 'error');
     }
+  }
+
+  /**
+   * 参考文献表記フォーマット設定モーダルを表示する
+   * @param {string} bibType - 設定する文献種類（'paper'|'book'|'book_chapter'|'web'|'resource'）
+   */
+  function _showCitationFormatModal(bibType) {
+    const project = window.appState.getProject();
+    if (!project) return;
+
+    // 現在のフォーマット（カスタムまたはデフォルト）を取得
+    const savedFormats = project.citation_formats || {};
+    const currentTokens = savedFormats[bibType]
+      ? JSON.parse(JSON.stringify(savedFormats[bibType]))
+      : JSON.parse(JSON.stringify(DEFAULT_CITATION_FORMATS[bibType] || []));
+
+    const typeName = BIB_TYPE_LABELS[bibType] || bibType;
+
+    // オーバーレイを作成
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5)';
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-content';
+    modal.style.cssText = 'width:560px;max-width:95vw;max-height:85vh;overflow-y:auto;padding:24px;background:var(--color-surface);border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,0.3)';
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    // トークンリスト（ローカル編集状態）
+    let tokens = currentTokens;
+
+    function renderModal() {
+      const fieldOptionsHtml = CITATION_FIELD_OPTIONS.map(o =>
+        `<option value="${o.value}">${escHtml(o.label)}</option>`
+      ).join('');
+
+      modal.innerHTML = `
+        <h3 style="margin:0 0 4px;font-size:16px">参考文献 表記フォーマット設定</h3>
+        <p style="margin:0 0 16px;font-size:12px;color:var(--color-text-muted)">${escHtml(typeName)} の表記順序と装飾を設定します</p>
+        <div id="citation-token-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px"></div>
+        <div style="display:flex;gap:8px;margin-bottom:16px">
+          <button class="btn btn-secondary btn-sm" id="btn-citation-add-field">＋ フィールド追加</button>
+          <button class="btn btn-secondary btn-sm" id="btn-citation-reset">デフォルトに戻す</button>
+        </div>
+        <div style="margin-bottom:12px;padding:10px;background:var(--color-surface-raised,var(--color-bg));border-radius:4px;font-size:12px;color:var(--color-text-muted)">
+          <strong>プレビュー:</strong>
+          <div id="citation-preview" style="margin-top:4px;font-family:monospace;word-break:break-all"></div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-secondary" id="btn-citation-cancel">キャンセル</button>
+          <button class="btn btn-primary" id="btn-citation-save">保存</button>
+        </div>
+      `;
+
+      // プレビューサンプルデータ
+      const sampleBib = {
+        author: '山田 太郎',
+        title: 'サンプルタイトル',
+        year: '2024',
+        journal: 'サンプル誌',
+        volume: '12',
+        issue: '3',
+        pages: '45-67',
+        publisher: 'サンプル出版',
+        publication_place: '東京',
+        editor: '鈴木 花子',
+        url: 'https://example.com',
+        site_name: 'サンプルサイト',
+        accessed_date: '2024-03-01',
+        created_date: '2024-01-01',
+        other: '',
+      };
+
+      function updatePreview() {
+        const parts = [];
+        tokens.forEach(tok => {
+          if (tok.field === 'literal') {
+            if (tok.prefix) parts.push(tok.prefix);
+          } else {
+            const val = sampleBib[tok.field] || '';
+            if (val) parts.push(`${tok.prefix || ''}${val}${tok.suffix || ''}`);
+          }
+        });
+        const preview = document.getElementById('citation-preview');
+        if (preview) preview.textContent = parts.join(' ') || '(フィールドが設定されていません)';
+      }
+
+      function renderTokenList() {
+        const list = document.getElementById('citation-token-list');
+        if (!list) return;
+        list.innerHTML = '';
+        tokens.forEach((tok, idx) => {
+          const row = document.createElement('div');
+          row.className = 'citation-token-row';
+          row.style.cssText = 'display:flex;align-items:center;gap:6px;background:var(--color-surface-raised,var(--color-bg));padding:6px 8px;border-radius:4px;border:1px solid var(--color-border)';
+          row.draggable = true;
+          row.dataset.idx = idx;
+
+          const fieldLabel = tok.field === 'literal'
+            ? '固定テキスト'
+            : (CITATION_FIELD_OPTIONS.find(o => o.value === tok.field)?.label || tok.field);
+
+          row.innerHTML = `
+            <span class="drag-handle" style="cursor:grab;color:var(--color-text-muted);font-size:16px;line-height:1;user-select:none" title="ドラッグで並び替え">⠿</span>
+            <select class="form-control citation-tok-field" style="width:120px;flex-shrink:0;font-size:12px;padding:3px 6px;height:28px">
+              ${CITATION_FIELD_OPTIONS.map(o => `<option value="${o.value}"${tok.field===o.value?' selected':''}>${escHtml(o.label)}</option>`).join('')}
+            </select>
+            ${tok.field === 'literal'
+              ? `<input type="text" class="form-control citation-tok-prefix" placeholder="固定テキスト" value="${escHtml(tok.prefix)}" style="flex:1;font-size:12px;padding:3px 6px;height:28px" />`
+              : `<input type="text" class="form-control citation-tok-prefix" placeholder="前の文字列" value="${escHtml(tok.prefix)}" style="width:80px;flex-shrink:0;font-size:12px;padding:3px 6px;height:28px" />
+                 <input type="text" class="form-control citation-tok-suffix" placeholder="後の文字列" value="${escHtml(tok.suffix)}" style="width:80px;flex-shrink:0;font-size:12px;padding:3px 6px;height:28px" />`
+            }
+            <button class="btn btn-sm" data-action="delete" style="padding:2px 8px;height:28px;flex-shrink:0;color:var(--color-text-muted);background:none;border:none;font-size:16px;cursor:pointer" title="削除">×</button>
+          `;
+
+          // 変更イベント
+          row.querySelector('.citation-tok-field').addEventListener('change', (e) => {
+            tokens[idx].field = e.target.value;
+            if (e.target.value === 'literal') {
+              tokens[idx].suffix = '';
+            }
+            renderTokenList();
+          });
+          row.querySelector('.citation-tok-prefix').addEventListener('input', (e) => {
+            tokens[idx].prefix = e.target.value;
+            updatePreview();
+          });
+          const suffixEl = row.querySelector('.citation-tok-suffix');
+          if (suffixEl) {
+            suffixEl.addEventListener('input', (e) => {
+              tokens[idx].suffix = e.target.value;
+              updatePreview();
+            });
+          }
+
+          // 削除
+          row.querySelector('[data-action="delete"]').addEventListener('click', () => {
+            tokens.splice(idx, 1);
+            renderTokenList();
+          });
+
+          // ドラッグ&ドロップ
+          row.addEventListener('dragstart', (e) => {
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', String(idx));
+          });
+          row.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            row.style.opacity = '0.6';
+          });
+          row.addEventListener('dragleave', () => {
+            row.style.opacity = '';
+          });
+          row.addEventListener('drop', (e) => {
+            e.preventDefault();
+            row.style.opacity = '';
+            const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+            if (isNaN(fromIdx) || fromIdx === idx) return;
+            const moved = tokens.splice(fromIdx, 1)[0];
+            tokens.splice(idx, 0, moved);
+            renderTokenList();
+          });
+
+          list.appendChild(row);
+        });
+        updatePreview();
+      }
+
+      renderTokenList();
+
+      document.getElementById('btn-citation-add-field').addEventListener('click', () => {
+        tokens.push({ field: 'author', prefix: '', suffix: '' });
+        renderTokenList();
+      });
+
+      document.getElementById('btn-citation-reset').addEventListener('click', async () => {
+        if (!(await Modal.confirm(`「${typeName}」のフォーマットをデフォルトに戻しますか？`))) return;
+        tokens = JSON.parse(JSON.stringify(DEFAULT_CITATION_FORMATS[bibType] || []));
+        renderTokenList();
+      });
+
+      document.getElementById('btn-citation-cancel').addEventListener('click', () => {
+        overlay.remove();
+      });
+
+      document.getElementById('btn-citation-save').addEventListener('click', async () => {
+        try {
+          const saved = await ApiClient.put(
+            `/api/projects/${project.id}/citation-formats`,
+            { type: bibType, tokens }
+          );
+          // プロジェクト状態を更新
+          if (!project.citation_formats) project.citation_formats = {};
+          project.citation_formats[bibType] = saved.tokens;
+          window.appState.setProject(project);
+          overlay.remove();
+          showToast('表記フォーマットを保存しました', 'success');
+        } catch (_) {
+          showToast('保存に失敗しました', 'error');
+        }
+      });
+
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) overlay.remove();
+      });
+    }
+
+    renderModal();
   }
 
   /**

@@ -9,8 +9,6 @@ const StateManager = (() => {
     activeTab: 'edit',
     activeSourceId: null,
     activeMaterialId: null,
-    activeRuleCategoryId: null,
-    activeRuleId: null,
     activeSectionId: null,
     selectedSectionId: null,
   };
@@ -53,8 +51,6 @@ const StateManager = (() => {
   function resetSelections() {
     state.activeSourceId = null;
     state.activeMaterialId = null;
-    state.activeRuleCategoryId = null;
-    state.activeRuleId = null;
     state.activeSectionId = null;
     state.selectedSectionId = null;
   }

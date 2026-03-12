@@ -1,0 +1,31 @@
+{# Dynamic context information injected into the user message #}
+
+{% if target_section %}
+## Target Section
+Currently editing section (ID: {{ target_section.id }}):
+{{ target_section.title }}: {{ target_section.summary or '(no summary)' }}
+**Body:**
+{{ target_section_body or '(no body)' }}
+{% endif %}
+
+{% if explicit_sources %}
+## Specified Sources
+Refer to the following sources with priority:
+{% for source in explicit_sources %}
+### ID: {{ source.id }}, Title: {{ source.name }}
+{% endfor %}
+{% endif %}
+
+{% if explicit_materials %}
+## Specified Materials
+Refer to the following materials:
+{% for mat in explicit_materials %}
+- {{ mat.name }} ({{ mat.type }}): {{ mat.caption or '(no caption)' }}
+{% endfor %}
+{% endif %}
+
+{% if selected_text %}
+## Selected Text (user-specified context)
+The user made this request with the following text selected. Take this text into account:
+> {{ selected_text }}
+{% endif %}

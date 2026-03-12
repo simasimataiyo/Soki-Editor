@@ -102,6 +102,17 @@ class ProjectService:
         self._migrate_section_content_to_flat(data)
         # ---------------------------------------------------
 
+        # --- Migration: v1 -> v2 (フォルダ分割形式) ---
+        if data.get("format_version", 1) < 2:
+            new_path = await self._migrate_v1_to_v2(path, data)
+            json_file_path = str(new_path)
+            path = new_path
+        # -----------------------------------------------
+
+        # v2: 分割ファイルからデータを読み込む
+        if data.get("format_version", 1) >= 2:
+            self._load_v2_split_files(path, data)
+
         project_id = data.get("id")
         # すでにメモリ上にある場合はそのまま返す（ダーティな変更を保持）
         if project_id and project_id in self._projects:
@@ -113,6 +124,184 @@ class ProjectService:
         self._dirty[project.id] = False
         await self._update_registry(project.id, json_file_path)
         return project
+
+    @staticmethod
+    def _load_v2_split_files(project_json_path: Path, data: dict) -> None:
+        """v2 フォーマット: 分割ファイルからデータを読み込んで data dict に追記する。"""
+        project_dir = project_json_path.parent
+
+        # content.md
+        content_path = project_dir / "content.md"
+        if content_path.exists():
+            data["content"] = content_path.read_text(encoding="utf-8")
+        else:
+            data.setdefault("content", "")
+
+        # sources (IDリスト → オブジェクトリストに展開)
+        source_ids: list[str] = data.get("sources", [])
+        if source_ids and isinstance(source_ids[0], str):
+            sources_dir = project_dir / "sources"
+            loaded_sources = []
+            for src_id in source_ids:
+                meta_path = sources_dir / f"{src_id}.meta.json"
+                if not meta_path.exists():
+                    continue
+                src_data = json.loads(meta_path.read_text(encoding="utf-8"))
+                txt_path = sources_dir / f"{src_id}.txt"
+                src_data["full_text"] = txt_path.read_text(encoding="utf-8") if txt_path.exists() else ""
+                loaded_sources.append(src_data)
+            data["sources"] = loaded_sources
+
+        # materials (IDリスト → オブジェクトリストに展開)
+        material_ids: list[str] = data.get("materials", [])
+        if material_ids and isinstance(material_ids[0], str):
+            materials_dir = project_dir / "materials"
+            loaded_materials = []
+            for mat_id in material_ids:
+                meta_path = materials_dir / f"{mat_id}.meta.json"
+                if not meta_path.exists():
+                    continue
+                mat_data = json.loads(meta_path.read_text(encoding="utf-8"))
+                loaded_materials.append(mat_data)
+            data["materials"] = loaded_materials
+
+        # chat_edit.jsonl
+        chat_path = project_dir / "chat_edit.jsonl"
+        if chat_path.exists():
+            lines = chat_path.read_text(encoding="utf-8").splitlines()
+            data["chat_history"] = [json.loads(line) for line in lines if line.strip()]
+        else:
+            data.setdefault("chat_history", [])
+
+    async def _migrate_v1_to_v2(self, old_json_path: Path, data: dict) -> Path:
+        """v1 の単一 JSON ファイルを v2 のフォルダ構成にマイグレーションする。
+
+        Returns:
+            新しい project.json の Path
+        """
+        import shutil
+
+        stem = old_json_path.stem  # e.g. "my-project"
+        parent_dir = old_json_path.parent
+        project_dir = parent_dir / stem
+
+        logger.info("v1→v2 マイグレーション開始: %s → %s/", old_json_path, project_dir)
+
+        project_dir.mkdir(parents=True, exist_ok=True)
+
+        # data_dir の移動
+        old_data_dir = Path(data.get("data_dir", ""))
+        new_data_dir = project_dir / "data"
+
+        if old_data_dir.exists() and old_data_dir != new_data_dir:
+            if new_data_dir.exists():
+                shutil.rmtree(new_data_dir)
+            shutil.move(str(old_data_dir), str(new_data_dir))
+            logger.info("data_dir 移動: %s → %s", old_data_dir, new_data_dir)
+
+        # マテリアル画像: data/materials → materials/
+        old_mat_dir = new_data_dir / "materials"
+        new_mat_dir = project_dir / "materials"
+        new_mat_dir.mkdir(exist_ok=True)
+        if old_mat_dir.exists():
+            for img_file in old_mat_dir.iterdir():
+                if img_file.is_file() and not img_file.suffix == ".json":
+                    dest = new_mat_dir / img_file.name
+                    if not dest.exists():
+                        shutil.move(str(img_file), str(dest))
+            # 移動後の空フォルダは残しても問題なし
+
+        # file_path / thumbnail_path の更新（マテリアルの画像パスを新パスに）
+        for mat in data.get("materials", []):
+            if isinstance(mat, dict):
+                old_fp = mat.get("file_path")
+                if old_fp:
+                    old_fp_path = Path(old_fp)
+                    candidate = new_mat_dir / old_fp_path.name
+                    if candidate.exists():
+                        mat["file_path"] = str(candidate)
+                old_tp = mat.get("thumbnail_path")
+                if old_tp:
+                    old_tp_path = Path(old_tp)
+                    # thumbnails はそのまま data/thumbnails に残す
+                    new_thumb = new_data_dir / "thumbnails" / old_tp_path.name
+                    if new_thumb.exists():
+                        mat["thumbnail_path"] = str(new_thumb)
+
+        # data_dir を新パスに更新
+        data["data_dir"] = str(new_data_dir)
+        data["format_version"] = 2
+
+        new_json_path = project_dir / "project.json"
+        data["json_file_path"] = str(new_json_path)
+
+        # v2 形式でファイルを書き出す（Projectオブジェクト経由せず直接書き出し）
+        self._write_v2_files_from_data(project_dir, data)
+
+        # 旧 JSON をバックアップ
+        bak_path = old_json_path.with_suffix(".json.bak")
+        shutil.move(str(old_json_path), str(bak_path))
+        logger.info("旧 JSON をバックアップ: %s", bak_path)
+
+        return new_json_path
+
+    @staticmethod
+    def _write_v2_files_from_data(project_dir: Path, data: dict) -> None:
+        """data dict から v2 形式の各ファイルを書き出す（マイグレーション用）。"""
+        # project.json (sources/materials はIDリストに変換)
+        project_data = dict(data)
+        sources_raw = project_data.get("sources", [])
+        materials_raw = project_data.get("materials", [])
+        project_data["sources"] = [
+            (s["id"] if isinstance(s, dict) else s) for s in sources_raw
+        ]
+        project_data["materials"] = [
+            (m["id"] if isinstance(m, dict) else m) for m in materials_raw
+        ]
+        content = project_data.pop("content", "")
+        chat_history = project_data.pop("chat_history", [])
+
+        (project_dir / "project.json").write_text(
+            json.dumps(project_data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+        # content.md
+        (project_dir / "content.md").write_text(content, encoding="utf-8")
+
+        # sources/
+        sources_dir = project_dir / "sources"
+        sources_dir.mkdir(exist_ok=True)
+        for src in sources_raw:
+            if not isinstance(src, dict):
+                continue
+            src_id = src["id"]
+            meta = {k: v for k, v in src.items() if k != "full_text"}
+            (sources_dir / f"{src_id}.meta.json").write_text(
+                json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            full_text = src.get("full_text", "")
+            if full_text:
+                (sources_dir / f"{src_id}.txt").write_text(full_text, encoding="utf-8")
+
+        # materials/
+        materials_dir = project_dir / "materials"
+        materials_dir.mkdir(exist_ok=True)
+        for mat in materials_raw:
+            if not isinstance(mat, dict):
+                continue
+            mat_id = mat["id"]
+            (materials_dir / f"{mat_id}.meta.json").write_text(
+                json.dumps(mat, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+
+        # chat_edit.jsonl
+        lines = []
+        for msg in chat_history:
+            if isinstance(msg, dict):
+                lines.append(json.dumps(msg, ensure_ascii=False))
+        (project_dir / "chat_edit.jsonl").write_text(
+            "\n".join(lines) + ("\n" if lines else ""), encoding="utf-8"
+        )
 
     @staticmethod
     def _migrate_section_content_to_flat(data: dict) -> None:
@@ -339,10 +528,30 @@ class ProjectService:
             src.full_text = data.full_text
         if data.summary is not None:
             src.summary = data.summary
+        if data.extended_summary is not None:
+            src.extended_summary = data.extended_summary
         if data.bibliography is not None:
             src.bibliography = data.bibliography
+        # v2: ソースファイルを即時書き込み
+        if project.format_version >= 2:
+            self._write_source_files(project, src)
         self._mark_dirty(project_id)
         return src
+
+    @staticmethod
+    def _write_source_files(project: Project, src: Source) -> None:
+        """v2: ソースのメタデータと full_text を即時ファイルに書き込む。"""
+        sources_dir = Path(project.json_file_path).parent / "sources"
+        sources_dir.mkdir(exist_ok=True)
+        meta = json.loads(src.model_dump_json(exclude={"full_text"}))
+        (sources_dir / f"{src.id}.meta.json").write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        txt_path = sources_dir / f"{src.id}.txt"
+        if src.full_text:
+            txt_path.write_text(src.full_text, encoding="utf-8")
+        elif txt_path.exists():
+            txt_path.unlink()
 
     async def delete_source(self, project_id: str, source_id: str) -> None:
         project = await self.get_project(project_id)
@@ -353,6 +562,13 @@ class ProjectService:
             '',
             project.content,
         )
+        # v2: ソースファイルを削除
+        if project.format_version >= 2:
+            sources_dir = Path(project.json_file_path).parent / "sources"
+            for suffix in [".meta.json", ".txt"]:
+                f = sources_dir / f"{source_id}{suffix}"
+                if f.exists():
+                    f.unlink()
         self._mark_dirty(project_id)
 
     # ------------------------------------------------------------------
@@ -764,10 +980,57 @@ class ProjectService:
                 self._dirty[project_id] = False
 
     async def _save_to_disk(self, project: Project) -> None:
-        path = Path(project.json_file_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            project.model_dump_json(indent=2), encoding="utf-8"
+        if project.format_version >= 2:
+            await self._save_to_disk_v2(project)
+        else:
+            path = Path(project.json_file_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                project.model_dump_json(indent=2), encoding="utf-8"
+            )
+
+    async def _save_to_disk_v2(self, project: Project) -> None:
+        """v2 フォーマット: プロジェクトフォルダに各データを分割保存する。"""
+        project_dir = Path(project.json_file_path).parent
+        project_dir.mkdir(parents=True, exist_ok=True)
+
+        # --- project.json (軽量メタデータのみ) ---
+        project_data = json.loads(project.model_dump_json())
+        project_data["sources"] = [s.id for s in project.sources]
+        project_data["materials"] = [m.id for m in project.materials]
+        project_data.pop("content", None)
+        project_data.pop("chat_history", None)
+        Path(project.json_file_path).write_text(
+            json.dumps(project_data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+        # --- content.md ---
+        (project_dir / "content.md").write_text(project.content, encoding="utf-8")
+
+        # --- sources/ ---
+        sources_dir = project_dir / "sources"
+        sources_dir.mkdir(exist_ok=True)
+        for src in project.sources:
+            meta = json.loads(src.model_dump_json(exclude={"full_text"}))
+            (sources_dir / f"{src.id}.meta.json").write_text(
+                json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            if src.full_text:
+                (sources_dir / f"{src.id}.txt").write_text(src.full_text, encoding="utf-8")
+
+        # --- materials/ ---
+        materials_dir = project_dir / "materials"
+        materials_dir.mkdir(exist_ok=True)
+        for mat in project.materials:
+            meta = json.loads(mat.model_dump_json())
+            (materials_dir / f"{mat.id}.meta.json").write_text(
+                json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+
+        # --- chat_edit.jsonl ---
+        lines = [msg.model_dump_json() for msg in project.chat_history]
+        (project_dir / "chat_edit.jsonl").write_text(
+            "\n".join(lines) + ("\n" if lines else ""), encoding="utf-8"
         )
 
     async def _update_registry(self, project_id: str, file_path: str) -> None:
