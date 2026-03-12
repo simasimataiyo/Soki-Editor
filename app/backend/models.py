@@ -22,6 +22,7 @@ class LLMSettings(BaseModel):
     endpoint_url: Optional[str] = None
     model: str = "gpt-4o"
     pdf_page_dpi: int = 96  # PDF等倍画像のDPI（設定画面から変更可能）
+    max_fetch_source_count: int = 4 # 最大同時取得ソース件数
     left_panel_width: int = 280  # 左パネル標準幅（px）
     history_panel_width: int = 280  # チャット履歴右パネル標準幅（px）
     outline_panel_width: int = 280  # アウトライン左パネル幅（px）

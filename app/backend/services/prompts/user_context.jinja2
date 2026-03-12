@@ -12,7 +12,7 @@ Currently editing section (ID: {{ target_section.id }}):
 ## Specified Sources
 Refer to the following sources with priority:
 {% for source in explicit_sources %}
-### [^{{ source.id }}] {{ source.name }}
+### ID: {{ source.id }}, Title: {{ source.name }}
 {% endfor %}
 {% endif %}
 

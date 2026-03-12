@@ -20,12 +20,12 @@ You can use the following tools to manipulate document structure:
 - `move_section`: Move a section to a different parent/position (section_id, parent_id, order)
 - `set_document_structure`: Delete all sections and create a new outline in bulk
 - `create_document_structure`: Add a new outline structure while keeping existing sections
-- `fetch_sources`: Retrieve full text of references (specify up to 4 source IDs)
+- `fetch_sources`: Retrieve full text of references (specify up to {{ max_fetch_source_count }} source IDs)
 
 Only use these tools to edit sections when the user explicitly instructs you to do so.
 
 **Referencing sources:**
-A summary list of references is provided. For tasks related to writing, fact-checking, or inserting citations, proactively use `fetch_sources` to retrieve the full text of up to 4 relevant source IDs.
+A summary list of references is provided. For tasks related to writing, fact-checking, or inserting citations, proactively use `fetch_sources` to retrieve the full text of up to {{ max_fetch_source_count }} relevant source IDs.
 If summaries alone are insufficient, call `fetch_sources` without hesitation.
 Do not call `fetch_sources` for sources whose full text is already included in the "Specified Sources" section.
 
@@ -38,9 +38,9 @@ When citing information in the body text, insert citation markers in the followi
 - Only cite factual claims; no citation needed for general knowledge or your own reasoning
 
 {% if enabled_rules %}
-## Writing Rules
+## Rules
 
-Follow these writing rules for this document:
+Follow these rules:
 {% for rule in enabled_rules %}
 - {{ rule.content }}
 {% endfor %}
@@ -61,7 +61,7 @@ The document structure is as follows:
 
 Available references (current state):
 {% for source in source_summaries %}
-- [^{{ source.id }}] {{ source.name }}: {{ source.summary or '(no summary)' }}
+- ID: {{ source.id }}, Title: {{ source.name }}, Summary: {{ source.summary or '(no summary)' }}
 {% endfor %}
 {% endif %}
 

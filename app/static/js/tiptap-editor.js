@@ -10,6 +10,7 @@
 import { Editor, Node, Extension, InputRule, mergeAttributes, textblockTypeInputRule } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
+import { Fragment } from '@tiptap/pm/model';
 import CharacterCount from '@tiptap/extension-character-count';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -1302,6 +1303,7 @@ function _assignSectionMeta(pos, meta) {
   const node = editor.state.doc.nodeAt(pos);
   if (!node) { _suppressUpdate = false; return; }
   tr.setNodeMarkup(pos, null, { ...node.attrs, ...meta });
+  tr.setMeta('addToHistory', false);
   editor.view.dispatch(tr);
   setTimeout(() => { _suppressUpdate = false; }, 50);
 }
@@ -1344,12 +1346,8 @@ function _deleteSectionHeading(sectionId) {
   setTimeout(() => { _suppressUpdate = false; }, 50);
 }
 
-/**
- * IDで見出しノードを探し、その見出しおよび後続の子セクションを含むブロック全体をTiptapから削除する
- * @param {string} sectionId
- */
-function _deleteSectionBlock(sectionId) {
-  if (!editor) return;
+function _getSectionBlockPos(sectionId) {
+  if (!editor) return null;
   let targetFrom = null;
   let targetTo = null;
   let targetLevel = null;
@@ -1371,13 +1369,21 @@ function _deleteSectionBlock(sectionId) {
     }
   });
 
-  if (targetFrom === null) return;
-  if (targetTo === null) {
-    targetTo = editor.state.doc.content.size;
-  }
+  if (targetFrom === null) return null;
+  if (targetTo === null) targetTo = editor.state.doc.content.size;
+  return { from: targetFrom, to: targetTo, level: targetLevel };
+}
+
+/**
+ * IDで見出しノードを探し、その見出しおよび後続の子セクションを含むブロック全体をTiptapから削除する
+ * @param {string} sectionId
+ */
+function _deleteSectionBlock(sectionId) {
+  const block = _getSectionBlockPos(sectionId);
+  if (!block) return;
 
   _suppressUpdate = true;
-  editor.chain().deleteRange({ from: targetFrom, to: targetTo }).run();
+  editor.chain().deleteRange({ from: block.from, to: block.to }).run();
   setTimeout(() => { _suppressUpdate = false; }, 50);
 }
 
@@ -1431,6 +1437,68 @@ function _updateSectionContent(sectionId, newContent) {
   setTimeout(() => { _suppressUpdate = false; }, 50);
 }
 
+/**
+ * ブロックを別のブロックを基準に移動する（Drag & Drop用）
+ */
+function _moveSectionBlock(draggedId, targetId, position) {
+  if (!editor) return;
+
+  const draggedBlock = _getSectionBlockPos(draggedId);
+  if (!draggedBlock) { console.warn('[moveSectionBlock] draggedBlock not found:', draggedId); return; }
+
+  const targetBlock = _getSectionBlockPos(targetId);
+  if (!targetBlock) { console.warn('[moveSectionBlock] targetBlock not found:', targetId); return; }
+
+  // 挿入位置と新しい見出しレベルを計算
+  let insertPos;
+  let newLevel;
+  if (position === 'before') {
+    insertPos = targetBlock.from;
+    newLevel = targetBlock.level;
+  } else if (position === 'after') {
+    insertPos = targetBlock.to;
+    newLevel = targetBlock.level;
+  } else if (position === 'child') {
+    insertPos = targetBlock.to;
+    newLevel = Math.min(6, targetBlock.level + 1);
+  } else {
+    return;
+  }
+
+  const levelDelta = newLevel - draggedBlock.level;
+
+  const { state } = editor;
+  const { tr } = state;
+
+  // ドラッグブロックのノード配列を取得し、レベル変更を事前適用
+  const draggedNodes = [];
+  state.doc.nodesBetween(draggedBlock.from, draggedBlock.to, (node, pos, parent) => {
+    if (parent && parent.type.name === 'doc') {
+      if (levelDelta !== 0 && node.type.name === 'sectionHeading') {
+        const newNodeLevel = Math.max(1, Math.min(6, node.attrs.level + levelDelta));
+        draggedNodes.push(node.type.create({ ...node.attrs, level: newNodeLevel }, node.content, node.marks));
+      } else {
+        draggedNodes.push(node);
+      }
+    }
+  });
+
+  if (draggedNodes.length === 0) {
+    console.warn('[moveSectionBlock] no nodes found in dragged block');
+    return;
+  }
+
+  const draggedFragment = Fragment.fromArray(draggedNodes);
+
+  // 削除してから挿入
+  tr.delete(draggedBlock.from, draggedBlock.to);
+  const mappedPos = tr.mapping.map(insertPos);
+  tr.insert(mappedPos, draggedFragment);
+
+  // Undo履歴に通常の操作として追加される
+  editor.view.dispatch(tr);
+}
+
 // ─── 公開 API ────────────────────────────────────────────────
 
 window.TiptapEditor = {
@@ -1460,11 +1528,20 @@ window.TiptapEditor = {
    * マーカー付きMarkdown文字列をTiptapにセットする
    * @param {string} markdownContent - <!-- soki-section:uuid --> マーカー付きMarkdown
    */
-  setContentFromMarkdown(markdownContent) {
+  setContentFromMarkdown(markdownContent, addToHistory = false) {
     if (!editor) return;
     _suppressUpdate = true;
     const html = _markdownWithMarkersToHtml(markdownContent);
-    editor.commands.setContent(html, false);
+    
+    if (addToHistory) {
+      editor.chain()
+        .selectAll()
+        .insertContent(html)
+        .run();
+    } else {
+      editor.commands.setContent(html, false);
+    }
+    
     setTimeout(() => { _suppressUpdate = false; }, 50);
   },
 
@@ -1555,6 +1632,16 @@ window.TiptapEditor = {
    */
   deleteSectionBlock(sectionId) {
     _deleteSectionBlock(sectionId);
+  },
+
+  /**
+   * ブロックを別のブロックを基準に移動する（Drag & Drop用）
+   * @param {string} draggedId
+   * @param {string} targetId
+   * @param {'before'|'after'|'child'} position
+   */
+  moveSectionBlock(draggedId, targetId, position) {
+    _moveSectionBlock(draggedId, targetId, position);
   },
 
   /**

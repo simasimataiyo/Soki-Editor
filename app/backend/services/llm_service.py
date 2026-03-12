@@ -378,7 +378,7 @@ class LLMService:
         client = self._make_client(settings)
 
         messages = self._build_messages(
-            project, user_message, context_scope,
+            project, settings, user_message, context_scope,
             command=command,
             command_args=command_args or [],
             explicit_refs=explicit_refs or [],
@@ -406,16 +406,25 @@ class LLMService:
             use_tools = self._supports_tool_calling(settings.model)
             if use_tools:
                 # デフォルトではすべてのツールを渡す
-                call_kwargs["tools"] = TOOLS
+                import copy
+                tools_copy = copy.deepcopy(TOOLS)
+                for t in tools_copy:
+                    if t["function"]["name"] == "fetch_sources":
+                        desc = f"参考文献の全文を取得する。参考文献の概要一覧を確認し、タスクの実行に必要なソースのIDを最大{settings.max_fetch_source_count}つまで指定してください。"
+                        t["function"]["description"] = desc  # type: ignore
+                        t["function"]["parameters"]["properties"]["source_ids"]["maxItems"] = settings.max_fetch_source_count  # type: ignore
+                        t["function"]["parameters"]["properties"]["source_ids"]["description"] = f"取得するソースのIDリスト（最大{settings.max_fetch_source_count}つ）"  # type: ignore
+
+                call_kwargs["tools"] = tools_copy
                 call_kwargs["tool_choice"] = "auto"
 
                 # 特定の /structure 系コマンドの場合は、ツールを制限する
-                if command and command.startswith("structure"):
+                if command and isinstance(command, str) and command.startswith("structure"):
                     command_mode = self._normalize_command(command, command_args or [])
                     mode = command_mode["mode"]
                     if mode == "replace":
                         target_tool_name = "set_document_structure"
-                        call_kwargs["tools"] = [t for t in TOOLS if t["function"]["name"] == target_tool_name]
+                        call_kwargs["tools"] = [t for t in tools_copy if t["function"]["name"] == target_tool_name]
                         call_kwargs["tool_choice"] = {
                             "type": "function",
                             "function": {"name": target_tool_name}
@@ -426,15 +435,15 @@ class LLMService:
                             "update_section_title", "update_section_summary",
                             "create_section", "delete_section", "move_section"
                         ]
-                        call_kwargs["tools"] = [t for t in TOOLS if t["function"]["name"] in structure_section_tools]
+                        call_kwargs["tools"] = [t for t in tools_copy if t["function"]["name"] in structure_section_tools]
                         call_kwargs["tool_choice"] = "auto"
                     elif mode == "summary":
                         # structure-summary: 概要のみ更新
-                        call_kwargs["tools"] = [t for t in TOOLS if t["function"]["name"] == "update_section_summary"]
+                        call_kwargs["tools"] = [t for t in tools_copy if t["function"]["name"] == "update_section_summary"]
                         call_kwargs["tool_choice"] = "auto"
                     else:  # add
                         target_tool_name = "create_sections_under_parent"
-                        call_kwargs["tools"] = [t for t in TOOLS if t["function"]["name"] == target_tool_name]
+                        call_kwargs["tools"] = [t for t in tools_copy if t["function"]["name"] == target_tool_name]
                         call_kwargs["tool_choice"] = {
                             "type": "function",
                             "function": {"name": target_tool_name}
@@ -494,7 +503,7 @@ class LLMService:
                     }
                 )
                 for tc in source_fetches:
-                    ids = tc["args"].get("source_ids", [])[:4]
+                    ids = tc["args"].get("source_ids", [])[:settings.max_fetch_source_count]
                     messages.append(
                         {
                             "role": "tool",
@@ -922,6 +931,7 @@ class LLMService:
     def _build_messages(
         self,
         project: Project,
+        settings: LLMSettings,
         user_message: str,
         context_scope: str,
         command: str | None = None,
@@ -981,6 +991,7 @@ class LLMService:
             enabled_rules=enabled_rules,
             sections=sorted_sections,
             source_summaries=source_summaries,
+            max_fetch_source_count=settings.max_fetch_source_count,
         )
 
         # 履歴の構築:
@@ -1033,6 +1044,7 @@ class LLMService:
                 target_section_body=target_section_body,
                 section_bodies_by_id=section_bodies_by_id,
                 source_summaries=source_summaries,
+                max_fetch_source_count=settings.max_fetch_source_count,
             ).strip()
             parts = [p for p in [user_message, context_injection, task_injection] if p]
             final_user_message = "\n".join(parts)
@@ -1146,9 +1158,9 @@ class LLMService:
                 continue
             logger.info("fetch_sources: ID=%s, extended_summary=%d文字, full_text=%d文字", sid, len(src.extended_summary), len(src.full_text))
             if src.extended_summary:
-                texts.append(f"### [^{src.id}] {src.name}\n\n{src.extended_summary}")
+                texts.append(f"### ID: {src.id} | {src.name}\n\n{src.extended_summary}")
             elif src.full_text:
-                texts.append(f"### [^{src.id}] {src.name}\n\n{src.full_text[:3000]}")
+                texts.append(f"### ID: {src.id} | {src.name}\n\n{src.full_text[:3000]}")
         if not texts:
             return "指定されたソースは見つかりませんでした。"
         return "\n\n---\n\n".join(texts)

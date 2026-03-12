@@ -332,11 +332,15 @@ const EditTab = (() => {
 
   let _collapsed = {};  // アウトライン折りたたみ状態
 
-  /**
-   * アウトラインパネル全体を再描画する
-   * ルートセクションを取得し、ツリー構造で再帰的にアイテムをレンダリングする
-   */
+  let _pendingRerenderAfterDrag = false; // D&D中に_renderOutlineが要求された場合、D&D後に再描画するためのフラグ
+
   function _renderOutline() {
+    // ドラッグ中はDOMを再構築しない（ドラッグ要素が破棄されるため）
+    if (_dragState) {
+      _pendingRerenderAfterDrag = true;
+      return;
+    }
+
     const list = document.getElementById('outline-list');
     list.innerHTML = '';
     const sorted = [..._project.sections].sort((a, b) => a.order - b.order);
@@ -354,6 +358,7 @@ const EditTab = (() => {
       }
     });
   }
+
 
   /**
    * アウトラインの1アイテムをレンダリングし、DnD・クリック・ダブルクリックイベントを設定する
@@ -401,6 +406,12 @@ const EditTab = (() => {
         el.classList.remove('drag-over-before', 'drag-over-after', 'drag-over-child');
       });
       _dragState = null;
+
+      // D&D中に要求されたアウトライン再描画があれば実行する
+      if (_pendingRerenderAfterDrag) {
+        _pendingRerenderAfterDrag = false;
+        _renderOutline();
+      }
     });
 
     li.addEventListener('dragover', (e) => {
@@ -716,13 +727,13 @@ const EditTab = (() => {
     if (swapIdx < 0 || swapIdx >= siblings.length) return;
 
     const swapSec = siblings[swapIdx];
-    [sec.order, swapSec.order] = [swapSec.order, sec.order];
 
-    await ApiClient.post(`/api/projects/${project.id}/sections/reorder`,
-      siblings.map(s => ({ section_id: s.id, parent_id: s.parent_id, order: s.order }))
-    );
-    await _syncOutlineToBody();
-    _renderOutline();
+    // Tiptap APIに移動を委譲
+    if (window.TiptapEditor && window.TiptapEditor.moveSectionBlock) {
+      const position = direction === -1 ? 'before' : 'after';
+      window.TiptapEditor.moveSectionBlock(sec.id, swapSec.id, position);
+    }
+    showToast('セクションを移動しました', 'success');
   }
 
   // ─── セクション追加ボタン ──────────────────────────────
@@ -961,13 +972,13 @@ const EditTab = (() => {
 
     _project.content = newContent;
     window.TiptapEditor._suppressUpdate = true;
-    window.TiptapEditor.setContentFromMarkdown(newContent);
+    window.TiptapEditor.setContentFromMarkdown(newContent, true);
     // setContentFromMarkdown後にsummary/parentId/orderをノード属性に再注入
     _injectSectionMeta();
     // _injectSectionMetaが_suppressUpdateをfalseにするので即座にawaitしてから解除
     await _syncContentToBackend();
 
-    _renderDocView();
+    _updateDocViewEditMode();
   }
 
   // ─── ユーティリティ ────────────────────────────────────
@@ -1035,76 +1046,10 @@ const EditTab = (() => {
       }
     }
 
-    // 新しい親を計算
-    let newParentId = null;
-
-    if (position === 'child') {
-      newParentId = targetSec.id;
-    } else if (position === 'before') {
-      newParentId = targetSec.parent_id;
-    } else { // after
-      newParentId = targetSec.parent_id;
+    // Tiptap APIに移動を委譲（Tiptapのupdateイベントが発火し、backend同期も行われる）
+    if (window.TiptapEditor && window.TiptapEditor.moveSectionBlock) {
+      window.TiptapEditor.moveSectionBlock(draggedId, targetId, position);
     }
-
-    // オーダーを整数に再計算（簡素化）
-    // 1. 新しい親の下の兄弟セクションを取得（ドラッグセクションを除外）
-    const siblings = project.sections
-      .filter(s => s.parent_id === newParentId)
-      .filter(s => s.id !== draggedId)
-      .sort((a, b) => a.order - b.order);
-
-    // 2. ドラッグセクションの挿入位置を特定
-    let insertIndex = 0;
-    if (position === 'before') {
-      insertIndex = siblings.findIndex(s => s.id === targetId);
-    } else if (position === 'after') {
-      insertIndex = siblings.findIndex(s => s.id === targetId) + 1;
-    } else { // child
-      insertIndex = siblings.length;
-    }
-
-    // 3. 全体のオーダーを再計算
-    const allSections = [
-      ...siblings.slice(0, insertIndex),
-      { id: draggedId },
-      ...siblings.slice(insertIndex),
-    ];
-
-    const orderUpdates = allSections.map((s, idx) => ({
-      section_id: s.id,
-      parent_id: newParentId,
-      order: idx,
-    }));
-
-    // 4. APIコール
-    try {
-      await ApiClient.post(`/api/projects/${project.id}/sections/reorder`, orderUpdates);
-    } catch (error) {
-      showToast('セクションの移動に失敗しました', 'error');
-      return;
-    }
-
-    // 5. API成功後にのみローカル状態を更新
-    draggedSec.parent_id = newParentId;
-    draggedSec.order = orderUpdates.find(u => u.section_id === draggedId).order;
-
-    siblings.forEach(s => {
-      const localSec = project.sections.find(sec => sec.id === s.id);
-      if (localSec) {
-        localSec.order = orderUpdates.find(u => u.section_id === s.id).order;
-      }
-    });
-
-    // 6. TiptapノードのparentId/sectionOrder属性を更新（undo後も階層情報が正しく復元されるように）
-    orderUpdates.forEach(u => {
-      window.TiptapEditor.updateSectionMetaById(u.section_id, {
-        parentId: u.parent_id,
-        sectionOrder: u.order,
-      });
-    });
-
-    await _syncOutlineToBody();
-    _renderOutline();
     showToast('セクションを移動しました', 'success');
   }
 
