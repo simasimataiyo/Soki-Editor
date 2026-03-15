@@ -7,6 +7,19 @@ const SourceTab = (() => {
   let _activeId = null;
 
   const DEFAULT_SOURCE_NAME = '新しいソース';
+  const _APP_TOKEN = window.__APP_TOKEN__ || '';
+
+  function _authFetch(url, options = {}) {
+    const headers = new Headers(options.headers || {});
+    if (_APP_TOKEN) headers.set('X-App-Token', _APP_TOKEN);
+    return fetch(url, { ...options, headers });
+  }
+
+  function _withApiToken(url) {
+    if (!_APP_TOKEN) return url;
+    const sep = url.includes('?') ? '&' : '?';
+    return `${url}${sep}app_token=${encodeURIComponent(_APP_TOKEN)}`;
+  }
 
   /** ファイル名から拡張子を除いた文字列を返す */
   function _stemName(filename) {
@@ -498,7 +511,7 @@ const SourceTab = (() => {
         // ファイルアップロード
         const formData = new FormData();
         formData.append('file', file);
-        const res = await fetch(
+        const res = await _authFetch(
           `/api/projects/${project.id}/sources/${src.id}/read-file-upload`,
           { method: 'POST', body: formData }
         );
@@ -820,7 +833,7 @@ const SourceTab = (() => {
       _startProcessing(src.id, 'fullText');  // 全文フィールド無効化（ブロッキングオーバーレイなし）
       const loadingToast = showToast('ファイルを読み込み中...', 'info', { persistent: true, spinner: true });
       try {
-        const res = await fetch(
+        const res = await _authFetch(
           `/api/projects/${project.id}/sources/${src.id}/read-file-upload`,
           { method: 'POST', body: formData }
         );
@@ -1038,7 +1051,7 @@ const SourceTab = (() => {
       _startProcessing(src.id, 'fullText');
       const loadingToast = showToast('ファイルを読み込み中...', 'info', { persistent: true, spinner: true });
       try {
-        const res = await fetch(`/api/projects/${project.id}/sources/${src.id}/read-file-upload`, {
+        const res = await _authFetch(`/api/projects/${project.id}/sources/${src.id}/read-file-upload`, {
           method: 'POST', body: formData,
         });
         if (!res.ok) {
@@ -1100,7 +1113,7 @@ const SourceTab = (() => {
       const formData = new FormData();
       formData.append('file', file);
       try {
-        const res = await fetch(`/api/projects/${project.id}/sources/${src.id}/analyze-image-upload`, {
+        const res = await _authFetch(`/api/projects/${project.id}/sources/${src.id}/analyze-image-upload`, {
           method: 'POST', body: formData,
         });
         if (!res.ok) { const d = await res.json(); showToast(d.detail || 'エラー', 'error'); return; }
@@ -1128,7 +1141,7 @@ const SourceTab = (() => {
 
     let pageList;
     try {
-      const res = await fetch(`/api/projects/${project.id}/sources/${src.id}/pdf-page-list`);
+      const res = await _authFetch(`/api/projects/${project.id}/sources/${src.id}/pdf-page-list`);
       if (!res.ok) { showToast('サムネイル取得失敗', 'error'); return; }
       pageList = await res.json();
     } catch (_) {
@@ -1144,7 +1157,7 @@ const SourceTab = (() => {
     const thumbnails = pageList.pages.map(p => ({
       page: p.page,
       label: p.label,
-      src: `/api/files?path=${encodeURIComponent(p.thumbnail_path)}&project_id=${project.id}`,
+      src: _withApiToken(`/api/files?path=${encodeURIComponent(p.thumbnail_path)}&project_id=${project.id}`),
     }));
 
     _showPdfAnalysisModal(src, thumbnails, null);
@@ -1163,7 +1176,7 @@ const SourceTab = (() => {
     formData1.append('file', file);
     let thumbnails;
     try {
-      const res = await fetch(
+      const res = await _authFetch(
         `/api/projects/${project.id}/sources/${src.id}/pdf-thumbnails`,
         { method: 'POST', body: formData1 }
       );
@@ -1332,7 +1345,7 @@ const SourceTab = (() => {
           };
         }
 
-        const res = await fetch(streamUrl, streamOptions);
+        const res = await _authFetch(streamUrl, streamOptions);
         if (!res.ok) {
           const errData = await res.json();
           throw new Error(errData.detail || '解析に失敗しました');
@@ -1434,7 +1447,7 @@ const SourceTab = (() => {
           };
         }
 
-        const res = await fetch(streamUrl, streamOptions);
+        const res = await _authFetch(streamUrl, streamOptions);
         if (!res.ok) {
           const errData = await res.json();
           throw new Error(errData.detail || '解析に失敗しました');
@@ -1695,7 +1708,7 @@ const SourceTab = (() => {
       const currentTextEl = modal.querySelector('#batch-current-text');
 
       try {
-        const res = await fetch(
+        const res = await _authFetch(
           `/api/projects/${project.id}/sources/${src.id}/analyze-all-pages-stream`,
           {
             method: 'POST',
@@ -2147,7 +2160,7 @@ const SourceTab = (() => {
     const project = window.appState.getProject();
     if (!project) return;
     try {
-      const res = await fetch(`/api/projects/${project.id}/sources/export`);
+      const res = await _authFetch(`/api/projects/${project.id}/sources/export`);
       if (!res.ok) { showToast('エクスポートに失敗しました', 'error'); return; }
       const csvText = await res.text();
       // pywebview ネイティブ保存ダイアログ

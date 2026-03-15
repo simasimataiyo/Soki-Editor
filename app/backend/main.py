@@ -58,6 +58,8 @@ async def token_auth_middleware(request: Request, call_next):
         return await call_next(request)
     if request.url.path.startswith("/api/"):
         token = request.headers.get("X-App-Token", "")
+        if not token:
+            token = request.query_params.get("app_token", "")
         if not _secrets.compare_digest(token, _app_security.APP_TOKEN):
             return JSONResponse(status_code=403, content={"detail": "Forbidden"})
     return await call_next(request)

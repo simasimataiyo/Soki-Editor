@@ -368,3 +368,4 @@ app/static/js/tiptap-bundle.js
 .vscode/
 .codex/
 AGENTS.md
+tests/

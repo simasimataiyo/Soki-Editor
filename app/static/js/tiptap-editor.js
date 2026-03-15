@@ -22,6 +22,14 @@ import { marked } from 'marked';
 // marked の設定: GFMオン、改行保持
 marked.setOptions({ gfm: true, breaks: false });
 
+const APP_TOKEN = window.__APP_TOKEN__ || '';
+
+function withApiToken(url) {
+  if (!APP_TOKEN) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}app_token=${encodeURIComponent(APP_TOKEN)}`;
+}
+
 // ─── カスタムノード: SectionHeading ─────────────────────────
 // セクションIDを data-section-id 属性として保持する見出しノード
 // level: 1-6 (h1-h6)、sectionId: UUID or null（新規見出しはnull）
@@ -386,13 +394,13 @@ const FigureBlockExtension = Extension.create({
                   contentArea.appendChild(tableWrap);
                 } else if (!isTable && mat.thumbnail_path && projectId) {
                   const img = document.createElement('img');
-                  img.src = `/api/files?path=${encodeURIComponent(mat.thumbnail_path)}&project_id=${projectId}`;
+                  img.src = withApiToken(`/api/files?path=${encodeURIComponent(mat.thumbnail_path)}&project_id=${projectId}`);
                   img.alt = caption;
                   img.className = 'figure-block-img';
                   contentArea.appendChild(img);
                 } else if (!isTable && mat.file_path && projectId) {
                   const img = document.createElement('img');
-                  img.src = `/api/files?path=${encodeURIComponent(mat.file_path)}&project_id=${projectId}`;
+                  img.src = withApiToken(`/api/files?path=${encodeURIComponent(mat.file_path)}&project_id=${projectId}`);
                   img.alt = caption;
                   img.className = 'figure-block-img';
                   contentArea.appendChild(img);

@@ -3,6 +3,14 @@
  */
 
 const ProjectSelector = (() => {
+  const _APP_TOKEN = window.__APP_TOKEN__ || '';
+
+  function _authFetch(url, options = {}) {
+    const headers = new Headers(options.headers || {});
+    if (_APP_TOKEN) headers.set('X-App-Token', _APP_TOKEN);
+    return fetch(url, { ...options, headers });
+  }
+
   // ディレクトリブラウザの状態
   let _fbResolve = null;  // Promise resolve for file browser modal
   let _fbCurrentDir = '';
@@ -242,7 +250,7 @@ const ProjectSelector = (() => {
         const file = await handle.getFile();
         const formData = new FormData();
         formData.append('file', file);
-        const res = await fetch('/api/projects/open-upload', { method: 'POST', body: formData });
+        const res = await _authFetch('/api/projects/open-upload', { method: 'POST', body: formData });
         if (!res.ok) { const d = await res.json(); showToast(d.detail || 'エラー', 'error'); return; }
         const project = await res.json();
         // 保存時に元のファイルへ書き戻せるよう FileHandle を保持
@@ -264,7 +272,7 @@ const ProjectSelector = (() => {
       const formData = new FormData();
       formData.append('file', file);
       try {
-        const res = await fetch('/api/projects/open-upload', { method: 'POST', body: formData });
+        const res = await _authFetch('/api/projects/open-upload', { method: 'POST', body: formData });
         if (!res.ok) { const d = await res.json(); showToast(d.detail || 'エラー', 'error'); return; }
         const project = await res.json();
         AppShell.enterEditor(project);

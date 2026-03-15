@@ -282,9 +282,7 @@ const RuleTab = (() => {
     const project = window.appState.getProject();
     if (!project) return;
     try {
-      const res = await fetch(`/api/projects/${project.id}/rules/export`);
-      if (!res.ok) { showToast('エクスポートに失敗しました', 'error'); return; }
-      const csvText = await res.text();
+      const csvText = await ApiClient.getText(`/api/projects/${project.id}/rules/export`);
       const dialog = await ApiClient.saveFileDialog('rules.csv');
       if (!dialog || !dialog.path) return;
       const writeResult = await ApiClient.writeFile(dialog.path, csvText);
