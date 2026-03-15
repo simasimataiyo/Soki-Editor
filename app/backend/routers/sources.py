@@ -463,9 +463,16 @@ async def analyze_all_pages_stream(
     """
     svc = get_service()
     project = await _get_project_or_404(svc, project_id)
-    src = _get_source_or_404(project, source_id)
+    _get_source_or_404(project, source_id)
 
-    max_chars: int | None = body.get("max_chars_per_page")
+    max_chars_raw = body.get("max_chars_per_page")
+    max_chars: int | None = None
+    if max_chars_raw is not None:
+        try:
+            parsed = int(max_chars_raw)
+            max_chars = parsed if parsed > 0 else None
+        except (TypeError, ValueError):
+            max_chars = None
     # v3: metadata/sources/{id}/page/
     page_dir = ProjectService._source_metadata_dir(project, source_id) / "page"
 
@@ -487,16 +494,49 @@ async def analyze_all_pages_stream(
         )
 
     total = len(page_paths)
-    try:
-        update = await _build_summary_update(src, clear_extended_when_short=True)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"??????????? {e}")
+    settings = get_settings_service().get()
 
-    updated = await svc.update_source(
-        project_id, source_id, update
+    async def event_stream():
+        for page_num, raw_path in page_paths:
+            yield (
+                f"data: {json.dumps({'event': 'page_start', 'page': page_num, 'total': total}, ensure_ascii=False)}\n\n"
+            )
+            try:
+                img_bytes = raw_path.read_bytes()
+                prompt_text = (
+                    f"このページ（{page_num + 1}ページ目）の内容をmarkdown記法を使って詳しく説明してください。"
+                    "テキスト、図表、数式などを含む場合はできる限りmarkdown構文で表現してください。"
+                )
+
+                produced = 0
+                async for chunk in _llm_service.analyze_image_bytes_with_vision_stream(
+                    img_bytes, "image/jpeg", settings, prompt_text
+                ):
+                    if max_chars is not None:
+                        remaining = max_chars - produced
+                        if remaining <= 0:
+                            break
+                        chunk = chunk[:remaining]
+                    if not chunk:
+                        continue
+                    produced += len(chunk)
+                    yield (
+                        f"data: {json.dumps({'event': 'chunk', 'page': page_num, 'text': chunk}, ensure_ascii=False)}\n\n"
+                    )
+                yield (
+                    f"data: {json.dumps({'event': 'page_done', 'page': page_num}, ensure_ascii=False)}\n\n"
+                )
+            except Exception as e:
+                yield (
+                    f"data: {json.dumps({'event': 'error', 'page': page_num, 'message': str(e)}, ensure_ascii=False)}\n\n"
+                )
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-
-    return updated
 
 
 @router.post("/sources/{source_id}/extract-bibliography", response_model=Source)
