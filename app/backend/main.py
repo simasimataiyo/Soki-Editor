@@ -101,8 +101,9 @@ app.include_router(llm.router)
 # ─── ローカルファイル配信 ─────────────────────────────────────
 @app.get("/api/files")
 async def serve_local_file(path: str, project_id: str) -> FileResponse:
-    """data_dir 配下のファイルのみを配信する（ディレクトリトラバーサル防止）。"""
+    """プロジェクトディレクトリ配下のファイルを配信する（ディレクトリトラバーサル防止）。"""
     from app.backend.routers.projects import get_service
+    from app.backend.services.project_service import ProjectService
 
     svc = get_service()
     try:
@@ -110,10 +111,19 @@ async def serve_local_file(path: str, project_id: str) -> FileResponse:
     except KeyError:
         raise HTTPException(status_code=404, detail="プロジェクトが見つかりません")
 
-    data_dir = Path(project.data_dir).resolve()
     requested = Path(path).resolve()
 
-    if not str(requested).startswith(str(data_dir)):
+    # v3: project_dir 配下（sources/, materials/, metadata/ を含む）を許可
+    project_dir = ProjectService._project_dir(project).resolve()
+    def _is_relative_to(path: Path, base: Path) -> bool:
+        try:
+            path.relative_to(base)
+            return True
+        except Exception:
+            return False
+    allowed = _is_relative_to(requested, project_dir)
+
+    if not allowed:
         raise HTTPException(status_code=403, detail="アクセス禁止のパスです")
 
     if not requested.exists():

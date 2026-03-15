@@ -40,6 +40,17 @@ class FileService:
             self._generate_thumbnail_sync, file_path, dest_dir, size
         )
 
+    async def generate_thumbnail_to(
+        self,
+        file_path: str,
+        dest_path: str,
+        size: tuple[int, int] = (200, 200),
+    ) -> str:
+        """画像または PDF 1 ページ目からサムネイルを生成して指定パスに保存。パスを返す。"""
+        return await asyncio.to_thread(
+            self._generate_thumbnail_to_sync, file_path, dest_path, size
+        )
+
     def open_file_dialog(
         self, file_types: Optional[list[tuple[str, str]]] = None
     ) -> Optional[str]:
@@ -128,6 +139,26 @@ class FileService:
         img.thumbnail(size, Image.LANCZOS)
         img.save(str(thumb_path), "PNG")
         return str(thumb_path)
+
+    def _generate_thumbnail_to_sync(
+        self, file_path: str, dest_path: str, size: tuple[int, int]
+    ) -> str:
+        from PIL import Image
+
+        path = Path(file_path)
+        dest = Path(dest_path)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+
+        suffix = path.suffix.lower()
+        if suffix == ".pdf":
+            image_bytes = self._extract_pdf_first_page(str(path))
+            img = Image.open(io.BytesIO(image_bytes))
+        else:
+            img = Image.open(str(path))
+
+        img.thumbnail(size, Image.LANCZOS)
+        img.save(str(dest), "PNG")
+        return str(dest)
 
     def _extract_pdf_first_page(self, pdf_path: str) -> bytes:
         import fitz  # PyMuPDF
