@@ -325,7 +325,7 @@ const AppShell = (() => {
 
     (tabDefs[tab] || []).forEach(({ id, label, handler }) => {
       const btn = document.createElement('button');
-      btn.className = 'btn-topbar-link';
+      btn.className = 'btn-topbar-link btn-sm';
       btn.id = id;
       btn.textContent = label;
       btn.addEventListener('click', handler);
