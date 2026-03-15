@@ -21,6 +21,8 @@ class LLMSettings(BaseModel):
     api_key: str = ""
     endpoint_url: Optional[str] = None
     model: str = "gpt-4o"
+    short_summary_chars: int = 300  # 短い要約の目安文字数
+    long_summary_chars: int = 2000  # 長い要約の目安文字数
     pdf_page_dpi: int = 96  # PDF等倍画像のDPI（設定画面から変更可能）
     max_fetch_source_count: int = 4 # 最大同時取得ソース件数
     left_panel_width: int = 280  # 左パネル標準幅（px）
@@ -63,7 +65,7 @@ class Source(BaseModel):
     id: str  # "ref-{uuid8}"
     name: str = "新しいソース"
     file_path: Optional[str] = None
-    file_type: Optional[str] = None  # "pdf" | "image" | "text" | None
+    file_type: Optional[str] = None  # "pdf" | "image" | "txt" | "md" | "docx" | "pptx" | "csv" | "xlsx" | "text" | None
     full_text: str = ""
     summary: str = ""
     extended_summary: str = ""  # 構造化詳細サマリー（主張・数値・固有名詞・引用候補）

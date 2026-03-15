@@ -27,6 +27,8 @@ const SettingsTab = (() => {
       document.getElementById('settings-api-key').value = s.api_key || '';
       document.getElementById('settings-endpoint').value = s.endpoint_url || '';
       document.getElementById('settings-model').value = s.model || 'gpt-4o';
+      document.getElementById('settings-short-summary-chars').value = s.short_summary_chars ?? 300;
+      document.getElementById('settings-long-summary-chars').value = s.long_summary_chars ?? 2000;
       document.getElementById('settings-pdf-dpi').value = s.pdf_page_dpi ?? 96;
       document.getElementById('settings-max-fetch-sources').value = s.max_fetch_source_count ?? 4;
       document.getElementById('settings-review-max-comments').value = s.review_max_comments ?? 0;
@@ -72,6 +74,8 @@ const SettingsTab = (() => {
         api_key: document.getElementById('settings-api-key').value.trim(),
         endpoint_url: document.getElementById('settings-endpoint').value.trim() || null,
         model: document.getElementById('settings-model').value.trim() || 'gpt-4o',
+        short_summary_chars: parseInt(document.getElementById('settings-short-summary-chars').value, 10) || 300,
+        long_summary_chars: parseInt(document.getElementById('settings-long-summary-chars').value, 10) || 2000,
         pdf_page_dpi: parseInt(document.getElementById('settings-pdf-dpi').value, 10) || 96,
         max_fetch_source_count: parseInt(document.getElementById('settings-max-fetch-sources').value, 10) || 4,
         review_max_comments: parseInt(document.getElementById('settings-review-max-comments').value, 10) || 0,

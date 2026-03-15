@@ -23,6 +23,26 @@ router = APIRouter(prefix="/api/projects/{project_id}", tags=["sources"])
 _llm_service = LLMService()
 _file_service = FileService()
 
+_LONG_SUMMARY_EXTS = {'.txt', '.md', '.pdf', '.docx', '.pptx'}
+_SHORT_ONLY_EXTS = {'.csv', '.xlsx'}
+
+
+def _should_generate_extended_summary(src: Source) -> bool:
+    """長文の要約を生成するか判別する"""
+    if src.file_type == 'image':
+        return False
+    if src.file_type in {'csv', 'xlsx'}:
+        return False
+    if src.file_type in {'pdf', 'txt', 'md', 'docx', 'pptx', 'text'}:
+        return True
+    if src.file_path:
+        suffix = Path(src.file_path).suffix.lower()
+        if suffix in _SHORT_ONLY_EXTS:
+            return False
+        if suffix in _LONG_SUMMARY_EXTS:
+            return True
+    return True
+
 
 def _not_found(project_id: str):
     raise HTTPException(status_code=404, detail=f"プロジェクトが見つかりません: {project_id}")
@@ -89,11 +109,49 @@ async def read_source_file(
     try:
         text = await _file_service.read_file_as_text(file_path)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"ファイル読み込み失敗: {e}")
+        raise HTTPException(status_code=400, detail=f"??????????????????? {e}")
+
+    suffix = Path(file_path).suffix.lower()
+    file_type = "pdf" if suffix == ".pdf" else (suffix.lstrip(".") or "text")
 
     return await svc.update_source(
-        project_id, source_id, SourceUpdate(full_text=text, file_path=file_path)
+        project_id, source_id, SourceUpdate(full_text=text, file_path=file_path, file_type=file_type)
     )
+
+
+# ─── 要約生成 ────────────────────────────────────────────────
+
+
+@router.post("/sources/{source_id}/summarize", response_model=Source)
+async def summarize_source(project_id: str, source_id: str) -> Source:
+    """LLMを使用してソース全文から要約を生成する（必要なら長い要約も生成）。"""
+    svc = get_service()
+    try:
+        project = await svc.get_project(project_id)
+    except KeyError:
+        _not_found(project_id)
+
+    src = next((s for s in project.sources if s.id == source_id), None)
+    if not src:
+        raise HTTPException(status_code=404, detail="ソースが見つかりません")
+    if not src.full_text:
+        raise HTTPException(status_code=400, detail="全文が登録されていません")
+
+    settings = get_settings_service().get()
+    try:
+        if _should_generate_extended_summary(src):
+            summary, extended_summary = await asyncio.gather(
+                _llm_service.generate_summary(src.full_text, settings),
+                _llm_service.generate_extended_summary(src.full_text, settings),
+            )
+            update = SourceUpdate(summary=summary, extended_summary=extended_summary)
+        else:
+            summary = await _llm_service.generate_summary(src.full_text, settings)
+            update = SourceUpdate(summary=summary)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"要約生成失敗: {e}")
+
+    return await svc.update_source(project_id, source_id, update)
 
 
 @router.post("/sources/{source_id}/analyze-image", response_model=Source)
@@ -147,7 +205,7 @@ async def read_source_file_upload(
     elif suffix in _image_suffixes:
         file_type = "image"
     else:
-        file_type = "text"
+        file_type = suffix.lstrip(".") or "text"
 
     # PDFの場合: サムネイルと等倍画像をディスクに保存
     if file_type == "pdf":
@@ -402,211 +460,23 @@ async def analyze_all_pages_stream(
 
     total = len(page_paths)
     settings = get_settings_service().get()
-    template = _llm_service._load_template("vision_prompts.jinja2")
-    prompt_text = template.module.pdf_transcription_prompt(max_chars)
-
-    async def event_stream():
-        for pg_num, raw_path in page_paths:
-            yield f"data: {json.dumps({'event': 'page_start', 'page': pg_num, 'total': total})}\n\n"
-            try:
-                img_bytes = raw_path.read_bytes()
-                async for chunk in _llm_service.analyze_image_bytes_with_vision_stream(
-                    img_bytes, "image/jpeg", settings, prompt_text
-                ):
-                    yield f"data: {json.dumps({'event': 'chunk', 'page': pg_num, 'text': chunk})}\n\n"
-            except Exception as e:
-                yield f"data: {json.dumps({'event': 'error', 'page': pg_num, 'message': str(e)})}\n\n"
-            yield f"data: {json.dumps({'event': 'page_done', 'page': pg_num})}\n\n"
-        yield "data: [DONE]\n\n"
-
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-# ─── PDFページ選択・解析（ファイルアップロード版） ────────────
-
-
-@router.post("/sources/{source_id}/pdf-thumbnails")
-async def get_pdf_thumbnails(
-    project_id: str, source_id: str, file: UploadFile
-) -> dict:
-    """PDFの各ページをサムネイル画像として返す（base64 JPEG）。"""
-    import fitz  # PyMuPDF
-
-    content = await file.read()
     try:
-        doc = await asyncio.to_thread(fitz.open, stream=content, filetype="pdf")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"PDF解析失敗: {e}")
-
-    def _render_thumbnails(doc):
-        thumbs = []
-        for page_num in range(len(doc)):
-            page = doc.load_page(page_num)
-            pix = page.get_pixmap(dpi=72)
-            img_bytes = pix.tobytes("jpeg")
-            b64 = base64.b64encode(img_bytes).decode()
-            thumbs.append({
-                "page": page_num,
-                "label": f"p.{page_num + 1}",
-                "data": f"data:image/jpeg;base64,{b64}",
-            })
-        doc.close()
-        return thumbs
-
-    thumbnails = await asyncio.to_thread(_render_thumbnails, doc)
-    return {"total": len(thumbnails), "thumbnails": thumbnails}
-
-
-@router.post("/sources/{source_id}/analyze-pdf-pages", response_model=Source)
-async def analyze_pdf_pages(
-    project_id: str,
-    source_id: str,
-    file: UploadFile,
-    pages: str = Form(...),
-) -> Source:
-    """PDFの選択ページをVision APIで解析してfull_textに追記する。"""
-    import fitz  # PyMuPDF
-
-    svc = get_service()
-    try:
-        project = await svc.get_project(project_id)
-    except KeyError:
-        _not_found(project_id)
-
-    page_indices = []
-    for p in pages.split(","):
-        p = p.strip()
-        if p.isdigit():
-            page_indices.append(int(p))
-    if not page_indices:
-        raise HTTPException(status_code=422, detail="ページ番号が必要です")
-
-    content = await file.read()
-
-    def _render_pages(content_bytes, indices):
-        doc = fitz.open(stream=content_bytes, filetype="pdf")
-        results = []
-        for page_num in indices:
-            if page_num >= len(doc):
-                continue
-            page = doc.load_page(page_num)
-            pix = page.get_pixmap(dpi=150)
-            results.append((page_num, pix.tobytes("png")))
-        doc.close()
-        return results
-
-    try:
-        rendered = await asyncio.to_thread(_render_pages, content, page_indices)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"PDFレンダリング失敗: {e}")
-
-    analyses = []
-    for page_num, img_bytes in rendered:
-        try:
-            text = await _llm_service.analyze_image_bytes_with_vision(
-                img_bytes,
-                "image/png",
-                get_settings_service().get(),
-                f"このPDFの{page_num + 1}ページ目の内容を詳しく説明してください。",
+        if _should_generate_extended_summary(src):
+            summary, extended_summary = await asyncio.gather(
+                _llm_service.generate_summary(src.full_text, settings),
+                _llm_service.generate_extended_summary(src.full_text, settings),
             )
-            analyses.append(f"--- {page_num + 1}ページ目 ---\n{text}")
-        except Exception as e:
-            analyses.append(f"--- {page_num + 1}ページ目 ---\n[解析失敗: {e}]")
-
-    src = next((s for s in project.sources if s.id == source_id), None)
-    existing = src.full_text if src else ""
-    separator = "\n\n" if existing else ""
-    new_text = existing + separator + "\n\n".join(analyses)
-
-    return await svc.update_source(
-        project_id, source_id, SourceUpdate(full_text=new_text)
-    )
-
-
-# ─── PDFページ・ストリーミング解析（ファイルアップロード版） ──
-
-
-@router.post("/sources/{source_id}/analyze-pdf-page-stream")
-async def analyze_pdf_page_stream(
-    project_id: str,  # noqa: ARG001
-    source_id: str,
-    file: UploadFile,
-    page: int = Form(...),
-) -> StreamingResponse:
-    """アップロードされたPDFの単一ページをVision APIでストリーミング解析する。"""
-    import fitz  # PyMuPDF
-
-    content = await file.read()
-
-    def _render_page(content_bytes: bytes, page_num: int):
-        doc = fitz.open(stream=content_bytes, filetype="pdf")
-        if page_num >= len(doc):
-            doc.close()
-            return None
-        p = doc.load_page(page_num)
-        pix = p.get_pixmap(dpi=150)
-        img_bytes = pix.tobytes("png")
-        doc.close()
-        return img_bytes
-
-    img_bytes = await asyncio.to_thread(_render_page, content, page)
-    if img_bytes is None:
-        raise HTTPException(status_code=400, detail="ページが見つかりません")
-
-    prompt_text = f"このPDFの{page + 1}ページ目の内容をmarkdown記法を使って詳しく説明してください。"
-
-    async def event_stream():
-        try:
-            async for chunk in _llm_service.analyze_image_bytes_with_vision_stream(
-                img_bytes, "image/png", get_settings_service().get(), prompt_text
-            ):
-                yield f"data: {json.dumps({'text': chunk})}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
-        yield "data: [DONE]\n\n"
-
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-# ─── 要約生成・インデックス化 ───────────────────────────────
-
-
-@router.post("/sources/{source_id}/summarize", response_model=Source)
-async def summarize_source(project_id: str, source_id: str) -> Source:
-    svc = get_service()
-    try:
-        project = await svc.get_project(project_id)
-    except KeyError:
-        _not_found(project_id)
-
-    src_map = {s.id: s for s in project.sources}
-    src = src_map.get(source_id)
-    if not src:
-        raise HTTPException(status_code=404, detail="ソースが見つかりません")
-
-    if not src.full_text:
-        raise HTTPException(status_code=400, detail="全文が登録されていません")
-
-    settings = get_settings_service().get()
-    try:
-        summary, extended_summary = await asyncio.gather(
-            _llm_service.generate_summary(src.full_text, settings),
-            _llm_service.generate_extended_summary(src.full_text, settings),
-        )
+            update = SourceUpdate(summary=summary, extended_summary=extended_summary)
+        else:
+            summary = await _llm_service.generate_summary(src.full_text, settings)
+            update = SourceUpdate(summary=summary, extended_summary="")
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"要約生成失敗: {e}")
+        raise HTTPException(status_code=502, detail=f"??????????? {e}")
 
     updated = await svc.update_source(
-        project_id, source_id, SourceUpdate(summary=summary, extended_summary=extended_summary)
+        project_id, source_id, update
     )
+
     return updated
 
 

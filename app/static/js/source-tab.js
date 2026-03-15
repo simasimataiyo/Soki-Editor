@@ -691,9 +691,18 @@ const SourceTab = (() => {
           </div>
           <div class="collapsible-body${_sectionCollapsed['summary'] ? ' collapsed' : ''}">
             <textarea class="form-control" id="src-summary" rows="5" ${summaryProc ? 'disabled' : ''}>${escHtml(src.summary)}</textarea>
-            <div class="source-actions">
-              <button class="btn btn-secondary btn-sm" id="btn-summarize" ${summaryProc ? 'disabled' : ''}>ソースから要約生成</button>
-            </div>
+          </div>
+
+          <!-- 長い要約 -->
+          <div class="collapsible-header" data-section="extended-summary">
+            <span class="chevron">${_sectionCollapsed['extended-summary'] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
+            <h3>長い要約${summaryProc ? SPINNER : ''}</h3>
+          </div>
+          <div class="collapsible-body${_sectionCollapsed['extended-summary'] ? ' collapsed' : ''}">
+            <textarea class="form-control" id="src-extended-summary" rows="8" ${summaryProc ? 'disabled' : ''}>${escHtml(src.extended_summary)}</textarea>
+          </div>
+          <div class="source-actions">
+            <button class="btn btn-secondary btn-sm" id="btn-summarize" ${summaryProc ? 'disabled' : ''}>要約更新</button>
           </div>
         </div>
 
@@ -969,6 +978,7 @@ const SourceTab = (() => {
       name: src.name,
       full_text: document.getElementById('src-full-text')?.value || '',
       summary: document.getElementById('src-summary')?.value || '',
+      extended_summary: document.getElementById('src-extended-summary')?.value || '',
       bibliography: {
         ...src.bibliography,
         type: bibType,
@@ -1835,6 +1845,31 @@ const SourceTab = (() => {
       dismissToast(loadingToast);
       _stopProcessing(src.id, 'summary');
       showToast('要約の生成に失敗しました', 'error');
+    }
+  }
+
+  /**
+   * LLMを使ってソースの長い要約を生成し、要約フィールドを更新する
+   * @param {object} src - 対象のソースオブジェクト
+   */
+  async function _summarizeExtended(src) {
+    _cancelPendingSave();
+    _startProcessing(src.id, 'summary');  // フィールド無効化 + 再レンダリング
+    const project = window.appState.getProject();
+    const loadingToast = showToast('長い要約生成中...', 'info', { persistent: true, spinner: true });
+    try {
+      const updated = await ApiClient.post(
+        `/api/projects/${project.id}/sources/${src.id}/summarize-extended`
+      );
+      dismissToast(loadingToast);
+      const idx = project.sources.findIndex(s => s.id === src.id);
+      if (idx >= 0) project.sources[idx] = updated;
+      _stopProcessing(src.id, 'summary');  // フィールド有効化 + 再レンダリング（最新データ表示）
+      showToast('長い要約を生成しました', 'success');
+    } catch (_) {
+      dismissToast(loadingToast);
+      _stopProcessing(src.id, 'summary');
+      showToast('長い要約の生成に失敗しました', 'error');
     }
   }
 
