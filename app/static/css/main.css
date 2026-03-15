@@ -410,6 +410,7 @@ body {
 
 .panel-header {
   padding: 8px 16px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -452,7 +453,7 @@ body {
 /* left-panel の border-right は panel-resizer が代替するため不要 */
 .edit-layout .left-panel,
 .two-pane .left-panel {
-  border-right: none;
+  border-right: 1px solid var(--color-border);
 }
 
 /* 中央エリア（エディタ + チャットバー） */
@@ -485,6 +486,7 @@ body {
   width: var(--history-panel-w);
   min-width: 0;
   flex-shrink: 0;
+  border-left: 1px solid var(--color-border);
 }
 
 .chat-history-side.collapsed {
@@ -495,59 +497,25 @@ body {
 
 /* ─── パネルリサイザー（垂直ドラッグ境界線） ──────────────── */
 .panel-resizer {
-  width: 7px;
+  width: 1px;
   cursor: col-resize;
   flex-shrink: 0;
   position: relative;
   z-index: 10;
-  align-items: center;
-  background: var(--color-surface);
-  border-left: 1px solid var(--color-border);
+}
+
+.panel-resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  right: -3px;
 }
 
 .panel-resizer:hover,
 .panel-resizer.dragging {
-  background: var(--color-border-light);
-}
-
-/* チャット履歴境界リサイザー（クリックで折りたたみ） */
-.panel-resizer.history-resizer {
-  cursor: pointer;
-}
-
-.panel-resizer.history-resizer::before {
-  content: "◀";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 9px;
-  color: var(--color-text-light);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 50%;
-  width: 18px;
-  height: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 18px;
-  text-align: center;
-  opacity: 0;
-  transition: opacity var(--duration-standard);
-}
-
-.panel-resizer.history-resizer:hover::before {
-  opacity: 1;
-}
-
-.panel-resizer.history-resizer.collapsed-indicator::before {
-  opacity: 1;
-}
-
-/* 履歴パネルが開いている場合は矢印を反転 */
-.panel-resizer.history-resizer.history-open::before {
-  content: "▶";
+  background: var(--color-text-light);
 }
 
 /* ================================================================
@@ -1253,11 +1221,6 @@ body {
 /* ================================================================
    6. アウトラインパネル
 ================================================================ */
-
-.outline-list {
-  padding: 4px 0;
-}
-
 .outline-item {
   border-bottom: 1px solid var(--color-border-light);
   gap: 4px;
@@ -1760,7 +1723,6 @@ body {
 
 /* ─── チャットバー ───────────────────────────────────────── */
 .chat-bar {
-  border-top: 1px solid var(--color-border);
   background: var(--color-surface);
   display: flex;
   flex-direction: column;
@@ -1769,34 +1731,26 @@ body {
 
 .chat-resize-handle {
   width: 100%;
-  height: 7px;
-  font-size: 0.8rem;
+  /* height: 1px; */
   cursor: ns-resize;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-muted);
-  opacity: 0.7;
-  transition: opacity var(--duration-standard), background var(--duration-standard);
+  position: relative;
+  flex-shrink: 0;
+  background: var(--color-border);
   user-select: none;
 }
 
-.chat-resize-handle:hover {
-  background-color: var(--color-border-light);
+.chat-resize-handle::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -3px;
+  bottom: -3px;
 }
 
-.chat-resize-handle::after {
-  content: "";
-  background-color: var(--color-bg);
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
-  transition: opacity var(--duration-standard);
-  opacity: 0;
-}
-
-.chat-resize-handle:hover::after {
-  background-color: var(--color-border-light);
-  opacity: 1;
+.chat-resize-handle:hover,
+.chat-resize-handle.dragging {
+  background: var(--color-text-light);
 }
 
 .chat-textarea-wrapper {
@@ -2397,9 +2351,6 @@ body {
 }
 
 /* ─── マテリアルタブ ─────────────────────────────────────── */
-#material-list {
-  padding: 4px 0;
-}
 
 #material-list li.material-list-item {
   height: 64px;

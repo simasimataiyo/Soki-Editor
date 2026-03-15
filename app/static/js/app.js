@@ -401,9 +401,7 @@ const AppShell = (() => {
     if (!_historyPanelOpen) {
       _historyPanelOpen = true;
       const sidePanel = document.getElementById('chat-history-side');
-      const resizer = document.getElementById('history-resizer');
       if (sidePanel) sidePanel.classList.remove('collapsed');
-      if (resizer) { resizer.classList.remove('collapsed-indicator'); resizer.classList.add('history-open'); }
       const topBtn = document.getElementById('btn-toggle-history');
       if (topBtn) topBtn.classList.add('active');
     }
@@ -880,13 +878,12 @@ const AppShell = (() => {
       }
     );
 
-    // エディタ ↔ チャット履歴境界（ドラッグでリサイズ、クリックでトグル）
+    // エディタ ↔ チャット履歴境界（ドラッグでリサイズ）
     _setupHorizResizer(
       document.getElementById('history-resizer'),
       document.getElementById('chat-history-side'),
       'left',
       pxVal('--history-panel-min-w'), pxVal('--history-panel-max-w'),
-      /* isHistory */ true,
       (px) => {
         SettingsTab.applyHistoryPanelWidth(px);
         ApiClient.patch('/api/settings', { history_panel_width: px }).catch(() => {});
@@ -936,7 +933,7 @@ const AppShell = (() => {
    * @param {boolean} isHistory - チャット履歴パネル（折りたたみ対応）
    * @param {function(number):void} [onSaveWidth] - ドラッグ完了時に幅(px)を受け取るコールバック
    */
-  function _setupHorizResizer(resizer, panel, side, minW, maxW, isHistory = false, onSaveWidth = null) {
+  function _setupHorizResizer(resizer, panel, side, minW, maxW, onSaveWidth = null) {
     if (!resizer || !panel) return;
 
     let startX = 0;
@@ -967,12 +964,6 @@ const AppShell = (() => {
         }
         newW = Math.max(minW, Math.min(maxW, newW));
 
-        // 折りたたみ状態を解除してリサイズ
-        if (isHistory && panel.classList.contains('collapsed')) {
-          panel.classList.remove('collapsed');
-          resizer.classList.add('history-open');
-          _historyPanelOpen = true;
-        }
         panel.style.width = newW + 'px';
       };
 
@@ -988,10 +979,6 @@ const AppShell = (() => {
           onSaveWidth(parseInt(panel.style.width, 10));
         }
 
-        // クリック（ドラッグなし）ならトグル
-        if (!isDragging && isHistory) {
-          _toggleHistoryPanel();
-        }
       };
 
       document.addEventListener('mousemove', onMove);
@@ -1197,7 +1184,6 @@ const AppShell = (() => {
 
   async function _toggleHistoryPanel() {
     const sidePanel = document.getElementById('chat-history-side');
-    const resizer = document.getElementById('history-resizer');
     const project = window.appState.getProject();
     if (!project) return;
 
@@ -1205,8 +1191,6 @@ const AppShell = (() => {
     const topBtn = document.getElementById('btn-toggle-history');
     if (_historyPanelOpen) {
       sidePanel.classList.remove('collapsed');
-      resizer.classList.remove('collapsed-indicator');
-      resizer.classList.add('history-open');
       if (topBtn) topBtn.classList.add('active');
       // ストリーミング中でなければ最新履歴を取得して描画
       if (!_currentSseCtrl) {
@@ -1214,8 +1198,6 @@ const AppShell = (() => {
       }
     } else {
       sidePanel.classList.add('collapsed');
-      resizer.classList.add('collapsed-indicator');
-      resizer.classList.remove('history-open');
       if (topBtn) topBtn.classList.remove('active');
     }
   }
