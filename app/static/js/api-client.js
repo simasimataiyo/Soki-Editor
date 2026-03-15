@@ -56,6 +56,24 @@ const ApiClient = (() => {
     return res.json();
   }
 
+  async function _fetchText(method, path) {
+    const res = await fetch(BASE + path, {
+      method,
+      headers: { 'X-App-Token': _TOKEN },
+    });
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try {
+        const data = await res.json();
+        detail = data.detail || detail;
+      } catch (_) {}
+      const err = new ApiError(res.status, detail);
+      _handleError(err);
+      throw err;
+    }
+    return res.text();
+  }
+
   function _handleError(err) {
     showToast(err.detail || err.message, 'error');
   }
@@ -156,6 +174,7 @@ const ApiClient = (() => {
 
   return {
     get: (path) => _fetch('GET', path),
+    getText: (path) => _fetchText('GET', path),
     post: (path, body) => _fetch('POST', path, body),
     put: (path, body) => _fetch('PUT', path, body),
     patch: (path, body) => _fetch('PATCH', path, body),

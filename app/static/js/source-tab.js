@@ -7,6 +7,19 @@ const SourceTab = (() => {
   let _activeId = null;
 
   const DEFAULT_SOURCE_NAME = '新しいソース';
+  const _APP_TOKEN = window.__APP_TOKEN__ || '';
+
+  function _authFetch(url, options = {}) {
+    const headers = new Headers(options.headers || {});
+    if (_APP_TOKEN) headers.set('X-App-Token', _APP_TOKEN);
+    return fetch(url, { ...options, headers });
+  }
+
+  function _withApiToken(url) {
+    if (!_APP_TOKEN) return url;
+    const sep = url.includes('?') ? '&' : '?';
+    return `${url}${sep}app_token=${encodeURIComponent(_APP_TOKEN)}`;
+  }
 
   /** ファイル名から拡張子を除いた文字列を返す */
   function _stemName(filename) {
@@ -498,7 +511,7 @@ const SourceTab = (() => {
         // ファイルアップロード
         const formData = new FormData();
         formData.append('file', file);
-        const res = await fetch(
+        const res = await _authFetch(
           `/api/projects/${project.id}/sources/${src.id}/read-file-upload`,
           { method: 'POST', body: formData }
         );
@@ -691,9 +704,18 @@ const SourceTab = (() => {
           </div>
           <div class="collapsible-body${_sectionCollapsed['summary'] ? ' collapsed' : ''}">
             <textarea class="form-control" id="src-summary" rows="5" ${summaryProc ? 'disabled' : ''}>${escHtml(src.summary)}</textarea>
-            <div class="source-actions">
-              <button class="btn btn-secondary btn-sm" id="btn-summarize" ${summaryProc ? 'disabled' : ''}>ソースから要約生成</button>
-            </div>
+          </div>
+
+          <!-- 長い要約 -->
+          <div class="collapsible-header" data-section="extended-summary">
+            <span class="chevron">${_sectionCollapsed['extended-summary'] ? SVG_CHEVRON_RIGHT : SVG_CHEVRON_DOWN}</span>
+            <h3>長い要約${summaryProc ? SPINNER : ''}</h3>
+          </div>
+          <div class="collapsible-body${_sectionCollapsed['extended-summary'] ? ' collapsed' : ''}">
+            <textarea class="form-control" id="src-extended-summary" rows="8" ${summaryProc ? 'disabled' : ''}>${escHtml(src.extended_summary)}</textarea>
+          </div>
+          <div class="source-actions">
+            <button class="btn btn-secondary btn-sm" id="btn-summarize" ${summaryProc ? 'disabled' : ''}>要約更新</button>
           </div>
         </div>
 
@@ -811,7 +833,7 @@ const SourceTab = (() => {
       _startProcessing(src.id, 'fullText');  // 全文フィールド無効化（ブロッキングオーバーレイなし）
       const loadingToast = showToast('ファイルを読み込み中...', 'info', { persistent: true, spinner: true });
       try {
-        const res = await fetch(
+        const res = await _authFetch(
           `/api/projects/${project.id}/sources/${src.id}/read-file-upload`,
           { method: 'POST', body: formData }
         );
@@ -969,6 +991,7 @@ const SourceTab = (() => {
       name: src.name,
       full_text: document.getElementById('src-full-text')?.value || '',
       summary: document.getElementById('src-summary')?.value || '',
+      extended_summary: document.getElementById('src-extended-summary')?.value || '',
       bibliography: {
         ...src.bibliography,
         type: bibType,
@@ -1028,7 +1051,7 @@ const SourceTab = (() => {
       _startProcessing(src.id, 'fullText');
       const loadingToast = showToast('ファイルを読み込み中...', 'info', { persistent: true, spinner: true });
       try {
-        const res = await fetch(`/api/projects/${project.id}/sources/${src.id}/read-file-upload`, {
+        const res = await _authFetch(`/api/projects/${project.id}/sources/${src.id}/read-file-upload`, {
           method: 'POST', body: formData,
         });
         if (!res.ok) {
@@ -1090,7 +1113,7 @@ const SourceTab = (() => {
       const formData = new FormData();
       formData.append('file', file);
       try {
-        const res = await fetch(`/api/projects/${project.id}/sources/${src.id}/analyze-image-upload`, {
+        const res = await _authFetch(`/api/projects/${project.id}/sources/${src.id}/analyze-image-upload`, {
           method: 'POST', body: formData,
         });
         if (!res.ok) { const d = await res.json(); showToast(d.detail || 'エラー', 'error'); return; }
@@ -1118,7 +1141,7 @@ const SourceTab = (() => {
 
     let pageList;
     try {
-      const res = await fetch(`/api/projects/${project.id}/sources/${src.id}/pdf-page-list`);
+      const res = await _authFetch(`/api/projects/${project.id}/sources/${src.id}/pdf-page-list`);
       if (!res.ok) { showToast('サムネイル取得失敗', 'error'); return; }
       pageList = await res.json();
     } catch (_) {
@@ -1134,7 +1157,7 @@ const SourceTab = (() => {
     const thumbnails = pageList.pages.map(p => ({
       page: p.page,
       label: p.label,
-      src: `/api/files?path=${encodeURIComponent(p.thumbnail_path)}&project_id=${project.id}`,
+      src: _withApiToken(`/api/files?path=${encodeURIComponent(p.thumbnail_path)}&project_id=${project.id}`),
     }));
 
     _showPdfAnalysisModal(src, thumbnails, null);
@@ -1153,7 +1176,7 @@ const SourceTab = (() => {
     formData1.append('file', file);
     let thumbnails;
     try {
-      const res = await fetch(
+      const res = await _authFetch(
         `/api/projects/${project.id}/sources/${src.id}/pdf-thumbnails`,
         { method: 'POST', body: formData1 }
       );
@@ -1322,7 +1345,7 @@ const SourceTab = (() => {
           };
         }
 
-        const res = await fetch(streamUrl, streamOptions);
+        const res = await _authFetch(streamUrl, streamOptions);
         if (!res.ok) {
           const errData = await res.json();
           throw new Error(errData.detail || '解析に失敗しました');
@@ -1424,7 +1447,7 @@ const SourceTab = (() => {
           };
         }
 
-        const res = await fetch(streamUrl, streamOptions);
+        const res = await _authFetch(streamUrl, streamOptions);
         if (!res.ok) {
           const errData = await res.json();
           throw new Error(errData.detail || '解析に失敗しました');
@@ -1685,7 +1708,7 @@ const SourceTab = (() => {
       const currentTextEl = modal.querySelector('#batch-current-text');
 
       try {
-        const res = await fetch(
+        const res = await _authFetch(
           `/api/projects/${project.id}/sources/${src.id}/analyze-all-pages-stream`,
           {
             method: 'POST',
@@ -1835,6 +1858,31 @@ const SourceTab = (() => {
       dismissToast(loadingToast);
       _stopProcessing(src.id, 'summary');
       showToast('要約の生成に失敗しました', 'error');
+    }
+  }
+
+  /**
+   * LLMを使ってソースの長い要約を生成し、要約フィールドを更新する
+   * @param {object} src - 対象のソースオブジェクト
+   */
+  async function _summarizeExtended(src) {
+    _cancelPendingSave();
+    _startProcessing(src.id, 'summary');  // フィールド無効化 + 再レンダリング
+    const project = window.appState.getProject();
+    const loadingToast = showToast('長い要約生成中...', 'info', { persistent: true, spinner: true });
+    try {
+      const updated = await ApiClient.post(
+        `/api/projects/${project.id}/sources/${src.id}/summarize-extended`
+      );
+      dismissToast(loadingToast);
+      const idx = project.sources.findIndex(s => s.id === src.id);
+      if (idx >= 0) project.sources[idx] = updated;
+      _stopProcessing(src.id, 'summary');  // フィールド有効化 + 再レンダリング（最新データ表示）
+      showToast('長い要約を生成しました', 'success');
+    } catch (_) {
+      dismissToast(loadingToast);
+      _stopProcessing(src.id, 'summary');
+      showToast('長い要約の生成に失敗しました', 'error');
     }
   }
 
@@ -2112,7 +2160,7 @@ const SourceTab = (() => {
     const project = window.appState.getProject();
     if (!project) return;
     try {
-      const res = await fetch(`/api/projects/${project.id}/sources/export`);
+      const res = await _authFetch(`/api/projects/${project.id}/sources/export`);
       if (!res.ok) { showToast('エクスポートに失敗しました', 'error'); return; }
       const csvText = await res.text();
       // pywebview ネイティブ保存ダイアログ

@@ -56,6 +56,7 @@
   --color-text-muted: #6b7280;
   --color-text-light: #9ca3af;
   --color-text-hover: #2a2a42;
+  --color-hover: var(--color-bg);
 
   --color-white: #ffffff;
   --color-white-opacity-70: rgba(255, 255, 255, 0.7);
@@ -65,6 +66,30 @@
   --color-danger-hover: #e00000;
   --radius: 6px;
   --shadow: 0 1px 4px rgba(0, 0, 0, .1);
+
+  /* タイポスケール (Material Design 3) */
+  --typescale-display-large: 57px;
+  --typescale-display-medium: 45px;
+  --typescale-display-small: 36px;
+  --typescale-headline-large: 32px;
+  --typescale-headline-medium: 28px;
+  --typescale-headline-small: 24px;
+  --typescale-title-large: 22px;
+  --typescale-title-medium: 16px;
+  --typescale-title-small: 14px;
+  --typescale-label-large: 14px;
+  --typescale-label-medium: 12px;
+  --typescale-label-small: 11px;
+  --typescale-body-large: 16px;
+  --typescale-body-medium: 14px;
+  --typescale-body-small: 12px;
+
+  /* アニメーション duration */
+  --duration-fast: 100ms;
+  --duration-standard: 150ms;
+  --duration-medium: 200ms;
+  --duration-slow: 300ms;
+  --duration-loading: 700ms;
 }
 
 /* ─── ベーススタイル ─────────────────────────────────────── */
@@ -72,7 +97,7 @@ html,
 body {
   height: 100%;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 14px;
+  font-size: var(--typescale-body-medium);
   color: var(--color-text);
   background: var(--color-bg);
 }
@@ -157,7 +182,7 @@ body {
 }
 
 .app-title {
-  font-size: 32px;
+  font-size: var(--typescale-headline-large);
   font-weight: 800;
   color: var(--color-text);
 }
@@ -166,11 +191,11 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .projects-heading {
-  font-size: 18px;
+  font-size: var(--typescale-title-large);
   font-weight: 700;
 }
 
@@ -185,7 +210,7 @@ body {
   border-radius: 12px;
   padding: 20px 24px;
   cursor: pointer;
-  transition: border-color .15s, box-shadow .15s;
+  transition: border-color var(--duration-standard), box-shadow var(--duration-standard);
 }
 
 .project-card:hover {
@@ -195,13 +220,13 @@ body {
 
 .project-card-name {
   font-weight: 700;
-  font-size: 16px;
+  font-size: var(--typescale-body-large);
 }
 
 .project-card-date {
-  font-size: 13px;
+  font-size: var(--typescale-body-medium);
   color: var(--color-text-muted);
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 /* ─── エディタ画面レイアウト ─────────────────────────────── */
@@ -249,7 +274,7 @@ body {
   gap: 2px;
   padding: 8px 4px;
   cursor: pointer;
-  transition: background .15s;
+  transition: background var(--duration-standard);
   color: var(--color-text-muted);
   background: none;
   border: none;
@@ -274,7 +299,7 @@ body {
 }
 
 .nav-label {
-  font-size: 11px;
+  font-size: var(--typescale-label-small);
   line-height: 1.2;
   white-space: nowrap;
 }
@@ -293,7 +318,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
+  padding: 0 16px;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
   flex-shrink: 0;
@@ -302,9 +327,9 @@ body {
 .top-bar-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   font-weight: 600;
-  font-size: 15px;
+  font-size: var(--typescale-body-large);
 }
 
 .top-bar-right {
@@ -314,7 +339,7 @@ body {
 }
 
 .char-count-display {
-  font-size: 12px;
+  font-size: var(--typescale-label-medium);
   color: var(--color-text-muted);
   white-space: nowrap;
   margin-left: 8px;
@@ -325,12 +350,12 @@ body {
   background: none;
   border: none;
   color: var(--color-text);
-  font-size: 13px;
+  font-size: var(--typescale-body-medium);
   font-family: inherit;
   cursor: pointer;
   padding: 4px 8px;
   border-radius: var(--radius);
-  transition: background .15s, color .15s;
+  transition: background var(--duration-standard), color var(--duration-standard);
 }
 
 .btn-topbar-link:hover {
@@ -378,12 +403,12 @@ body {
 }
 
 .panel-header {
-  padding: 12px 14px;
+  padding: 8px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   font-weight: 600;
-  font-size: 14px;
+  font-size: var(--typescale-title-small);
   flex-shrink: 0;
 }
 
@@ -497,10 +522,14 @@ body {
   line-height: 18px;
   text-align: center;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--duration-standard);
 }
 
 .panel-resizer.history-resizer:hover::before {
+  opacity: 1;
+}
+
+.panel-resizer.history-resizer.collapsed-indicator::before {
   opacity: 1;
 }
 
@@ -520,11 +549,11 @@ body {
   justify-content: center;
   border: none;
   border-radius: var(--radius);
-  padding: 7px 14px;
-  font-size: 13px;
+  padding: 8px 16px;
+  font-size: var(--typescale-body-medium);
   font-family: inherit;
   cursor: pointer;
-  transition: background .15s, opacity .15s, border-color .15s;
+  transition: background var(--duration-standard), opacity var(--duration-standard), border-color var(--duration-standard);
   white-space: nowrap;
 }
 
@@ -576,7 +605,6 @@ body {
 .btn-danger {
   background: var(--color-danger);
   color: var(--color-white);
-  border-radius: var(--radius);
 }
 
 .btn-danger:hover:not(:disabled) {
@@ -586,7 +614,7 @@ body {
 /* サイズ */
 .btn-sm {
   padding: 4px 8px;
-  font-size: 12px;
+  font-size: var(--typescale-label-medium);
 }
 
 /* アイコンボタン */
@@ -601,7 +629,7 @@ body {
   color: var(--color-text-muted);
   border-radius: 4px;
   cursor: pointer;
-  transition: color 0.15s, background 0.15s;
+  transition: color var(--duration-standard), background var(--duration-standard);
 }
 
 .btn-icon:hover {
@@ -622,15 +650,15 @@ body {
 .panel-buttons {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  padding: 8px 12px;
+  gap: 8px;
+  padding: 8px 16px;
   flex-shrink: 0;
   border-top: 1px solid var(--color-border);
 }
 
 /* detail-pane内ではpadding不要（親コンテナが管理） */
 .detail-pane .panel-buttons {
-  padding: 0 0 12px;
+  padding: 0 0 8px;
   border-top: none;
 }
 
@@ -642,16 +670,16 @@ body {
 /* ─── 新規追加ボタン（左パネル共通） ────────────────────── */
 .btn-add-item {
   display: block;
-  padding: 7px 0;
+  padding: 8px 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-surface);
   color: var(--color-text);
-  font-size: 13px;
+  font-size: var(--typescale-body-medium);
   font-family: inherit;
   cursor: pointer;
   text-align: center;
-  transition: background .15s;
+  transition: background var(--duration-standard);
 }
 
 .btn-add-item:hover {
@@ -659,16 +687,16 @@ body {
 }
 
 .btn-panel-action {
-  padding: 5px 0;
+  padding: 4px 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-surface);
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: var(--typescale-label-medium);
   font-family: inherit;
   cursor: pointer;
   text-align: center;
-  transition: background .15s;
+  transition: background var(--duration-standard);
 }
 
 .btn-panel-action:hover {
@@ -684,7 +712,7 @@ body {
 }
 
 .form-group label {
-  font-size: 12px;
+  font-size: var(--typescale-label-medium);
   font-weight: 600;
   color: var(--color-text-muted);
 }
@@ -692,8 +720,8 @@ body {
 .form-control {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  padding: 8px 10px;
-  font-size: 13px;
+  padding: 8px;
+  font-size: var(--typescale-body-medium);
   font-family: inherit;
   width: 100%;
 }
@@ -705,7 +733,7 @@ body {
 
 .input-with-btn {
   display: flex;
-  gap: 6px;
+  gap: 8px;
 }
 
 .input-with-btn .form-control {
@@ -733,7 +761,7 @@ body {
   inset: 0;
   background: var(--color-border);
   border-radius: 24px;
-  transition: background .2s;
+  transition: background var(--duration-medium);
 }
 
 .toggle-switch .slider::before {
@@ -745,7 +773,7 @@ body {
   bottom: 3px;
   background: #fff;
   border-radius: 50%;
-  transition: transform .2s;
+  transition: transform var(--duration-medium);
 }
 
 .toggle-switch input:checked + .slider {
@@ -770,7 +798,7 @@ body {
 }
 
 .toggle-group label {
-  font-size: 13px;
+  font-size: var(--typescale-body-medium);
   font-weight: 500;
 }
 
@@ -806,7 +834,7 @@ body {
 }
 
 .collapsible-header h3 {
-  font-size: 16px;
+  font-size: var(--typescale-body-large);
   font-weight: 700;
   flex: 1;
   margin: 0;
@@ -835,7 +863,7 @@ body {
 }
 
 .detail-title-bar h2 {
-  font-size: 18px;
+  font-size: var(--typescale-title-large);
   font-weight: 700;
   flex: 1;
   margin: 0;
@@ -863,7 +891,7 @@ body {
 .modal {
   background: var(--color-surface);
   border-radius: 12px;
-  padding: 28px;
+  padding: 32px;
   min-width: 400px;
   max-width: 600px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, .3);
@@ -873,7 +901,7 @@ body {
 }
 
 .modal h3 {
-  font-size: 18px;
+  font-size: var(--typescale-title-large);
   font-weight: 700;
 }
 
@@ -896,8 +924,8 @@ body {
 .modal-back-btn {
   align-self: flex-start;
   color: var(--color-text-muted);
-  font-size: 12px;
-  padding: 3px 6px;
+  font-size: var(--typescale-label-medium);
+  padding: 4px 8px;
   background: none;
   border: none;
   cursor: pointer;
@@ -929,13 +957,13 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px;
+  padding: 8px 16px;
   border-radius: var(--radius);
   background: var(--color-text);
   color: var(--color-white);
-  font-size: 13px;
+  font-size: var(--typescale-body-medium);
   box-shadow: var(--shadow);
-  animation: slide-in .2s ease;
+  animation: slide-in var(--duration-medium) ease;
 }
 
 .toast.error,
@@ -955,14 +983,11 @@ body {
 }
 
 .toast-spinner {
-  display: inline-block;
   width: 12px;
   height: 12px;
   border: 2px solid rgba(255, 255, 255, 0.35);
   border-top-color: var(--color-white);
-  border-radius: 50%;
-  animation: loading-spin 0.7s linear infinite;
-  flex-shrink: 0;
+  animation: loading-spin var(--duration-loading) linear infinite;
 }
 
 /* ─── ローディングオーバーレイ ────────────────────────────── */
@@ -984,12 +1009,11 @@ body {
   height: 40px;
   border: 3px solid var(--color-border);
   border-top-color: var(--color-text);
-  border-radius: 50%;
-  animation: loading-spin 0.8s linear infinite;
+  animation: loading-spin var(--duration-loading) linear infinite;
 }
 
 .loading-message {
-  font-size: 14px;
+  font-size: var(--typescale-body-medium);
   color: var(--color-text);
   font-weight: 500;
 }
@@ -1002,15 +1026,22 @@ body {
 
 /* チャット中スピナー（インライン） */
 .section-spinner {
-  display: inline-block;
   width: 11px;
   height: 11px;
   border: 2px solid var(--color-border);
   border-top-color: var(--color-text);
-  border-radius: 50%;
-  animation: loading-spin 0.7s linear infinite;
+  animation: loading-spin var(--duration-loading) linear infinite;
   vertical-align: middle;
-  margin-left: 6px;
+  margin-left: 8px;
+}
+
+.toast-spinner,
+.loading-spinner,
+.section-spinner,
+.pdf-analysis-spinner {
+  display: inline-block;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 /* ─── チャット中のストリーミングインジケーター ────────────── */
@@ -1026,15 +1057,15 @@ body {
   height: 6px;
   border-radius: 50%;
   background: var(--color-text);
-  animation: bounce .8s infinite;
+  animation: bounce var(--duration-loading) infinite;
 }
 
 .streaming-indicator span:nth-child(2) {
-  animation-delay: .15s;
+  animation-delay: var(--duration-standard);
 }
 
 .streaming-indicator span:nth-child(3) {
-  animation-delay: .3s;
+  animation-delay: var(--duration-slow);
 }
 
 @keyframes bounce {
@@ -1069,7 +1100,7 @@ body {
   display: flex;
   align-items: center;
   cursor: pointer;
-  transition: background .1s;
+  transition: background var(--duration-fast);
   overflow: hidden;
 }
 
@@ -1106,7 +1137,7 @@ body {
 
 .item-list .item-name {
   flex: 1;
-  font-size: 13px;
+  font-size: var(--typescale-body-medium);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1122,14 +1153,14 @@ body {
   cursor: pointer;
   padding: 2px;
   opacity: 0;
-  transition: opacity .15s, color .15s;
+  transition: opacity var(--duration-standard), color var(--duration-standard);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .item-action-btn {
-  font-size: 12px;
+  font-size: var(--typescale-label-medium);
 }
 
 .item-list li:hover .item-delete-btn,
@@ -1168,8 +1199,8 @@ body {
   color: var(--color-text-muted);
   cursor: grab;
   opacity: 0;
-  transition: opacity .15s;
-  font-size: 14px;
+  transition: opacity var(--duration-standard);
+  font-size: var(--typescale-body-medium);
   margin-right: 4px;
 }
 
@@ -1198,7 +1229,7 @@ body {
 
 .outline-item .item-title {
   flex: 1;
-  font-size: 13px;
+  font-size: var(--typescale-body-medium);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1216,36 +1247,17 @@ body {
 
 .outline-item.level-3 {
   padding-left: 42px;
-  font-size: 12px;
+  font-size: var(--typescale-label-medium);
 }
 
 .outline-item.level-4 {
   padding-left: 58px;
-  font-size: 12px;
+  font-size: var(--typescale-label-medium);
 }
 
 .outline-item.level-5 {
   padding-left: 74px;
-  font-size: 11px;
-}
-
-/* ─── アウトライン トグル ────────────────────────────────── */
-.outline-toggle {
-  width: 16px;
-  height: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  flex-shrink: 0;
-  border-radius: 3px;
-  transition: background .1s;
-}
-
-.outline-toggle:hover {
-  background: var(--color-border);
+  font-size: var(--typescale-label-small);
 }
 
 .outline-toggle-spacer {
@@ -1255,8 +1267,8 @@ body {
 
 /* ─── 参考文献トグル（アウトライン下部） ────────────────── */
 .outline-references {
-  padding: 8px 12px;
-  font-size: 13px;
+  padding: 8px 16px;
+  font-size: var(--typescale-body-medium);
   color: var(--color-text-muted);
   display: flex;
   align-items: center;
@@ -1381,7 +1393,7 @@ body {
   flex: 1;
   font-weight: 600;
   color: var(--color-text);
-  font-size: 13px;
+  font-size: var(--typescale-body-medium);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1391,12 +1403,12 @@ body {
   background: none;
   border: none;
   border-radius: 4px;
-  padding: 6px 12px;
+  padding: 8px 16px;
   cursor: pointer;
   color: var(--color-text);
   font-family: inherit;
-  font-size: 14px;
-  transition: background 0.15s;
+  font-size: var(--typescale-body-medium);
+  transition: background var(--duration-standard);
 }
 
 .btn-toolbar:hover {
@@ -1433,7 +1445,7 @@ body {
   border-radius: 4px;
   background: var(--color-surface);
   color: var(--color-text);
-  font-size: 12px;
+  font-size: var(--typescale-label-medium);
   font-family: inherit;
   min-width: 0;
 }
@@ -1457,7 +1469,7 @@ body {
 }
 
 .search-match-count {
-  font-size: 11px;
+  font-size: var(--typescale-label-small);
   color: var(--color-text-light);
   white-space: nowrap;
   min-width: 48px;
@@ -1466,14 +1478,14 @@ body {
 
 .search-nav-btn {
   padding: 4px 8px;
-  font-size: 12px;
+  font-size: var(--typescale-label-medium);
 }
 
 .search-case-label {
   display: flex;
   align-items: center;
-  gap: 3px;
-  font-size: 11px;
+  gap: 4px;
+  font-size: var(--typescale-label-small);
   color: var(--color-text-light);
   cursor: pointer;
   user-select: none;
@@ -1512,7 +1524,7 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--color-text);
-  font-size: 14px;
+  font-size: var(--typescale-body-medium);
 }
 
 /* Tiptap Placeholder */
@@ -1647,7 +1659,7 @@ body {
   cursor: grab;
   color: transparent;
   opacity: 0.5;
-  transition: opacity 0.2s, background-color 0.2s;
+  transition: opacity var(--duration-medium), background-color var(--duration-medium);
 }
 
 .custom-drag-handle:hover {
@@ -1689,14 +1701,14 @@ body {
 }
 
 .references-header h2 {
-  font-size: 15px;
+  font-size: var(--typescale-body-large);
   font-weight: 600;
   color: var(--color-text-muted);
 }
 
 .references-body {
-  padding: 8px 16px 12px;
-  font-size: 13px;
+  padding: 8px 16px;
+  font-size: var(--typescale-body-medium);
   line-height: 1.7;
   color: var(--color-text-muted);
 }
@@ -1729,7 +1741,7 @@ body {
   justify-content: center;
   color: var(--color-text-muted);
   opacity: 0.7;
-  transition: opacity 0.15s, background 0.15s;
+  transition: opacity var(--duration-standard), background var(--duration-standard);
   user-select: none;
 }
 
@@ -1742,7 +1754,7 @@ body {
   background-color: var(--color-bg);
   font-size: 0.75rem;
   color: var(--color-text-muted);
-  transition: opacity 0.15s;
+  transition: opacity var(--duration-standard);
   opacity: 0;
 }
 
@@ -1761,8 +1773,8 @@ body {
   resize: none;
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  padding: 10px 14px;
-  font-size: 14px;
+  padding: 8px 16px;
+  font-size: var(--typescale-body-medium);
   font-family: inherit;
   line-height: 1.5;
   background: var(--color-surface);
@@ -1782,7 +1794,7 @@ body {
 }
 
 .select-sm {
-  font-size: 12px;
+  font-size: var(--typescale-label-medium);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   padding: 4px 8px;
@@ -1793,7 +1805,7 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 13px;
+  font-size: var(--typescale-body-medium);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -1811,7 +1823,7 @@ body {
   justify-content: center;
   border: none;
   cursor: pointer;
-  transition: background .15s;
+  transition: background var(--duration-standard);
   margin-left: auto;
   flex-shrink: 0;
 }
@@ -1829,7 +1841,7 @@ body {
 .btn-send.btn-stop {
   background: var(--color-danger, #e53e3e);
   color: var(--color-white);
-  font-size: 12px;
+  font-size: var(--typescale-label-medium);
 }
 
 .btn-send.btn-stop:hover {
@@ -1865,16 +1877,16 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 10px;
+  padding: 4px 8px;
   border-radius: 6px 6px 0 0;
   border: 1px solid var(--color-border);
   border-bottom: none;
   background: var(--color-bg);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--typescale-label-medium);
   white-space: nowrap;
   color: var(--color-text-muted);
-  transition: background .1s;
+  transition: background var(--duration-fast);
 }
 
 .chat-history-tab.active {
@@ -1892,7 +1904,7 @@ body {
   border: none;
   color: var(--color-text-muted);
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--typescale-label-small);
   padding: 0 2px;
   line-height: 1;
   border-radius: 2px;
@@ -1915,7 +1927,7 @@ body {
   color: var(--color-text-muted);
   text-align: center;
   padding: 16px;
-  font-size: 12px;
+  font-size: var(--typescale-label-medium);
   margin: 0;
 }
 
@@ -1928,9 +1940,9 @@ body {
 
 /* ─── チャット履歴メッセージ ─────────────────────────────── */
 .chat-history-msg {
-  padding: 10px 12px;
+  padding: 8px 16px;
   border-radius: var(--radius);
-  font-size: 13px;
+  font-size: var(--typescale-body-medium);
   line-height: 1.5;
   width: 85%;
   user-select: text;
@@ -1955,12 +1967,12 @@ body {
 }
 
 .chat-history-msg-role {
-  font-size: 11px;
+  font-size: var(--typescale-label-small);
   font-weight: 600;
   margin-bottom: 4px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .chat-history-msg-role.user {
@@ -1982,9 +1994,9 @@ body {
 }
 
 .chat-history-msg-time {
-  font-size: 11px;
+  font-size: var(--typescale-label-small);
   color: var(--color-text-muted);
-  margin-top: 6px;
+  margin-top: 8px;
   text-align: right;
 }
 
@@ -2000,7 +2012,7 @@ body {
 }
 
 .chat-history-panel-title {
-  font-size: 12px;
+  font-size: var(--typescale-label-medium);
   font-weight: 600;
   color: var(--color-text-muted);
   letter-spacing: 0.03em;
@@ -2019,11 +2031,11 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 3px;
+  padding: 4px;
   border-radius: 4px;
   color: var(--color-text-muted);
   opacity: 0;
-  transition: opacity 0.15s, color 0.15s;
+  transition: opacity var(--duration-standard), color var(--duration-standard);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -2057,7 +2069,7 @@ body {
 
 /* ─── レビュー結果カード ─────────────────────────────────── */
 .chat-history-msg-label {
-  font-size: 11px;
+  font-size: var(--typescale-label-small);
   font-weight: 600;
   color: var(--color-text-muted);
   text-transform: uppercase;
@@ -2072,7 +2084,7 @@ body {
 }
 
 .review-result-empty {
-  font-size: 13px;
+  font-size: var(--typescale-body-medium);
   color: var(--color-text-muted);
   padding: 4px 0;
 }
@@ -2096,7 +2108,7 @@ body {
 }
 
 .review-comment-section {
-  font-size: 12px;
+  font-size: var(--typescale-label-medium);
   font-weight: 600;
   color: var(--color-text);
   flex: 1;
@@ -2109,8 +2121,8 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 8px;
-  font-size: 11px;
+  padding: 4px 8px;
+  font-size: var(--typescale-label-small);
   border-radius: 4px;
   opacity: 1;
   white-space: nowrap;
@@ -2120,12 +2132,12 @@ body {
 }
 
 .review-copy-btn span {
-  font-size: 11px;
+  font-size: var(--typescale-label-small);
 }
 
 .review-comment-problem,
 .review-comment-suggestion {
-  font-size: 12px;
+  font-size: var(--typescale-label-medium);
   color: var(--color-text);
   line-height: 1.5;
   white-space: pre-wrap;
@@ -2134,11 +2146,11 @@ body {
 
 .review-comment-label {
   display: inline-block;
-  font-size: 10px;
+  font-size: var(--typescale-label-small);
   font-weight: 700;
-  padding: 1px 5px;
+  padding: 1px 4px;
   border-radius: 3px;
-  margin-right: 6px;
+  margin-right: 8px;
   vertical-align: middle;
 }
 
@@ -2166,8 +2178,8 @@ body {
 }
 
 .chat-history-msg-meta-item {
-  font-size: 11px;
-  padding: 2px 6px;
+  font-size: var(--typescale-label-small);
+  padding: 2px 8px;
   border-radius: 3px;
   background: rgba(0,0,0,0.08);
   color: var(--color-text-muted);
@@ -2236,9 +2248,9 @@ body {
   overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  padding: 12px;
-  gap: 10px;
-  transition: border-color .15s, background .15s;
+  padding: 16px;
+  gap: 8px;
+  transition: border-color var(--duration-standard), background var(--duration-standard);
 }
 
 .material-card:hover {
@@ -2257,7 +2269,7 @@ body {
 }
 
 .material-card-name {
-  font-size: 13px;
+  font-size: var(--typescale-body-medium);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2265,7 +2277,7 @@ body {
 }
 
 .material-card-desc {
-  font-size: 11px;
+  font-size: var(--typescale-label-small);
   color: var(--color-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2350,7 +2362,7 @@ body {
   gap: 4px;
   padding: 0 10px;
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--typescale-body-medium);
 }
 
 .rule-tree-category.active {
@@ -2366,28 +2378,10 @@ body {
   border-bottom: 1px solid var(--color-border-light);
   gap: 4px;
   padding: 0 10px;
-  font-size: 12px;
+  font-size: var(--typescale-label-medium);
   color: var(--color-text-muted);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.rule-tree-toggle {
-  width: 16px;
-  height: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  flex-shrink: 0;
-  border-radius: 3px;
-  transition: background .1s;
-}
-
-.rule-tree-toggle:hover {
-  background: var(--color-border);
 }
 
 .rule-tree-category.active .rule-tree-toggle {
@@ -2432,7 +2426,7 @@ body {
 }
 
 .rule-category-header h3 {
-  font-size: 16px;
+  font-size: var(--typescale-body-large);
   font-weight: 700;
   flex: 1;
   margin: 0;
@@ -2443,7 +2437,7 @@ body {
   gap: 4px;
   flex-shrink: 0;
   opacity: 0;
-  transition: opacity .15s;
+  transition: opacity var(--duration-standard);
 }
 
 .rule-category-section:hover .rule-category-header .header-actions {
@@ -2477,7 +2471,7 @@ body {
 
 .rule-card .rule-text {
   flex: 1;
-  font-size: 13px;
+  font-size: var(--typescale-body-medium);
   line-height: 1.6;
   cursor: text;
 }
@@ -2493,13 +2487,41 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 10px;
+  padding: 2px 8px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  font-size: 12px;
+  font-size: var(--typescale-label-medium);
   background: var(--color-surface);
   color: var(--color-text-muted);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+}
+
+/* ─── ルールタブ: sticky footer レイアウト ──────────────────── */
+.rule-detail-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.rule-scroll-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px;
+  min-height: 0;
+}
+
+.rule-sticky-footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 8px 16px;
+  flex-shrink: 0;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.rule-sticky-footer .btn-add-item {
+  grid-column: 1 / -1;
 }
 
 /* ─── 設定タブ ───────────────────────────────────────────── */
@@ -2511,7 +2533,7 @@ body {
 
 .settings-container h2 {
   margin-bottom: 24px;
-  font-size: 20px;
+  font-size: var(--typescale-title-large);
 }
 
 .settings-form {
@@ -2601,10 +2623,10 @@ body {
 
 .file-browser-path {
   flex: 1;
-  font-size: 12px;
+  font-size: var(--typescale-label-medium);
   color: var(--color-text-muted);
   word-break: break-all;
-  padding: 6px 10px;
+  padding: 8px;
   background: var(--color-bg);
   border-radius: var(--radius);
   border: 1px solid var(--color-border);
@@ -2620,12 +2642,12 @@ body {
 }
 
 .file-browser-item {
-  padding: 7px 12px;
+  padding: 8px 16px;
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--typescale-body-medium);
   border-bottom: 1px solid var(--color-bg);
 }
 
@@ -2661,7 +2683,7 @@ body {
 
 .pdf-modal-header h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--typescale-title-large);
   font-weight: 700;
 }
 
@@ -2685,9 +2707,9 @@ body {
 .pdf-analysis-progress {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   color: var(--color-text-muted);
-  font-size: 13px;
+  font-size: var(--typescale-body-medium);
   margin: 8px 0;
 }
 
@@ -2696,9 +2718,7 @@ body {
   height: 18px;
   border: 2px solid var(--color-border);
   border-top-color: var(--color-text);
-  border-radius: 50%;
-  animation: pdf-spin .6s linear infinite;
-  flex-shrink: 0;
+  animation: pdf-spin var(--duration-loading) linear infinite;
 }
 
 @keyframes pdf-spin {
@@ -2710,12 +2730,12 @@ body {
 .pdf-analysis-result {
   height:400px;
   margin-top: 8px;
-  padding: 12px;
+  padding: 16px;
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   overflow-y: auto;
-  font-size: 13px;
+  font-size: var(--typescale-body-medium);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
@@ -2740,7 +2760,7 @@ body {
   border: 2px solid transparent;
   border-radius: 6px;
   padding: 4px;
-  transition: border-color .15s, background .15s;
+  transition: border-color var(--duration-standard), background var(--duration-standard);
 }
 
 .pdf-page-thumb.selected,
@@ -2762,12 +2782,13 @@ body {
 }
 
 .pdf-page-label {
-  font-size: 11px;
+  font-size: var(--typescale-label-small);
   color: var(--color-text-muted);
 }
 
 /* ─── オートコンプリートポップアップ ─────────────────────── */
-.autocomplete-popup {
+.autocomplete-popup,
+.command-hint-popup {
   position: fixed;
   z-index: 1500;
   background: var(--color-surface);
@@ -2776,6 +2797,9 @@ body {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   max-height: 240px;
   overflow-y: auto;
+}
+
+.autocomplete-popup {
   min-width: 280px;
 }
 
@@ -2783,9 +2807,9 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 12px;
+  padding: 8px 16px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--typescale-body-medium);
   line-height: 1.4;
 }
 
@@ -2809,7 +2833,7 @@ body {
   width: 20px;
   height: 20px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: var(--typescale-label-small);
   font-weight: 600;
   flex-shrink: 0;
 }
@@ -2833,21 +2857,13 @@ body {
 
 .ac-id {
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--typescale-label-small);
   font-family: monospace;
   flex-shrink: 0;
 }
 
 /* ─── コマンドヒントポップアップ ─────────────────────────── */
 .command-hint-popup {
-  position: fixed;
-  z-index: 1500;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-  max-height: 240px;
-  overflow-y: auto;
   min-width: 240px;
   padding: 4px 0;
 }
@@ -2856,9 +2872,9 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 12px;
+  padding: 8px 16px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--typescale-body-medium);
 }
 
 .cmd-hint-item:hover,
@@ -2874,7 +2890,7 @@ body {
 
 .cmd-hint-desc {
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: var(--typescale-label-medium);
 }
 
 /* ─── バブルプロンプト ───────────────────────── */
@@ -2901,8 +2917,8 @@ body {
   width: 100%;
   border: 1px solid var(--color-border);
   border-radius: 6px;
-  padding: 7px 10px;
-  font-size: 13px;
+  padding: 8px;
+  font-size: var(--typescale-body-medium);
   font-family: inherit;
   resize: none;
   outline: none;
@@ -2910,7 +2926,6 @@ body {
   min-height: 56px;
   background: var(--color-primary-pale);
   color: var(--color-text);
-  box-sizing: border-box;
 }
 
 .bubble-prompt-textarea:focus {
@@ -2925,14 +2940,14 @@ body {
 }
 
 .bubble-prompt-hint {
-  font-size: 11px;
+  font-size: var(--typescale-label-small);
   color: var(--color-text-muted);
   flex: 1;
 }
 
 .bubble-prompt-selection-badge,
 .chat-selection-badge {
-  font-size: 11px;
+  font-size: var(--typescale-label-small);
   color: var(--color-primary, #4a90d9);
   background: var(--color-primary-pale, rgba(74, 144, 217, 0.1));
   border: 1px solid var(--color-primary, #4a90d9);
@@ -2992,10 +3007,9 @@ body {
 }
 
 /* ─── 図表番号インラインバッジ ───────────────────────────── */
-.figure-ref-badge {
+.figure-ref-badge,
+.reference-ref-badge {
   display: inline-block;
-  background: #fce8e6;
-  color: #c0392b;
   border-radius: 3px;
   padding: 0 4px;
   font-size: 0.85em;
@@ -3006,17 +3020,14 @@ body {
 }
 
 /* ─── 文献番号インラインバッジ ───────────────────────────── */
+.figure-ref-badge {
+  background: #fce8e6;
+  color: #c0392b;
+}
+
 .reference-ref-badge {
-  display: inline-block;
   background: #e8f0fe;
   color: #1a56c4;
-  border-radius: 3px;
-  padding: 0 4px;
-  font-size: 0.85em;
-  font-weight: 600;
-  cursor: default;
-  user-select: none;
-  vertical-align: baseline;
 }
 
 /* ─── 図表ブロックノード ─────────────────────────────────── */
@@ -3051,7 +3062,7 @@ body {
   border-radius: 4px;
   cursor: grab;
   opacity: 0;
-  transition: opacity 0.2s, background-color 0.2s;
+  transition: opacity var(--duration-medium), background-color var(--duration-medium);
 }
 
 .figure-block-drag-handle:hover {
@@ -3106,10 +3117,10 @@ body {
 .table-preview {
   border: 1px solid var(--color-border, #e0e0e0);
   border-radius: 4px;
-  padding: 8px 12px;
+  padding: 8px 16px;
   min-height: 60px;
   overflow-x: auto;
-  font-size: 13px;
+  font-size: var(--typescale-body-medium);
   margin-top: 4px;
 }
 
@@ -3132,21 +3143,20 @@ body {
 
 /* ─── 検索バー ──────────────────────────────────────────────── */
 .panel-search-bar {
-  padding: 6px 10px;
+  padding: 8px;
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 .panel-search-input {
   width: 100%;
-  box-sizing: border-box;
-  padding: 5px 8px;
-  font-size: 12px;
+  padding: 4px 8px;
+  font-size: var(--typescale-label-medium);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   background: var(--color-bg);
   color: var(--color-text);
   outline: none;
-  transition: border-color .15s;
+  transition: border-color var(--duration-standard);
 }
 .panel-search-input:focus { border-color: var(--color-text); }
 
@@ -3155,8 +3165,8 @@ body {
 .material-group-header {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 14px;
+  gap: 4px;
+  padding: 4px 16px;
   cursor: pointer;
   user-select: none;
   border-bottom: 1px solid var(--color-border);
@@ -3173,7 +3183,7 @@ body {
 }
 .source-group-header .group-label,
 .material-group-header .group-label {
-  font-size: 11px;
+  font-size: var(--typescale-label-small);
   font-weight: 600;
   color: var(--color-text-muted);
   text-transform: uppercase;
@@ -3182,11 +3192,31 @@ body {
 }
 .source-group-header .group-count,
 .material-group-header .group-count {
-  font-size: 11px;
+  font-size: var(--typescale-label-small);
   color: var(--color-text-muted);
   background: var(--color-border);
   border-radius: 8px;
-  padding: 1px 6px;
+  padding: 1px 8px;
+}
+
+.outline-toggle,
+.rule-tree-toggle {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--typescale-body-medium);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 3px;
+  transition: background var(--duration-fast);
+}
+
+.outline-toggle:hover,
+.rule-tree-toggle:hover {
+  background: var(--color-border);
 }
 
 /* ─── ドラッグハンドル ──────────────────────────────────────── */
@@ -3195,8 +3225,8 @@ body {
   color: var(--color-text-muted);
   cursor: grab;
   opacity: 0;
-  transition: opacity .15s;
-  font-size: 13px;
+  transition: opacity var(--duration-standard);
+  font-size: var(--typescale-body-medium);
   flex-shrink: 0;
   padding: 2px;
   line-height: 1;
@@ -3224,8 +3254,8 @@ body {
 .source-auto-processing {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  font-size: 10px;
+  gap: 4px;
+  font-size: var(--typescale-label-small);
   color: var(--color-text-muted);
   flex-shrink: 0;
   white-space: nowrap;

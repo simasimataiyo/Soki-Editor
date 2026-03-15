@@ -72,7 +72,7 @@ async def open_project_upload(file: UploadFile) -> Project:
     content = await file.read()
     save_dir = Path.home() / "soki-projects"
     save_dir.mkdir(parents=True, exist_ok=True)
-    filename = file.filename or "project.json"
+    filename = Path(file.filename or "project.json").name or "project.json"
     save_path = save_dir / filename
     save_path.write_bytes(content)
 

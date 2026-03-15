@@ -4,6 +4,19 @@
 
 const MaterialTab = (() => {
   const DEFAULT_MATERIAL_NAME = '新しいマテリアル';
+  const _APP_TOKEN = window.__APP_TOKEN__ || '';
+
+  function _authFetch(url, options = {}) {
+    const headers = new Headers(options.headers || {});
+    if (_APP_TOKEN) headers.set('X-App-Token', _APP_TOKEN);
+    return fetch(url, { ...options, headers });
+  }
+
+  function _withApiToken(url) {
+    if (!_APP_TOKEN) return url;
+    const sep = url.includes('?') ? '&' : '?';
+    return `${url}${sep}app_token=${encodeURIComponent(_APP_TOKEN)}`;
+  }
 
   let _project = null;
   let _activeId = null;
@@ -113,7 +126,7 @@ const MaterialTab = (() => {
     li.draggable = true;
 
     const imgSrc = mat.thumbnail_path
-      ? `/api/files?path=${encodeURIComponent(mat.thumbnail_path)}&project_id=${_project.id}`
+      ? _withApiToken(`/api/files?path=${encodeURIComponent(mat.thumbnail_path)}&project_id=${_project.id}`)
       : '';
     li.innerHTML = `
       <span class="material-drag-handle" title="ドラッグして並べ替え">⠿</span>
@@ -245,7 +258,7 @@ const MaterialTab = (() => {
     if (!mat) return;
     const pane = document.getElementById('material-detail');
     const imgSrc = mat.thumbnail_path
-      ? `/api/files?path=${encodeURIComponent(mat.thumbnail_path)}&project_id=${_project.id}`
+      ? _withApiToken(`/api/files?path=${encodeURIComponent(mat.thumbnail_path)}&project_id=${_project.id}`)
       : '';
 
     pane.innerHTML = `
@@ -371,7 +384,7 @@ const MaterialTab = (() => {
       const formData = new FormData();
       formData.append('file', file);
       try {
-        const res = await fetch(`/api/projects/${project.id}/materials/${mat.id}/upload`, {
+        const res = await _authFetch(`/api/projects/${project.id}/materials/${mat.id}/upload`, {
           method: 'POST', body: formData,
         });
         if (!res.ok) { showToast('アップロード失敗', 'error'); return; }
@@ -582,7 +595,7 @@ const MaterialTab = (() => {
       const formData = new FormData();
       formData.append('file', file);
       try {
-        const res = await fetch(`/api/projects/${project.id}/materials/${mat.id}/upload`, {
+        const res = await _authFetch(`/api/projects/${project.id}/materials/${mat.id}/upload`, {
           method: 'POST', body: formData,
         });
         let updated = await res.json();

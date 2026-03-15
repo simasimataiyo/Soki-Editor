@@ -366,3 +366,6 @@ git-filter-repo
 global_settings.json
 app/static/js/tiptap-bundle.js
 .vscode/
+.codex/
+AGENTS.md
+tests/

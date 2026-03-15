@@ -294,31 +294,18 @@
           <!-- Rule タブ -->
           <div class="tab-pane" id="tab-rule">
             <div class="two-pane">
-              <!-- <aside class="left-panel" id="rule-panel">
+              <div class="detail-pane rule-detail-pane" id="rule-detail">
                 <div class="panel-header">
                   <span>Rules</span>
                 </div>
-                <button class="btn-add-item" id="btn-add-rule-from-panel">新規追加</button>
-                <div class="panel-import-export-row">
+                <div class="rule-scroll-area">
+                  <div class="rule-all-view" id="rule-all-view"></div>
+                </div>
+                <div class="rule-sticky-footer">
+                  <button class="btn-add-item" id="btn-add-rule-from-panel">新規追加</button>
                   <button class="btn-panel-action" id="btn-rule-import">CSVインポート</button>
                   <button class="btn-panel-action" id="btn-rule-export">CSVエクスポート</button>
                 </div>
-                <ul class="rule-tree" id="category-list"></ul>
-              </aside> -->
-              <div class="panel-resizer" id="rule-resizer"></div>
-              <div class="detail-pane" id="rule-detail">
-                <div class="panel-header">
-                  <span>Rules</span>
-                </div>
-                <div class="settings-container">
-                  <div class="panel-buttons">
-                    <button class="btn-add-item" id="btn-add-rule-from-panel">新規追加</button>
-                    <button class="btn-panel-action" id="btn-rule-import">CSVインポート</button>
-                    <button class="btn-panel-action" id="btn-rule-export">CSVエクスポート</button>
-                  </div>
-                  <div class="rule-all-view" id="rule-all-view"></div>
-                </div>
-                
               </div>
             </div>
           </div>
@@ -370,6 +357,17 @@
                       <label for="settings-max-fetch-sources">最大同時取得ソース件数</label>
                       <input type="number" id="settings-max-fetch-sources" class="form-control" placeholder="4" min="1"
                         max="20" style="max-width:120px" />
+                    </div>
+                    <h3>要約</h3>
+                    <div class="form-group">
+                      <label for="settings-short-summary-chars">短い要約の文字数</label>
+                      <input type="number" id="settings-short-summary-chars" class="form-control" placeholder="300" min="50"
+                        max="2000" style="max-width:140px" />
+                    </div>
+                    <div class="form-group">
+                      <label for="settings-long-summary-chars">長い要約の文字数</label>
+                      <input type="number" id="settings-long-summary-chars" class="form-control" placeholder="2000" min="200"
+                        max="10000" style="max-width:140px" />
                     </div>
                     <div class="form-group">
                       <label for="settings-pdf-dpi">PDF 等倍画像 DPI</label>

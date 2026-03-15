@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import re
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -63,6 +64,25 @@ class ProjectService:
     # プロジェクト CRUD
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # v3 パスヘルパー
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _project_dir(project: Project) -> Path:
+        """project.json の親ディレクトリを返す"""
+        return Path(project.json_file_path).parent
+
+    @staticmethod
+    def _source_metadata_dir(project: Project, source_id: str) -> Path:
+        """metadata/sources/{source_id}/ ディレクトリパスを返す"""
+        return Path(project.json_file_path).parent / "metadata" / "sources" / source_id
+
+    @staticmethod
+    def _material_metadata_dir(project: Project, mat_id: str) -> Path:
+        """metadata/materials/{mat_id}/ ディレクトリパスを返す"""
+        return Path(project.json_file_path).parent / "metadata" / "materials" / mat_id
+
     async def create_project(
         self, name: str, json_file_path: str, data_dir: str
     ) -> Project:
@@ -75,7 +95,15 @@ class ProjectService:
             updated_at=now,
             json_file_path=json_file_path,
             data_dir=data_dir,
+            format_version=3,
         )
+        # v3 ディレクトリ構造を作成
+        project_dir = Path(json_file_path).parent
+        project_dir.mkdir(parents=True, exist_ok=True)
+        (project_dir / "sources").mkdir(exist_ok=True)
+        (project_dir / "materials").mkdir(exist_ok=True)
+        (project_dir / "metadata" / "sources").mkdir(parents=True, exist_ok=True)
+        (project_dir / "metadata" / "materials").mkdir(parents=True, exist_ok=True)
         self._projects[project_id] = project
         self._dirty[project_id] = True
         await self._update_registry(project_id, json_file_path)
@@ -93,7 +121,6 @@ class ProjectService:
             all_messages = []
             for scope, msgs in data["chat_history"].items():
                 all_messages.extend(msgs)
-            # timestamp が文字列の場合があるので注意（ソート可能か）
             all_messages.sort(key=lambda m: m.get("timestamp", ""))
             data["chat_history"] = all_messages
         # ------------------------------------------
@@ -109,9 +136,14 @@ class ProjectService:
             path = new_path
         # -----------------------------------------------
 
-        # v2: 分割ファイルからデータを読み込む
-        if data.get("format_version", 1) >= 2:
-            self._load_v2_split_files(path, data)
+        # --- Migration: v2 -> v3 (metadata/ 集約形式) ---
+        if data.get("format_version", 1) < 3:
+            await self._migrate_v2_to_v3(path, data)
+            data = json.loads(path.read_text(encoding="utf-8"))
+        # -----------------------------------------------
+
+        # v3: metadata/ からデータを読み込む
+        self._load_v3_split_files(path, data)
 
         project_id = data.get("id")
         # すでにメモリ上にある場合はそのまま返す（ダーティな変更を保持）
@@ -160,6 +192,56 @@ class ProjectService:
             for mat_id in material_ids:
                 meta_path = materials_dir / f"{mat_id}.meta.json"
                 if not meta_path.exists():
+                    continue
+                mat_data = json.loads(meta_path.read_text(encoding="utf-8"))
+                loaded_materials.append(mat_data)
+            data["materials"] = loaded_materials
+
+        # chat_edit.jsonl
+        chat_path = project_dir / "chat_edit.jsonl"
+        if chat_path.exists():
+            lines = chat_path.read_text(encoding="utf-8").splitlines()
+            data["chat_history"] = [json.loads(line) for line in lines if line.strip()]
+        else:
+            data.setdefault("chat_history", [])
+
+    @staticmethod
+    def _load_v3_split_files(project_json_path: Path, data: dict) -> None:
+        """v3 フォーマット: metadata/ からソース・マテリアルデータをロードする。"""
+        project_dir = project_json_path.parent
+
+        # content.md
+        content_path = project_dir / "content.md"
+        if content_path.exists():
+            data["content"] = content_path.read_text(encoding="utf-8")
+        else:
+            data.setdefault("content", "")
+
+        # sources: metadata/sources/ を走査
+        source_ids: list[str] = data.get("sources", [])
+        loaded_sources = []
+        if source_ids and isinstance(source_ids[0], str):
+            meta_sources_dir = project_dir / "metadata" / "sources"
+            for src_id in source_ids:
+                meta_path = meta_sources_dir / src_id / f"{src_id}.meta.json"
+                if not meta_path.exists():
+                    logger.warning("v3: ソースメタデータが見つかりません: %s (スキップ)", src_id)
+                    continue
+                src_data = json.loads(meta_path.read_text(encoding="utf-8"))
+                txt_path = meta_sources_dir / src_id / f"{src_id}.txt"
+                src_data["full_text"] = txt_path.read_text(encoding="utf-8") if txt_path.exists() else ""
+                loaded_sources.append(src_data)
+            data["sources"] = loaded_sources
+
+        # materials: metadata/materials/ を走査
+        material_ids: list[str] = data.get("materials", [])
+        loaded_materials = []
+        if material_ids and isinstance(material_ids[0], str):
+            meta_materials_dir = project_dir / "metadata" / "materials"
+            for mat_id in material_ids:
+                meta_path = meta_materials_dir / mat_id / f"{mat_id}.meta.json"
+                if not meta_path.exists():
+                    logger.warning("v3: マテリアルメタデータが見つかりません: %s (スキップ)", mat_id)
                     continue
                 mat_data = json.loads(meta_path.read_text(encoding="utf-8"))
                 loaded_materials.append(mat_data)
@@ -244,6 +326,100 @@ class ProjectService:
         logger.info("旧 JSON をバックアップ: %s", bak_path)
 
         return new_json_path
+
+    async def _migrate_v2_to_v3(self, project_json_path: Path, data: dict) -> None:
+        """v2 形式を v3 形式に移行する。バックアップを作成し失敗時は例外を送出する。
+
+        Raises:
+            RuntimeError — 移行失敗時（バックアップは保持される）
+        """
+        project_dir = project_json_path.parent
+        logger.info("v2→v3 マイグレーション開始: %s", project_dir)
+
+        # バックアップ作成
+        bak_path = project_json_path.with_suffix(".json.bak")
+        shutil.copy2(str(project_json_path), str(bak_path))
+
+        try:
+            data_dir = Path(data.get("data_dir", str(project_dir / "data")))
+            source_ids: list[str] = data.get("sources", [])
+            material_ids: list[str] = data.get("materials", [])
+
+            # metadata/ ディレクトリ構造を作成
+            (project_dir / "metadata" / "sources").mkdir(parents=True, exist_ok=True)
+            (project_dir / "metadata" / "materials").mkdir(parents=True, exist_ok=True)
+            (project_dir / "sources").mkdir(exist_ok=True)
+
+            # ソースの移行
+            sources_dir = project_dir / "sources"
+            for src_id in source_ids:
+                src_meta_dir = project_dir / "metadata" / "sources" / src_id
+                src_meta_dir.mkdir(parents=True, exist_ok=True)
+
+                # meta.json: sources/{id}.meta.json → metadata/sources/{id}/{id}.meta.json
+                old_meta = sources_dir / f"{src_id}.meta.json"
+                new_meta = src_meta_dir / f"{src_id}.meta.json"
+                if old_meta.exists() and not new_meta.exists():
+                    shutil.move(str(old_meta), str(new_meta))
+
+                # txt: sources/{id}.txt → metadata/sources/{id}/{id}.txt
+                old_txt = sources_dir / f"{src_id}.txt"
+                new_txt = src_meta_dir / f"{src_id}.txt"
+                if old_txt.exists() and not new_txt.exists():
+                    shutil.move(str(old_txt), str(new_txt))
+
+                # 元ファイル: data/source/{id}/{filename} → sources/{id}_{filename}
+                old_src_dir = data_dir / "source" / src_id
+                if old_src_dir.exists():
+                    page_dir = src_meta_dir / "page"
+                    page_dir.mkdir(exist_ok=True)
+                    for f in old_src_dir.iterdir():
+                        if not f.is_file():
+                            continue
+                        if f.name.startswith("page_raw_"):
+                            dest = page_dir / f.name
+                            if not dest.exists():
+                                shutil.move(str(f), str(dest))
+                        else:
+                            dest = sources_dir / f"{src_id}_{f.name}"
+                            if not dest.exists():
+                                shutil.move(str(f), str(dest))
+
+                # サムネイル: data/thumbnails/{id}/ → metadata/sources/{id}/thumbnails/
+                old_thumb_dir = data_dir / "thumbnails" / src_id
+                if old_thumb_dir.exists():
+                    new_thumb_dir = src_meta_dir / "thumbnails"
+                    if not new_thumb_dir.exists():
+                        shutil.move(str(old_thumb_dir), str(new_thumb_dir))
+
+            # マテリアルの移行
+            materials_dir = project_dir / "materials"
+            for mat_id in material_ids:
+                mat_meta_dir = project_dir / "metadata" / "materials" / mat_id
+                mat_meta_dir.mkdir(parents=True, exist_ok=True)
+
+                # meta.json: materials/{id}.meta.json → metadata/materials/{id}/{id}.meta.json
+                old_meta = materials_dir / f"{mat_id}.meta.json"
+                new_meta = mat_meta_dir / f"{mat_id}.meta.json"
+                if old_meta.exists() and not new_meta.exists():
+                    shutil.move(str(old_meta), str(new_meta))
+
+                # サムネイル: data/thumbnails/{id}_thumb.png → metadata/materials/{id}/{id}_thumb.png
+                old_thumb = data_dir / "thumbnails" / f"{mat_id}_thumb.png"
+                new_thumb = mat_meta_dir / f"{mat_id}_thumb.png"
+                if old_thumb.exists() and not new_thumb.exists():
+                    shutil.move(str(old_thumb), str(new_thumb))
+
+            # format_version を 3 に更新して project.json を書き出す
+            data["format_version"] = 3
+            project_json_path.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            logger.info("v2→v3 マイグレーション完了: %s", project_dir)
+
+        except Exception as e:
+            logger.error("v2→v3 マイグレーション失敗: %s — %s", project_dir, e)
+            raise RuntimeError(f"v2→v3 マイグレーション失敗: {e}") from e
 
     @staticmethod
     def _write_v2_files_from_data(project_dir: Path, data: dict) -> None:
@@ -532,22 +708,21 @@ class ProjectService:
             src.extended_summary = data.extended_summary
         if data.bibliography is not None:
             src.bibliography = data.bibliography
-        # v2: ソースファイルを即時書き込み
-        if project.format_version >= 2:
-            self._write_source_files(project, src)
+        # v3: ソースファイルを即時書き込み
+        self._write_source_files_v3(project, src)
         self._mark_dirty(project_id)
         return src
 
     @staticmethod
-    def _write_source_files(project: Project, src: Source) -> None:
-        """v2: ソースのメタデータと full_text を即時ファイルに書き込む。"""
-        sources_dir = Path(project.json_file_path).parent / "sources"
-        sources_dir.mkdir(exist_ok=True)
+    def _write_source_files_v3(project: Project, src: Source) -> None:
+        """v3: metadata/sources/{id}/{id}.meta.json + {id}.txt を書き込む。"""
+        src_meta_dir = Path(project.json_file_path).parent / "metadata" / "sources" / src.id
+        src_meta_dir.mkdir(parents=True, exist_ok=True)
         meta = json.loads(src.model_dump_json(exclude={"full_text"}))
-        (sources_dir / f"{src.id}.meta.json").write_text(
+        (src_meta_dir / f"{src.id}.meta.json").write_text(
             json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        txt_path = sources_dir / f"{src.id}.txt"
+        txt_path = src_meta_dir / f"{src.id}.txt"
         if src.full_text:
             txt_path.write_text(src.full_text, encoding="utf-8")
         elif txt_path.exists():
@@ -562,13 +737,10 @@ class ProjectService:
             '',
             project.content,
         )
-        # v2: ソースファイルを削除
-        if project.format_version >= 2:
-            sources_dir = Path(project.json_file_path).parent / "sources"
-            for suffix in [".meta.json", ".txt"]:
-                f = sources_dir / f"{source_id}{suffix}"
-                if f.exists():
-                    f.unlink()
+        # v3: metadata/sources/{source_id}/ ディレクトリを丸ごと削除
+        src_meta_dir = self._source_metadata_dir(project, source_id)
+        if src_meta_dir.exists():
+            shutil.rmtree(src_meta_dir)
         self._mark_dirty(project_id)
 
     # ------------------------------------------------------------------
@@ -980,24 +1152,24 @@ class ProjectService:
                 self._dirty[project_id] = False
 
     async def _save_to_disk(self, project: Project) -> None:
-        if project.format_version >= 2:
-            await self._save_to_disk_v2(project)
-        else:
-            path = Path(project.json_file_path)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                project.model_dump_json(indent=2), encoding="utf-8"
-            )
+        await self._save_to_disk_v3(project)
 
-    async def _save_to_disk_v2(self, project: Project) -> None:
-        """v2 フォーマット: プロジェクトフォルダに各データを分割保存する。"""
+    async def _save_to_disk_v3(self, project: Project) -> None:
+        """v3 フォーマット: プロジェクトフォルダに各データを分割保存する。"""
         project_dir = Path(project.json_file_path).parent
         project_dir.mkdir(parents=True, exist_ok=True)
 
-        # --- project.json (軽量メタデータのみ) ---
+        # v3 ディレクトリ構造を保証
+        (project_dir / "sources").mkdir(exist_ok=True)
+        (project_dir / "materials").mkdir(exist_ok=True)
+        (project_dir / "metadata" / "sources").mkdir(parents=True, exist_ok=True)
+        (project_dir / "metadata" / "materials").mkdir(parents=True, exist_ok=True)
+
+        # --- project.json (軽量メタデータのみ、sources/materials はIDリスト) ---
         project_data = json.loads(project.model_dump_json())
         project_data["sources"] = [s.id for s in project.sources]
         project_data["materials"] = [m.id for m in project.materials]
+        project_data["format_version"] = 3
         project_data.pop("content", None)
         project_data.pop("chat_history", None)
         Path(project.json_file_path).write_text(
@@ -1007,23 +1179,16 @@ class ProjectService:
         # --- content.md ---
         (project_dir / "content.md").write_text(project.content, encoding="utf-8")
 
-        # --- sources/ ---
-        sources_dir = project_dir / "sources"
-        sources_dir.mkdir(exist_ok=True)
+        # --- metadata/sources/ ---
         for src in project.sources:
-            meta = json.loads(src.model_dump_json(exclude={"full_text"}))
-            (sources_dir / f"{src.id}.meta.json").write_text(
-                json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-            if src.full_text:
-                (sources_dir / f"{src.id}.txt").write_text(src.full_text, encoding="utf-8")
+            self._write_source_files_v3(project, src)
 
-        # --- materials/ ---
-        materials_dir = project_dir / "materials"
-        materials_dir.mkdir(exist_ok=True)
+        # --- metadata/materials/ ---
         for mat in project.materials:
+            mat_meta_dir = self._material_metadata_dir(project, mat.id)
+            mat_meta_dir.mkdir(parents=True, exist_ok=True)
             meta = json.loads(mat.model_dump_json())
-            (materials_dir / f"{mat.id}.meta.json").write_text(
+            (mat_meta_dir / f"{mat.id}.meta.json").write_text(
                 json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
             )
 

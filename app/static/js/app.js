@@ -182,9 +182,7 @@ const AppShell = (() => {
       const project = window.appState.getProject();
       if (!project) return;
       try {
-        const res = await fetch(`/api/projects/${project.id}/export`);
-        if (!res.ok) { showToast('エクスポートに失敗しました', 'error'); return; }
-        const mdText = await res.text();
+        const mdText = await ApiClient.getText(`/api/projects/${project.id}/export`);
         const dialog = await ApiClient.saveFileDialog(`${project.name}.md`);
         if (!dialog || !dialog.path) return;
         const writeResult = await ApiClient.writeFile(dialog.path, mdText);

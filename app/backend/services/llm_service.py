@@ -653,7 +653,7 @@ class LLMService:
                 messages=[
                     {
                         "role": "system",
-                        "content": "ユーザーがテキストを300字で要約してください。要約文章は以下の構造で説明してください。見出しと番号は不要です。1.何についての情報・データ・文章なのか一言でまとめる。2.テキストに書かれている内容を要約する",
+                        "content": f"Summarize the user\'s text in about {settings.short_summary_chars} characters. Do not use headings or numbering. First state in one short sentence what the text is about, then provide a concise summary.",
                     },
                     {"role": "user", "content": full_text[:8000]},
                 ],
@@ -675,15 +675,7 @@ class LLMService:
         """
         client = self._make_client(settings)
         start = time.time()
-        system_prompt = (
-            "以下のテキストから、論文・報告書の執筆支援に役立つ構造化サマリーを2000字程度で生成してください。\n"
-            "以下の要素を漏れなく含めてください（見出しは使用してください）:\n"
-            "1. 主要な主張・結論（箇条書き）\n"
-            "2. 重要な数値・統計データ（具体的な数字を含む）\n"
-            "3. 重要な固有名詞（人名・地名・概念・手法名など）\n"
-            "4. 引用候補となるキーフレーズ（そのまま引用できる文章断片）\n"
-            "5. 著者の立場・限界・今後の課題（あれば）\n"
-        )
+        system_prompt = f"Write a detailed summary in about {settings.long_summary_chars} characters. Include: 1) main claims/purpose/background; 2) key numbers/data/conditions; 3) important proper nouns (people, organizations, technologies, studies); 4) quote-worthy concrete phrases; 5) conclusions/implications/future work."
         try:
             response = await client.chat.completions.create(
                 model=settings.model,
