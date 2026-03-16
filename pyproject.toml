@@ -18,6 +18,7 @@ dependencies = [
     "Jinja2>=3.1",
     "python-multipart>=0.0.18",
     "pydantic>=2.9",
+    "watchdog>=4.0",
 ]
 
 [project.optional-dependencies]

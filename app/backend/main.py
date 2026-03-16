@@ -12,7 +12,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.backend.routers import llm, materials, projects, rules, sections, settings, sources
+from app.backend.routers import llm, materials, projects, rules, sections, settings, sources, watch_events
+from app.backend.services.file_watcher_service import FileWatcherService
 import app.backend.security as _app_security
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,15 @@ _TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # FileWatcherService シングルトンを初期化
+    watcher = FileWatcherService()
+    watcher.set_project_service(projects.get_service())
+    app.state.watcher = watcher
+
     yield
+
+    # シャットダウン時にファイル監視を停止
+    await watcher.stop_watching()
     # シャットダウン時にダーティなプロジェクトをすべて保存する
     logger.info("シャットダウン処理: ダーティプロジェクトを保存します...")
     svc = projects.get_service()
@@ -98,6 +107,7 @@ app.include_router(sources.router)
 app.include_router(materials.router)
 app.include_router(sections.router)
 app.include_router(llm.router)
+app.include_router(watch_events.router)
 
 
 # ─── ローカルファイル配信 ─────────────────────────────────────
