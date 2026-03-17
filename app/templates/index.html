@@ -22,8 +22,8 @@
         <div class="projects-toolbar">
           <h2 class="projects-heading">Projects</h2>
           <div class="selector-header-actions">
-            <button class="btn btn-tertiary" id="btn-open-project">プロジェクトを開く</button>
-            <button class="btn btn-primary" id="btn-new-project">プロジェクトを作成</button>
+            <button class="btn btn-tertiary btn-lg" id="btn-open-project">プロジェクトを開く</button>
+            <button class="btn btn-primary btn-lg" id="btn-new-project">プロジェクトを作成</button>
           </div>
         </div>
         <div id="project-card-grid" class="project-card-grid"></div>
@@ -141,7 +141,7 @@
                 </div>
                 <ul class="outline-list" id="outline-list"></ul>
                 <div class="outline-deselect-row">
-                  <button class="btn-panel-action" id="btn-deselect-section">選択解除</button>
+                  <button class="btn-panel-action btn-sm" id="btn-deselect-section">選択解除</button>
                 </div>
                 <div class="outline-references" id="outline-references">
                   <span class="outline-references-label">
@@ -153,7 +153,7 @@
                   </label>
                 </div>
                 <div class="panel-buttons outline-panel-footer">
-                  <button class="btn-add-item" id="btn-add-chapter">セクション追加</button>
+                  <button class="btn-add-item btn-md" id="btn-add-chapter">セクション追加</button>
                 </div>
               </aside>
               <!-- パネルリサイザー: アウトライン ↔ エディタ -->
@@ -165,17 +165,17 @@
                   <div id="tiptap-toolbar" class="tiptap-toolbar">
                     <span id="tiptap-toolbar-label" class="tiptap-toolbar-label"></span>
                     <div id="tiptap-toolbar-divider" class="toolbar-divider"></div>
-                    <button class="btn-toolbar" data-action="bold" title="太字 (Ctrl+B)"><b>B</b></button>
-                    <button class="btn-toolbar" data-action="italic" title="斜体 (Ctrl+I)"><i>I</i></button>
-                    <button class="btn-toolbar" data-action="strike" title="取り消し線 (Ctrl+Shift+X)"><s>S</s></button>
-                    <button class="btn-toolbar" data-action="code"
+                    <button class="btn-toolbar btn-md" data-action="bold" title="太字 (Ctrl+B)"><b>B</b></button>
+                    <button class="btn-toolbar btn-md" data-action="italic" title="斜体 (Ctrl+I)"><i>I</i></button>
+                    <button class="btn-toolbar btn-md" data-action="strike" title="取り消し線 (Ctrl+Shift+X)"><s>S</s></button>
+                    <button class="btn-toolbar btn-md" data-action="code"
                       title="インラインコード (Ctrl+E)"><code>&lt;/&gt;</code></button>
                     <div class="toolbar-divider"></div>
                     <button class="btn btn-sm btn-secondary" data-action="insert-ref">文献挿入</button>
                     <button class="btn btn-sm btn-secondary" data-action="insert-fig">図表番号挿入</button>
                     <button class="btn btn-sm btn-secondary" data-action="insert-fig-block">図表挿入</button>
                     <div class="toolbar-divider"></div>
-                    <button class="btn-toolbar" id="btn-search-toggle" title="検索・置換 (Ctrl+H)">
+                    <button class="btn-toolbar btn-sm" id="btn-search-toggle" title="検索・置換 (Ctrl+H)">
                       <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.5" cy="6.5" r="4"/><line x1="10" y1="10" x2="14" y2="14"/></svg>
                     </button>
                   </div>
@@ -184,8 +184,8 @@
                       <input type="text" id="search-input" class="search-replace-input" placeholder="検索..." autocomplete="off" spellcheck="false" />
                       <div class="search-replace-controls">
                         <span id="search-match-count" class="search-match-count"></span>
-                        <button class="btn-toolbar search-nav-btn" id="btn-search-prev" title="前へ (Shift+Enter)">&#8593;</button>
-                        <button class="btn-toolbar search-nav-btn" id="btn-search-next" title="次へ (Enter)">&#8595;</button>
+                        <button class="btn-toolbar btn-sm search-nav-btn" id="btn-search-prev" title="前へ (Shift+Enter)">&#8593;</button>
+                        <button class="btn-toolbar btn-sm search-nav-btn" id="btn-search-next" title="次へ (Enter)">&#8595;</button>
                         <label class="search-case-label" title="大文字・小文字を区別">
                           <input type="checkbox" id="search-case-sensitive" /> Aa
                         </label>
@@ -203,7 +203,7 @@
                 </div>
               </div>
               <!-- パネルリサイザー: エディタ ↔ チャット履歴 -->
-              <div class="panel-resizer history-resizer history-open" id="history-resizer" title="クリックで展開/格納">
+              <div class="panel-resizer" id="history-resizer">
               </div>
               <!-- 右パネル: チャット履歴 -->
               <div class="chat-history-side" id="chat-history-side">
@@ -228,7 +228,7 @@
                           rows="3"></textarea>
                       </div>
                       <div class="chat-controls">
-                        <button class="btn-icon btn-send" id="btn-chat-send" title="送信"><svg viewBox="0 0 16 16" width="16"
+                        <button class="btn-icon btn-send btn-md" id="btn-chat-send" title="送信"><svg viewBox="0 0 16 16" width="16"
                             height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
                             stroke-linejoin="round">
                             <line x1="8" y1="13" x2="8" y2="3" />
@@ -256,9 +256,9 @@
                 <ul class="item-list" id="source-list">
                 </ul>
                 <div class="panel-buttons">
-                  <button class="btn-add-item" id="btn-add-source">新規追加</button>
-                  <button class="btn-panel-action" id="btn-source-import">CSVインポート</button>
-                  <button class="btn-panel-action" id="btn-source-export">CSVエクスポート</button>
+                  <button class="btn-add-item btn-md" id="btn-add-source">新規追加</button>
+                  <button class="btn-panel-action btn-sm" id="btn-source-import">CSVインポート</button>
+                  <button class="btn-panel-action btn-sm" id="btn-source-export">CSVエクスポート</button>
                 </div>
               </aside>
               <div class="panel-resizer" id="source-resizer"></div>
@@ -279,9 +279,9 @@
                   <input type="text" id="material-search" class="panel-search-input"
                          placeholder="名前で検索..." autocomplete="off" />
                 </div>
-                <ul class="material-card-list" id="material-list"></ul>
+                <ul class="item-list material-item-list" id="material-list"></ul>
                 <div class="panel-buttons">
-                  <button class="btn-add-item" id="btn-add-material">新規追加</button>
+                  <button class="btn-add-item btn-md" id="btn-add-material">新規追加</button>
                 </div>
               </aside>
               <div class="panel-resizer" id="material-resizer"></div>
@@ -302,9 +302,9 @@
                   <div class="rule-all-view" id="rule-all-view"></div>
                 </div>
                 <div class="rule-sticky-footer">
-                  <button class="btn-add-item" id="btn-add-rule-from-panel">新規追加</button>
-                  <button class="btn-panel-action" id="btn-rule-import">CSVインポート</button>
-                  <button class="btn-panel-action" id="btn-rule-export">CSVエクスポート</button>
+                  <button class="btn-add-item btn-md" id="btn-add-rule-from-panel">新規追加</button>
+                  <button class="btn-panel-action btn-sm" id="btn-rule-import">CSVインポート</button>
+                  <button class="btn-panel-action btn-sm" id="btn-rule-export">CSVエクスポート</button>
                 </div>
               </div>
             </div>
@@ -455,6 +455,7 @@
   <script src="/static/js/bubble-prompt.js"></script>
   <script src="/static/js/chat-bar-common.js"></script>
   <script src="/static/js/settings-tab.js"></script>
+  <script src="/static/js/watch-sse-client.js"></script>
   <script src="/static/js/app.js"></script>
 </body>
 

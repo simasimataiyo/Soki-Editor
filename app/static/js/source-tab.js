@@ -1946,23 +1946,19 @@ const SourceTab = (() => {
     let tokens = currentTokens;
 
     function renderModal() {
-      const fieldOptionsHtml = CITATION_FIELD_OPTIONS.map(o =>
-        `<option value="${o.value}">${escHtml(o.label)}</option>`
-      ).join('');
-
       modal.innerHTML = `
-        <h3 style="margin:0 0 4px;font-size:16px">参考文献 表記フォーマット設定</h3>
-        <p style="margin:0 0 16px;font-size:12px;color:var(--color-text-muted)">${escHtml(typeName)} の表記順序と装飾を設定します</p>
-        <div id="citation-token-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px"></div>
-        <div style="display:flex;gap:8px;margin-bottom:16px">
+        <h3 class="citation-modal-title">参考文献 表記フォーマット設定</h3>
+        <p class="citation-modal-description">${escHtml(typeName)} の表記順序と装飾を設定します</p>
+        <div id="citation-token-list" class="citation-token-list"></div>
+        <div class="citation-token-actions">
           <button class="btn btn-secondary btn-sm" id="btn-citation-add-field">＋ フィールド追加</button>
           <button class="btn btn-secondary btn-sm" id="btn-citation-reset">デフォルトに戻す</button>
         </div>
-        <div style="margin-bottom:12px;padding:10px;background:var(--color-surface-raised,var(--color-bg));border-radius:4px;font-size:12px;color:var(--color-text-muted)">
+        <div class="citation-preview-panel">
           <strong>プレビュー:</strong>
-          <div id="citation-preview" style="margin-top:4px;font-family:monospace;word-break:break-all"></div>
+          <div id="citation-preview" class="citation-preview"></div>
         </div>
-        <div style="display:flex;gap:8px;justify-content:flex-end">
+        <div class="citation-footer-actions">
           <button class="btn btn-secondary" id="btn-citation-cancel">キャンセル</button>
           <button class="btn btn-primary" id="btn-citation-save">保存</button>
         </div>
@@ -2008,25 +2004,20 @@ const SourceTab = (() => {
         tokens.forEach((tok, idx) => {
           const row = document.createElement('div');
           row.className = 'citation-token-row';
-          row.style.cssText = 'display:flex;align-items:center;gap:6px;background:var(--color-surface-raised,var(--color-bg));padding:6px 8px;border-radius:4px;border:1px solid var(--color-border)';
           row.draggable = true;
           row.dataset.idx = idx;
 
-          const fieldLabel = tok.field === 'literal'
-            ? '固定テキスト'
-            : (CITATION_FIELD_OPTIONS.find(o => o.value === tok.field)?.label || tok.field);
-
           row.innerHTML = `
-            <span class="drag-handle" style="cursor:grab;color:var(--color-text-muted);font-size:16px;line-height:1;user-select:none" title="ドラッグで並び替え">⠿</span>
-            <select class="form-control citation-tok-field" style="width:120px;flex-shrink:0;font-size:12px;padding:3px 6px;height:28px">
+            <span class="drag-handle" title="ドラッグで並び替え">⠿</span>
+            <select class="form-control citation-tok-field">
               ${CITATION_FIELD_OPTIONS.map(o => `<option value="${o.value}"${tok.field===o.value?' selected':''}>${escHtml(o.label)}</option>`).join('')}
             </select>
             ${tok.field === 'literal'
-              ? `<input type="text" class="form-control citation-tok-prefix" placeholder="固定テキスト" value="${escHtml(tok.prefix)}" style="flex:1;font-size:12px;padding:3px 6px;height:28px" />`
-              : `<input type="text" class="form-control citation-tok-prefix" placeholder="前の文字列" value="${escHtml(tok.prefix)}" style="width:80px;flex-shrink:0;font-size:12px;padding:3px 6px;height:28px" />
-                 <input type="text" class="form-control citation-tok-suffix" placeholder="後の文字列" value="${escHtml(tok.suffix)}" style="width:80px;flex-shrink:0;font-size:12px;padding:3px 6px;height:28px" />`
+              ? `<input type="text" class="form-control citation-tok-prefix is-literal" placeholder="固定テキスト" value="${escHtml(tok.prefix)}" />`
+              : `<input type="text" class="form-control citation-tok-prefix" placeholder="前の文字列" value="${escHtml(tok.prefix)}" />
+                 <input type="text" class="form-control citation-tok-suffix" placeholder="後の文字列" value="${escHtml(tok.suffix)}" />`
             }
-            <button class="btn btn-sm" data-action="delete" style="padding:2px 8px;height:28px;flex-shrink:0;color:var(--color-text-muted);background:none;border:none;font-size:16px;cursor:pointer" title="削除">×</button>
+            <button class="btn btn-sm citation-token-delete-btn" data-action="delete" title="削除">×</button>
           `;
 
           // 変更イベント

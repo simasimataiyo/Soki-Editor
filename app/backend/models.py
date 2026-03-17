@@ -268,3 +268,16 @@ class MaterialsReorder(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: str
+
+
+class WatchEvent(BaseModel):
+    type: Literal[
+        "source_added", "source_removed",
+        "material_added", "material_removed",
+        "sync_complete",
+    ]
+    project_id: str
+    item_id: str = ""
+    # sync_complete 時のみ使用
+    added: int = 0
+    removed: int = 0

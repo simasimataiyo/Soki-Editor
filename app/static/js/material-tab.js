@@ -120,7 +120,8 @@ const MaterialTab = (() => {
 
   function _createMaterialListItem(mat, groupType) {
     const li = document.createElement('li');
-    li.className = 'material-card' + (mat.id === _activeId ? ' active' : '');
+    li.className = 'material-list-item';
+    if (mat.id === _activeId) li.classList.add('active');
     li.dataset.id = mat.id;
     li.dataset.groupType = groupType;
     li.draggable = true;
@@ -130,14 +131,14 @@ const MaterialTab = (() => {
       : '';
     li.innerHTML = `
       <span class="material-drag-handle" title="ドラッグして並べ替え">⠿</span>
-      <div class="material-card-info">
-        <div class="material-card-name">${escHtml(mat.name)}</div>
-        <div class="material-card-desc">${escHtml(mat.caption || '')}</div>
-      </div>
-      <div class="material-card-thumb">
+      <div class="material-list-thumb">
         ${imgSrc
           ? `<img src="${imgSrc}" alt="thumbnail" />`
           : `<span class="thumb-placeholder">${SVG_IMAGE_SM}</span>`}
+      </div>
+      <div class="material-list-text">
+        <div class="material-list-name">${escHtml(mat.name)}</div>
+        <div class="material-list-desc">${escHtml(mat.caption || '')}</div>
       </div>
       <button class="btn-icon item-delete-btn" title="削除">${SVG_DELETE}</button>
     `;
@@ -177,7 +178,7 @@ const MaterialTab = (() => {
     li.addEventListener('dragend', () => {
       _isDraggingItem = false;
       li.classList.remove('material-dragging');
-      document.querySelectorAll('#material-list .material-card').forEach(el => {
+      document.querySelectorAll('#material-list li').forEach(el => {
         el.classList.remove('material-drag-over-before', 'material-drag-over-after');
       });
       _materialDragState = null;
@@ -196,7 +197,7 @@ const MaterialTab = (() => {
       const y = e.clientY - rect.top;
       const position = y < rect.height / 2 ? 'before' : 'after';
 
-      document.querySelectorAll('#material-list .material-card').forEach(el => {
+      document.querySelectorAll('#material-list li').forEach(el => {
         el.classList.remove('material-drag-over-before', 'material-drag-over-after');
       });
       li.classList.add(`material-drag-over-${position}`);

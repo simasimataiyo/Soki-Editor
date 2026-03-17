@@ -109,8 +109,8 @@ const Modal = (() => {
       function renderFn(modal) {
         modal.insertAdjacentHTML('beforeend', `
           <h3>${escHtml(title)}</h3>
-          ${message ? `<p style="margin-bottom:12px;color:var(--color-text-muted)">${escHtml(message)}</p>` : ''}
-          <div class="form-group" style="margin-bottom:16px">
+          ${message ? `<p class="modal-message">${escHtml(message)}</p>` : ''}
+          <div class="form-group modal-form-row">
             <input type="text" id="${modalId}-input" class="form-control" value="${escHtml(defaultValue)}" autofocus />
           </div>
           <div class="modal-actions">
@@ -157,7 +157,7 @@ const Modal = (() => {
       function renderFn(modal) {
         modal.insertAdjacentHTML('beforeend', `
           <h3>${options.title || '確認'}</h3>
-          <p style="margin-bottom:16px;line-height:1.6">${escHtml(message)}</p>
+          <p class="modal-body-text">${escHtml(message)}</p>
           <div class="modal-actions">
             <button class="btn btn-secondary" id="${modalId}-cancel">キャンセル</button>
             <button class="btn btn-primary ${options.danger ? 'btn-danger' : ''}" id="${modalId}-confirm">
@@ -199,8 +199,8 @@ const Modal = (() => {
       function renderFn(modal) {
         modal.insertAdjacentHTML('beforeend', `
           <h3>${escHtml(title)}</h3>
-          ${message ? `<p style="margin-bottom:12px;color:var(--color-text-muted)">${escHtml(message)}</p>` : ''}
-          <div class="form-group" style="margin-bottom:16px">
+          ${message ? `<p class="modal-message">${escHtml(message)}</p>` : ''}
+          <div class="form-group modal-form-row">
             <select id="${modalId}-select" class="form-control" size="${options.large ? 8 : 5}">
               ${items.map(item => `<option value="${escHtml(item.value)}">${escHtml(item.label)}</option>`).join('')}
             </select>
@@ -249,23 +249,23 @@ const Modal = (() => {
 
       function renderFn(modal) {
         const fieldHtml = fields.map(field => {
-          const labelHtml = `<label style="font-size:12px;font-weight:600;color:var(--color-text-muted)">${escHtml(field.label)}</label>`;
+          const labelHtml = `<label class="modal-field-label">${escHtml(field.label)}</label>`;
           let inputHtml = '';
 
           if (field.type === 'select') {
             const defaultVal = field.value !== undefined && field.value !== null ? String(field.value) : '';
             inputHtml = `
-              <select id="${modalId}-${field.name}" class="form-control" style="margin-bottom:12px">
+              <select id="${modalId}-${field.name}" class="form-control modal-field-control">
                 ${field.options.map(opt => `<option value="${escHtml(opt.value)}"${String(opt.value) === defaultVal ? ' selected' : ''}>${escHtml(opt.label)}</option>`).join('')}
               </select>
             `;
           } else if (field.type === 'textarea') {
             inputHtml = `
-              <textarea id="${modalId}-${field.name}" class="form-control" rows="4" style="margin-bottom:12px">${escHtml(field.value || '')}</textarea>
+              <textarea id="${modalId}-${field.name}" class="form-control modal-field-control" rows="4">${escHtml(field.value || '')}</textarea>
             `;
           } else {
             inputHtml = `
-              <input type="${field.type || 'text'}" id="${modalId}-${field.name}" class="form-control" value="${escHtml(field.value || '')}" style="margin-bottom:12px" />
+              <input type="${field.type || 'text'}" id="${modalId}-${field.name}" class="form-control modal-field-control" value="${escHtml(field.value || '')}" />
             `;
           }
 
@@ -274,7 +274,7 @@ const Modal = (() => {
 
         modal.insertAdjacentHTML('beforeend', `
           <h3>${escHtml(title)}</h3>
-          ${options.message ? `<p style="margin-bottom:12px;color:var(--color-text-muted)">${escHtml(options.message)}</p>` : ''}
+          ${options.message ? `<p class="modal-message">${escHtml(options.message)}</p>` : ''}
           ${fieldHtml}
           <div class="modal-actions">
             <button class="btn btn-secondary" id="${modalId}-cancel">キャンセル</button>
