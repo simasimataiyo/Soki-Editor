@@ -22,11 +22,15 @@ You can use the following tools to manipulate document structure.
 - `set_document_structure`: Delete all sections and create a new outline in bulk
 - `create_document_structure`: Add a new outline structure while keeping existing sections
 - `fetch_sources`: Retrieve full text of references (specify up to {{ max_fetch_source_count }} source IDs)
+- `fetch_sections`: Retrieve the title, summary, and body of specified sections by their IDs
 
 **Referencing sources:**
 A summary list of references is provided. For tasks related to writing, fact-checking, or inserting citations, proactively use `fetch_sources` to retrieve the full text of up to {{ max_fetch_source_count }} relevant source IDs.
 If summaries alone are insufficient, call `fetch_sources` without hesitation.
 Do not call `fetch_sources` for sources whose full text is already included in the "Specified Sources" section.
+
+**Referencing section bodies:**
+The Document Outline above shows section IDs and summaries. When you need the full body of other sections (e.g., to maintain consistency or understand context), use `fetch_sections` with the relevant section IDs.
 
 ## Inserting Citations
 

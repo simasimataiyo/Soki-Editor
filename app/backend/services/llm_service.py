@@ -270,6 +270,24 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_sections",
+            "description": "指定したセクションのタイトル・概要・本文を取得する。他のセクションの内容を参照しながら執筆する際に使用してください。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "section_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "取得するセクションのIDリスト",
+                    },
+                },
+                "required": ["section_ids"],
+            },
+        },
+    },
 ]
 
 # Tool Calling 非対応モデルの識別キーワード
@@ -445,12 +463,16 @@ class LLMService:
                     elif etype == "tool_call":
                         all_tool_calls.append(data)
 
-                # fetch_sources とフロントエンド向けツールコールを分離
+                # fetch_sources / fetch_sections とフロントエンド向けツールコールを分離
+                _BACKEND_TOOLS = {"fetch_sources", "fetch_sections"}
                 source_fetches = [
                     tc for tc in all_tool_calls if tc["tool"] == "fetch_sources"
                 ]
+                section_fetches = [
+                    tc for tc in all_tool_calls if tc["tool"] == "fetch_sections"
+                ]
                 frontend_tools = [
-                    tc for tc in all_tool_calls if tc["tool"] != "fetch_sources"
+                    tc for tc in all_tool_calls if tc["tool"] not in _BACKEND_TOOLS
                 ]
 
                 # フロントエンド向けツールコールは即座に yield
@@ -459,7 +481,7 @@ class LLMService:
                         "tool_call", {"tool": tc["tool"], "args": tc["args"]}
                     )
 
-                if not source_fetches and not frontend_tools:
+                if not source_fetches and not section_fetches and not frontend_tools:
                     break  # ツールコールなし → 完了
 
                 # assistant メッセージ + tool 結果を追加して再呼び出し
@@ -494,6 +516,15 @@ class LLMService:
                             ),
                         }
                     )
+                for tc in section_fetches:
+                    ids = tc["args"].get("section_ids", [])
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": self._resolve_section_bodies(project, ids),
+                        }
+                    )
                 for tc in frontend_tools:
                     messages.append(
                         {
@@ -504,9 +535,10 @@ class LLMService:
                     )
 
                 call_kwargs["messages"] = messages
-                if source_fetches:
+                if source_fetches or section_fetches:
                     logger.info(
-                        "fetch_sources ラウンド %d 完了、再呼び出し", round_num + 1
+                        "バックエンドツール ラウンド %d 完了、再呼び出し (fetch_sources=%d, fetch_sections=%d)",
+                        round_num + 1, len(source_fetches), len(section_fetches)
                     )
                 else:
                     # フロントエンドツールのみ: 次ラウンドはサマリ生成専用なのでツール禁止
@@ -1123,6 +1155,26 @@ class LLMService:
                         {"id": tc_data["id"], "tool": tc_data["name"], "args": args},
                     )
                 tool_calls_acc.clear()
+
+    def _resolve_section_bodies(self, project: Project, section_ids: list[str]) -> str:
+        """セクションIDリストをタイトル・概要・本文テキストに解決する。"""
+        sec_by_id = {s.id: s for s in project.sections}
+        logger.info("fetch_sections: 要求されたIDs=%s", section_ids)
+        texts = []
+        for sid in section_ids:
+            sec = sec_by_id.get(sid)
+            if not sec:
+                logger.warning("fetch_sections: ID=%s が見つかりません", sid)
+                continue
+            body = self._extract_section_body(project.content, sid)
+            texts.append(
+                f"### セクション ID: {sec.id} | {sec.title}\n"
+                f"概要: {sec.summary or '(なし)'}\n\n"
+                f"{body or '(本文なし)'}"
+            )
+        if not texts:
+            return "指定されたセクションは見つかりませんでした。"
+        return "\n\n---\n\n".join(texts)
 
     def _resolve_source_full_texts(self, project: Project, source_ids: list[str]) -> str:
         """ソースIDリストを詳細サマリー（なければ全文冒頭）に解決する。"""
