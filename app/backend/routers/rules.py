@@ -8,13 +8,10 @@ from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from app.backend.models import Rule, RuleCategory, RuleCreate, RuleCategoryCreate, RuleUpdate
+from app.backend.routers.deps import not_found as _not_found
 from app.backend.routers.projects import get_service
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["rules"])
-
-
-def _not_found(project_id: str):
-    raise HTTPException(status_code=404, detail=f"プロジェクトが見つかりません: {project_id}")
 
 
 # ─── ルール ──────────────────────────────────────────────────

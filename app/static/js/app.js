@@ -101,8 +101,13 @@ const AppShell = (() => {
 
     // プロジェクト選択に戻る（トップバー内の btn-back）
     document.getElementById('btn-back').addEventListener('click', () => {
+      const currentProject = window.appState.getProject();
       // SSE 接続を切断
       if (typeof WatchSSEClient !== 'undefined') WatchSSEClient.disconnect();
+      // バックエンド側の監視も停止
+      if (currentProject?.id) {
+        ApiClient.post(`/api/projects/${encodeURIComponent(currentProject.id)}/stop-watching`).catch(() => {});
+      }
       _resetAllTabs();
       UndoRedoManager.clear();
       _showScreen('project-selector');

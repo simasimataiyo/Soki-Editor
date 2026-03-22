@@ -23,6 +23,11 @@ def _get_watcher(request: Request):
     return watcher
 
 
+def _is_target_project_event(event: object, project_id: str) -> bool:
+    """SSEで現在購読中プロジェクトのイベントのみ配信する。"""
+    return getattr(event, "project_id", None) == project_id
+
+
 # ── SSE ストリーム ────────────────────────────────────────────────
 
 @router.get("/projects/{project_id}/watch-events")
@@ -48,6 +53,9 @@ async def watch_events(project_id: str, request: Request):
                     break
                 try:
                     event = await asyncio.wait_for(client_queue.get(), timeout=30.0)
+                    if not _is_target_project_event(event, project_id):
+                        client_queue.task_done()
+                        continue
                     payload = json.dumps(event.model_dump(), ensure_ascii=False)
                     yield f"data: {payload}\n\n"
                     client_queue.task_done()
@@ -108,6 +116,20 @@ async def start_watching(project_id: str, request: Request) -> dict:
 
     watcher = _get_watcher(request)
     from app.backend.services.project_service import ProjectService
-    project_dir = ProjectService._project_dir(project)
+    project_dir = ProjectService.get_project_dir(project)
     await watcher.start_watching(project_id, project_dir)
     return {"status": "watching", "project_id": project_id}
+
+
+@router.post("/projects/{project_id}/stop-watching")
+async def stop_watching(project_id: str, request: Request) -> dict:
+    """指定プロジェクトのファイル監視を停止する。"""
+    svc = get_project_service()
+    try:
+        await svc.get_project(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="プロジェクトが見つかりません")
+
+    watcher = _get_watcher(request)
+    await watcher.stop_watching(project_id)
+    return {"status": "stopped", "project_id": project_id}

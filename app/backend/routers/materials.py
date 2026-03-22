@@ -6,45 +6,14 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile
 
 from app.backend.models import Material, MaterialUpdate, MaterialsReorder
+from app.backend.routers.deps import get_project_or_404 as _get_project_or_404, not_found as _not_found
 from app.backend.routers.projects import get_service
 from app.backend.services.file_service import FileService
+from app.backend.services.material_ingestion_service import get_material_ingestion_service
 from app.backend.services.project_service import ProjectService
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["materials"])
 _file_service = FileService()
-
-
-def _not_found(project_id: str):
-    raise HTTPException(status_code=404, detail=f"プロジェクトが見つかりません: {project_id}")
-
-
-async def _get_project_or_404(svc, project_id: str):
-    try:
-        return await svc.get_project(project_id)
-    except KeyError:
-        _not_found(project_id)
-
-
-def _safe_unlink(path: Path) -> None:
-    try:
-        path.unlink(missing_ok=True)
-    except Exception:
-        pass
-
-
-def _safe_rmtree(path: Path) -> None:
-    if not path.exists():
-        return
-    import shutil
-    try:
-        shutil.rmtree(path)
-    except Exception:
-        pass
-
-
-def _delete_related_files(base_dir: Path, item_id: str) -> None:
-    for old in list(base_dir.glob(f"{item_id}_*")) + list(base_dir.glob(f"{item_id}.*")):
-        _safe_unlink(old)
 
 
 @router.post("/materials/reorder")
@@ -98,13 +67,13 @@ async def delete_material(project_id: str, mat_id: str) -> dict:
     if mat:
         # 実ファイル削除
         if mat.file_path:
-            _safe_unlink(Path(mat.file_path))
+            _file_service.safe_unlink(Path(mat.file_path))
         # materials/{mat_id}_* の残骸も削除
-        materials_dir = ProjectService._project_dir(project) / "materials"
-        _delete_related_files(materials_dir, mat_id)
+        materials_dir = ProjectService.get_project_dir(project) / "materials"
+        _file_service.delete_related_files(materials_dir, mat_id)
         # v3: metadata/materials/{id}/ ディレクトリを丸ごと削除
-        meta_dir = ProjectService._material_metadata_dir(project, mat_id)
-        _safe_rmtree(meta_dir)
+        meta_dir = ProjectService.get_material_metadata_dir(project, mat_id)
+        _file_service.safe_rmtree(meta_dir)
 
     return {"status": "ok"}
 
@@ -120,32 +89,9 @@ async def upload_material_file(
     if not (file.content_type or "").startswith("image/"):
         raise HTTPException(status_code=400, detail="画像ファイル（jpg, png, bmp など）のみアップロードできます")
 
-    # v3: materials/{mat_id}_{original_filename} に保存
-    project_dir = ProjectService._project_dir(project)
-    materials_dir = project_dir / "materials"
-    materials_dir.mkdir(parents=True, exist_ok=True)
-    original_name = Path(file.filename or "file").name
-    # 既存の関連ファイルを削除（拡張子変更時の残骸対策）
-    _delete_related_files(materials_dir, mat_id)
-    dest_path = materials_dir / f"{mat_id}_{original_name}"
-    dest_path.write_bytes(await file.read())
+    filename = Path(file.filename or "file").name
+    content = await file.read()
 
-    # v3: サムネイルを metadata/materials/{id}/{mat_id}_thumb.png に生成
-    thumb_dir = ProjectService._material_metadata_dir(project, mat_id)
-    thumb_dir.mkdir(parents=True, exist_ok=True)
-    thumb_dest = str(thumb_dir / f"{mat_id}_thumb.png")
-    try:
-        thumb_path = await _file_service.generate_thumbnail_to(
-            str(dest_path), thumb_dest
-        )
-    except Exception:
-        thumb_path = None
-
-    return await svc.update_material(
-        project_id,
-        mat_id,
-        MaterialUpdate(
-            file_path=str(dest_path),
-            thumbnail_path=thumb_path,
-        ),
+    return await get_material_ingestion_service().add_material_from_upload(
+        project_id, project, mat_id, content, filename
     )

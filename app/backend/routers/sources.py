@@ -5,7 +5,6 @@ import asyncio
 import csv
 import io
 import json
-import os
 import tempfile
 from pathlib import Path
 
@@ -13,47 +12,28 @@ from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from app.backend.models import Bibliography, Source, SourceUpdate, SourcesReorder
+from app.backend.routers.deps import get_project_or_404 as _get_project_or_404, not_found as _not_found
 from app.backend.routers.projects import get_service
 from app.backend.routers.settings import get_service as get_settings_service
 from app.backend.services.file_service import FileService
 from app.backend.services.llm_service import LLMService
 from app.backend.services.project_service import ProjectService
+from app.backend.services.source_ingestion_service import get_source_ingestion_service
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["sources"])
 _llm_service = LLMService()
 _file_service = FileService()
 
-_LONG_SUMMARY_EXTS = {".txt", ".md", ".pdf", ".docx", ".pptx"}
-_SHORT_ONLY_EXTS = {".csv", ".xlsx"}
+_SHORT_ONLY_TYPES = {"image", "csv", "xlsx"}
+_SHORT_ONLY_EXTS = {"csv", "xlsx"}
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
 
 
 def _should_generate_extended_summary(src: Source) -> bool:
     """長文の要約を生成するか判別する"""
-    if src.file_type == "image":
-        return False
-    if src.file_type in {"csv", "xlsx"}:
-        return False
-    if src.file_type in {"pdf", "txt", "md", "docx", "pptx", "text"}:
-        return True
-    if src.file_path:
-        suffix = Path(src.file_path).suffix.lower()
-        if suffix in _SHORT_ONLY_EXTS:
-            return False
-        if suffix in _LONG_SUMMARY_EXTS:
-            return True
-    return True
-
-
-def _not_found(project_id: str):
-    raise HTTPException(status_code=404, detail=f"プロジェクトが見つかりません: {project_id}")
-
-
-async def _get_project_or_404(svc, project_id: str):
-    try:
-        return await svc.get_project(project_id)
-    except KeyError:
-        _not_found(project_id)
+    file_type = (src.file_type or "").lower()
+    suffix = Path(src.file_path).suffix.lower().lstrip(".") if src.file_path else ""
+    return file_type not in _SHORT_ONLY_TYPES and suffix not in _SHORT_ONLY_EXTS
 
 
 def _get_source_or_404(project, source_id: str) -> Source:
@@ -61,28 +41,6 @@ def _get_source_or_404(project, source_id: str) -> Source:
     if not src:
         raise HTTPException(status_code=404, detail="ソースが見つかりません")
     return src
-
-
-def _safe_unlink(path: Path) -> None:
-    try:
-        path.unlink(missing_ok=True)
-    except Exception:
-        pass
-
-
-def _safe_rmtree(path: Path) -> None:
-    if not path.exists():
-        return
-    import shutil
-    try:
-        shutil.rmtree(path)
-    except Exception:
-        pass
-
-
-def _delete_related_files(base_dir: Path, item_id: str) -> None:
-    for old in list(base_dir.glob(f"{item_id}_*")) + list(base_dir.glob(f"{item_id}.*")):
-        _safe_unlink(old)
 
 
 async def _build_summary_update(src: Source, *, clear_extended_when_short: bool) -> SourceUpdate:
@@ -115,7 +73,7 @@ async def create_source(project_id: str) -> Source:
     try:
         return await svc.add_source(project_id)
     except KeyError:
-        _not_found(project_id)
+        _not_found(project_id)  # type: ignore[return-value]
 
 
 @router.put("/sources/{source_id}", response_model=Source)
@@ -139,10 +97,10 @@ async def delete_source(project_id: str, source_id: str) -> dict:
         raise HTTPException(status_code=404, detail=str(e))
 
     # 関連ファイルをディスクから削除（sources/{source_id}_*）
-    sources_dir = ProjectService._project_dir(project) / "sources"
-    _delete_related_files(sources_dir, source_id)
+    sources_dir = ProjectService.get_project_dir(project) / "sources"
+    _file_service.delete_related_files(sources_dir, source_id)
     if src and src.file_path:
-        _safe_unlink(Path(src.file_path))
+        _file_service.safe_unlink(Path(src.file_path))
 
     return {"status": "ok"}
 
@@ -226,73 +184,11 @@ async def read_source_file_upload(
     project = await _get_project_or_404(svc, project_id)
 
     filename = Path(file.filename or "file").name
-    suffix = Path(filename).suffix.lower()
     content = await file.read()
+    settings = get_settings_service().get()
 
-    # v3: ファイルを sources/{source_id}_{filename} に永続保存
-    project_dir = ProjectService._project_dir(project)
-    sources_dir = project_dir / "sources"
-    sources_dir.mkdir(parents=True, exist_ok=True)
-    # 既存の関連ファイルを削除（拡張子変更時の残骸対策）
-    _delete_related_files(sources_dir, source_id)
-    saved_path = sources_dir / f"{source_id}_{filename}"
-    saved_path.write_bytes(content)
-
-    # ファイル形式を判定
-    if suffix == ".pdf":
-        file_type = "pdf"
-    elif suffix in _IMAGE_SUFFIXES:
-        file_type = "image"
-    else:
-        file_type = suffix.lstrip(".") or "text"
-
-    # PDFの場合: サムネイルと等倍画像をディスクに保存
-    if file_type == "pdf":
-        import fitz  # PyMuPDF
-
-        # v3: page/ と thumbnails/ は metadata/sources/{id}/ 配下
-        src_meta_dir = ProjectService._source_metadata_dir(project, source_id)
-        page_dir = src_meta_dir / "page"
-        thumb_dir = src_meta_dir / "thumbnails"
-        # 既存のページ画像・サムネイルを削除（差し替え時の残骸対策）
-        _safe_rmtree(page_dir)
-        _safe_rmtree(thumb_dir)
-        page_dir.mkdir(parents=True, exist_ok=True)
-        thumb_dir.mkdir(parents=True, exist_ok=True)
-        raw_dpi = get_settings_service().get().pdf_page_dpi
-
-        def _generate_pdf_images(path_str: str, thumb_dir_str: str, page_dir_str: str, dpi: int) -> None:
-            doc = fitz.open(path_str)
-            for page_num in range(len(doc)):
-                page = doc.load_page(page_num)
-                # サムネイル (72dpi)
-                pix = page.get_pixmap(dpi=72)
-                pix.save(str(Path(thumb_dir_str) / f"page_{page_num}.jpg"))
-                # 等倍画像（設定DPI）
-                pix_raw = page.get_pixmap(dpi=dpi)
-                pix_raw.save(str(Path(page_dir_str) / f"page_raw_{page_num}.jpg"))
-            doc.close()
-
-        try:
-            await asyncio.to_thread(
-                _generate_pdf_images,
-                str(saved_path),
-                str(thumb_dir),
-                str(page_dir),
-                raw_dpi,
-            )
-        except Exception:
-            pass  # PDFページ画像の保存に失敗しても続行（テキスト抽出を優先）
-
-    # テキスト抽出
-    try:
-        text = await _file_service.read_file_as_text(str(saved_path))
-    except Exception:
-        text = ""
-
-    return await svc.update_source(
-        project_id, source_id,
-        SourceUpdate(full_text=text, file_path=str(saved_path), file_type=file_type)
+    return await get_source_ingestion_service().add_source_from_upload(
+        project_id, project, source_id, content, filename, settings
     )
 
 
@@ -314,10 +210,7 @@ async def analyze_source_image_upload(
         raise HTTPException(status_code=502, detail=f"画像解析失敗: {e}")
     finally:
         if tmp_path:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+            _file_service.safe_unlink(tmp_path)
 
     return await svc.update_source(
         project_id, source_id, SourceUpdate(full_text=text)
@@ -337,7 +230,7 @@ async def get_pdf_page_list(project_id: str, source_id: str) -> dict:
         raise HTTPException(status_code=400, detail="PDFソースではありません")
 
     # v3: metadata/sources/{id}/ 配下を参照
-    src_meta_dir = ProjectService._source_metadata_dir(project, source_id)
+    src_meta_dir = ProjectService.get_source_metadata_dir(project, source_id)
     thumb_dir = src_meta_dir / "thumbnails"
     page_dir = src_meta_dir / "page"
 
@@ -373,7 +266,7 @@ async def analyze_saved_pdf_pages(
         raise HTTPException(status_code=422, detail="ページ番号が必要です")
 
     # v3: metadata/sources/{id}/page/
-    page_dir = ProjectService._source_metadata_dir(project, source_id) / "page"
+    page_dir = ProjectService.get_source_metadata_dir(project, source_id) / "page"
 
     analyses = []
     for page_num in page_indices:
@@ -417,7 +310,7 @@ async def analyze_saved_pdf_page_stream(
 
     page_num: int = body.get("page", 0)
     # v3: metadata/sources/{id}/page/
-    page_dir = ProjectService._source_metadata_dir(project, source_id) / "page"
+    page_dir = ProjectService.get_source_metadata_dir(project, source_id) / "page"
     raw_path = page_dir / f"page_raw_{page_num}.jpg"
     if not raw_path.exists():
         raise HTTPException(status_code=404, detail="ページ画像が見つかりません")
@@ -474,7 +367,7 @@ async def analyze_all_pages_stream(
         except (TypeError, ValueError):
             max_chars = None
     # v3: metadata/sources/{id}/page/
-    page_dir = ProjectService._source_metadata_dir(project, source_id) / "page"
+    page_dir = ProjectService.get_source_metadata_dir(project, source_id) / "page"
 
     # 全 page_raw_{n}.jpg を昇順で収集
     page_paths: list[tuple[int, Path]] = []

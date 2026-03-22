@@ -3,12 +3,26 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from watchdog.events import FileCreatedEvent, FileDeletedEvent, FileSystemEventHandler
+from watchdog.events import (
+    FileCreatedEvent,
+    FileDeletedEvent,
+    FileModifiedEvent,
+    FileMovedEvent,
+    FileSystemEventHandler,
+)
 from watchdog.observers import Observer
+
+from app.backend.services.file_service import (
+    MATERIAL_EXTENSIONS,
+    SOURCE_TEXT_EXTENSIONS,
+)
+from app.backend.services.material_ingestion_service import get_material_ingestion_service
+from app.backend.services.source_ingestion_service import get_source_ingestion_service
 
 if TYPE_CHECKING:
     from app.backend.models import WatchEvent
@@ -17,9 +31,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger("app.file_watcher")
 
 # sources/ で監視対象の拡張子
-_SOURCE_EXTENSIONS = {".txt", ".md", ".pdf", ".csv"}
+_SOURCE_EXTENSIONS = SOURCE_TEXT_EXTENSIONS
 # materials/ で監視対象の拡張子
-_MATERIAL_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
+_MATERIAL_EXTENSIONS = MATERIAL_EXTENSIONS
 
 # デバウンス秒数
 _DEBOUNCE_SECONDS = 1.0
@@ -54,6 +68,20 @@ class _SokiEventHandler(FileSystemEventHandler):
             return
         # 削除はデバウンス不要（ファイルが消えているため即時処理）
         self._submit(event.src_path, "deleted")
+
+    def on_modified(self, event: FileModifiedEvent) -> None:  # type: ignore[override]
+        if event.is_directory:
+            return
+        # created 直後に遅延書き込みされるケースを取り込む
+        self._debounce(event.src_path, "modified")
+
+    def on_moved(self, event: FileMovedEvent) -> None:  # type: ignore[override]
+        if event.is_directory:
+            return
+        # ディレクトリへ移動されたファイルを追加扱いにする。
+        # 監視対象内でのリネーム/移動は、旧パス削除 + 新パス追加として扱う。
+        self._submit(event.src_path, "deleted")
+        self._debounce(event.dest_path, "created")
 
     def _debounce(self, path_str: str, event_type: str) -> None:
         with self._lock:
@@ -180,11 +208,15 @@ class FileWatcherService:
         if sources_dir.exists():
             # ディレクトリ上の対象ファイル一覧
             real_files: dict[str, Path] = {
-                str(p): p
+                self._normalized_path_str(p): p
                 for p in sources_dir.iterdir()
                 if p.is_file() and p.suffix.lower() in _SOURCE_EXTENSIONS
             }
-            registered_paths = {s.file_path for s in project.sources if s.file_path}
+            registered_paths = {
+                self._normalized_path_str(Path(s.file_path))
+                for s in project.sources
+                if s.file_path
+            }
 
             # 未登録ファイルを追加
             for path_str, path in real_files.items():
@@ -197,9 +229,12 @@ class FileWatcherService:
 
             # 消えたエントリを削除
             for src in list(project.sources):
-                if src.file_path and src.file_path not in real_files:
+                if not src.file_path:
+                    continue
+                normalized_src_path = self._normalized_path_str(Path(src.file_path))
+                if normalized_src_path not in real_files:
                     # sources/ 配下のファイルのみ対象（手動登録は除外）
-                    if src.file_path.startswith(str(sources_dir)):
+                    if self._is_under_dir(Path(src.file_path), sources_dir):
                         try:
                             await svc.delete_source(project_id, src.id)
                             removed += 1
@@ -210,11 +245,15 @@ class FileWatcherService:
         materials_dir = project_dir / "materials"
         if materials_dir.exists():
             real_mats: dict[str, Path] = {
-                str(p): p
+                self._normalized_path_str(p): p
                 for p in materials_dir.iterdir()
                 if p.is_file() and p.suffix.lower() in _MATERIAL_EXTENSIONS
             }
-            registered_mat_paths = {m.file_path for m in project.materials if m.file_path}
+            registered_mat_paths = {
+                self._normalized_path_str(Path(m.file_path))
+                for m in project.materials
+                if m.file_path
+            }
 
             for path_str, path in real_mats.items():
                 if path_str not in registered_mat_paths:
@@ -225,8 +264,11 @@ class FileWatcherService:
                         logger.exception("sync: material 追加失敗: %s", path_str)
 
             for mat in list(project.materials):
-                if mat.file_path and mat.file_path not in real_mats:
-                    if mat.file_path.startswith(str(materials_dir)):
+                if not mat.file_path:
+                    continue
+                normalized_mat_path = self._normalized_path_str(Path(mat.file_path))
+                if normalized_mat_path not in real_mats:
+                    if self._is_under_dir(Path(mat.file_path), materials_dir):
                         try:
                             await svc.delete_material(project_id, mat.id)
                             removed += 1
@@ -346,16 +388,16 @@ class FileWatcherService:
         path = Path(path_str)
 
         # ── パス安全性チェック（ディレクトリトラバーサル防止）────
-        try:
-            path.resolve().relative_to(project_dir.resolve())
-        except ValueError:
+        if not self._is_under_dir(path, project_dir):
             logger.warning("プロジェクトディレクトリ外のパスは無視します: %s", path_str)
             return
 
         suffix = path.suffix.lower()
-        parent_name = path.parent.name  # "sources" or "materials"
+        watched_root = self._resolve_watched_root(path, project_dir)
+        if watched_root is None:
+            return
 
-        if event_type == "created":
+        if event_type in {"created", "modified"}:
             # ファイルサイズ 0 はスキップ（書き込み中の誤検知防止）
             try:
                 if path.stat().st_size == 0:
@@ -364,15 +406,15 @@ class FileWatcherService:
             except FileNotFoundError:
                 return
 
-            if parent_name == "sources" and suffix in _SOURCE_EXTENSIONS:
+            if watched_root == "sources" and suffix in _SOURCE_EXTENSIONS:
                 await self._handle_source_added(project_id, path)
-            elif parent_name == "materials" and suffix in _MATERIAL_EXTENSIONS:
+            elif watched_root == "materials" and suffix in _MATERIAL_EXTENSIONS:
                 await self._handle_material_added(project_id, path)
 
         elif event_type == "deleted":
-            if parent_name == "sources":
+            if watched_root == "sources":
                 await self._handle_source_removed(project_id, path)
-            elif parent_name == "materials":
+            elif watched_root == "materials":
                 await self._handle_material_removed(project_id, path)
 
     # ------------------------------------------------------------------
@@ -383,8 +425,12 @@ class FileWatcherService:
         if self._project_service is None:
             return
         project = await self._project_service.get_project(project_id)
+        normalized_path = self._normalized_path_str(path)
         # 重複チェック
-        if any(s.file_path == str(path) for s in project.sources):
+        if any(
+            s.file_path and self._normalized_path_str(Path(s.file_path)) == normalized_path
+            for s in project.sources
+        ):
             logger.debug("ソース重複スキップ: %s", path)
             return
         src = await self._create_source_from_file(project_id, path)
@@ -394,7 +440,15 @@ class FileWatcherService:
         if self._project_service is None:
             return
         project = await self._project_service.get_project(project_id)
-        src = next((s for s in project.sources if s.file_path == str(path)), None)
+        normalized_path = self._normalized_path_str(path)
+        src = next(
+            (
+                s
+                for s in project.sources
+                if s.file_path and self._normalized_path_str(Path(s.file_path)) == normalized_path
+            ),
+            None,
+        )
         if src is None:
             return
         await self._project_service.delete_source(project_id, src.id)
@@ -404,7 +458,11 @@ class FileWatcherService:
         if self._project_service is None:
             return
         project = await self._project_service.get_project(project_id)
-        if any(m.file_path == str(path) for m in project.materials):
+        normalized_path = self._normalized_path_str(path)
+        if any(
+            m.file_path and self._normalized_path_str(Path(m.file_path)) == normalized_path
+            for m in project.materials
+        ):
             logger.debug("マテリアル重複スキップ: %s", path)
             return
         mat = await self._create_material_from_file(project_id, path)
@@ -414,105 +472,39 @@ class FileWatcherService:
         if self._project_service is None:
             return
         project = await self._project_service.get_project(project_id)
-        mat = next((m for m in project.materials if m.file_path == str(path)), None)
+        normalized_path = self._normalized_path_str(path)
+        mat = next(
+            (
+                m
+                for m in project.materials
+                if m.file_path and self._normalized_path_str(Path(m.file_path)) == normalized_path
+            ),
+            None,
+        )
         if mat is None:
             return
         await self._project_service.delete_material(project_id, mat.id)
         await self._put_event("material_removed", project_id, mat.id)
 
     async def _create_source_from_file(self, project_id: str, path: Path) -> object:
-        """ファイルから Source エントリを作成し、テキスト抽出・PDF画像生成を行う。"""
-        from app.backend.models import SourceUpdate
-        from app.backend.services.file_service import FileService
-        from app.backend.services.global_settings_service import get_settings_service
-
-        svc = self._project_service
-        src = await svc.add_source(project_id)
-        # 名前をファイル名（拡張子なし）に設定
-        stem = path.stem
-        await svc.update_source(
-            project_id, src.id,
-            SourceUpdate(name=stem, file_path=str(path)),
+        """SourceIngestionService を使ってファイルから Source エントリを作成する。"""
+        if self._project_service is None:
+            raise RuntimeError("ProjectService が設定されていません")
+        from app.backend.routers.settings import get_service as get_settings_service
+        project = await self._project_service.get_project(project_id)
+        settings = get_settings_service().get()
+        return await get_source_ingestion_service().add_source_from_path(
+            project_id, project, path, settings
         )
-
-        suffix = path.suffix.lower()
-        file_type = "pdf" if suffix == ".pdf" else suffix.lstrip(".") or "text"
-
-        # テキスト抽出
-        text = ""
-        try:
-            file_svc = FileService()
-            text = await file_svc.read_file_as_text(str(path))
-        except Exception:
-            logger.exception("テキスト抽出失敗: %s", path)
-
-        # PDF ページ画像生成
-        if suffix == ".pdf":
-            try:
-                project = await svc.get_project(project_id)
-                from app.backend.services.project_service import ProjectService
-                src_meta_dir = ProjectService._source_metadata_dir(project, src.id)
-                page_dir = src_meta_dir / "page"
-                thumb_dir = src_meta_dir / "thumbnails"
-                page_dir.mkdir(parents=True, exist_ok=True)
-                thumb_dir.mkdir(parents=True, exist_ok=True)
-                raw_dpi = get_settings_service().get().pdf_page_dpi
-
-                import asyncio as _asyncio
-                import fitz  # noqa: PLC0415
-
-                def _gen_pdf_images(path_str: str, td: str, pd: str, dpi: int) -> None:
-                    doc = fitz.open(path_str)
-                    for i in range(len(doc)):
-                        pg = doc.load_page(i)
-                        pg.get_pixmap(dpi=72).save(str(Path(td) / f"page_{i}.jpg"))
-                        pg.get_pixmap(dpi=dpi).save(str(Path(pd) / f"page_raw_{i}.jpg"))
-                    doc.close()
-
-                await _asyncio.to_thread(
-                    _gen_pdf_images, str(path), str(thumb_dir), str(page_dir), raw_dpi
-                )
-            except Exception:
-                logger.exception("PDF 画像生成失敗: %s", path)
-
-        src = await svc.update_source(
-            project_id, src.id,
-            SourceUpdate(full_text=text, file_path=str(path), file_type=file_type),
-        )
-        return src
 
     async def _create_material_from_file(self, project_id: str, path: Path) -> object:
-        """ファイルから Material エントリを作成し、サムネイルを生成する。"""
-        from app.backend.models import MaterialUpdate
-        from app.backend.services.file_service import FileService
-        from app.backend.services.project_service import ProjectService
-
-        svc = self._project_service
-        mat = await svc.add_material(project_id)
-
-        stem = path.stem
-        await svc.update_material(
-            project_id, mat.id,
-            MaterialUpdate(name=stem, file_path=str(path)),
+        """MaterialIngestionService を使ってファイルから Material エントリを作成する。"""
+        if self._project_service is None:
+            raise RuntimeError("ProjectService が設定されていません")
+        project = await self._project_service.get_project(project_id)
+        return await get_material_ingestion_service().add_material_from_path(
+            project_id, project, path
         )
-
-        # サムネイル生成
-        thumb_path = None
-        try:
-            project = await svc.get_project(project_id)
-            thumb_dir = ProjectService._material_metadata_dir(project, mat.id)
-            thumb_dir.mkdir(parents=True, exist_ok=True)
-            thumb_dest = str(thumb_dir / f"{mat.id}_thumb.png")
-            file_svc = FileService()
-            thumb_path = await file_svc.generate_thumbnail_to(str(path), thumb_dest)
-        except Exception:
-            logger.exception("サムネイル生成失敗: %s", path)
-
-        mat = await svc.update_material(
-            project_id, mat.id,
-            MaterialUpdate(thumbnail_path=thumb_path),
-        )
-        return mat
 
     async def _put_event(self, event_type: str, project_id: str, item_id: str) -> None:
         from app.backend.models import WatchEvent
@@ -529,3 +521,37 @@ class FileWatcherService:
             except asyncio.QueueFull:
                 logger.warning("subscriber キューが満杯。イベントをドロップ: %s", event)
         logger.debug("WatchEvent ブロードキャスト (%d 件): %s", len(subs), event)
+
+    @staticmethod
+    def _normalized_path_str(path: Path) -> str:
+        """比較用にパスを正規化する（大小文字・区切り差分を吸収）。"""
+        try:
+            resolved = path.resolve(strict=False)
+        except OSError:
+            resolved = path.absolute()
+        return os.path.normcase(str(resolved))
+
+    @classmethod
+    def _is_under_dir(cls, path: Path, root_dir: Path) -> bool:
+        path_norm = cls._normalized_path_str(path)
+        root_norm = cls._normalized_path_str(root_dir)
+        try:
+            return os.path.commonpath([path_norm, root_norm]) == root_norm
+        except ValueError:
+            return False
+
+    @classmethod
+    def _resolve_watched_root(cls, path: Path, project_dir: Path) -> str | None:
+        """監視対象ファイルのルートディレクトリ名（sources/materials）を返す。"""
+        normalized_project = Path(cls._normalized_path_str(project_dir))
+        normalized_path = Path(cls._normalized_path_str(path))
+        try:
+            rel = normalized_path.relative_to(normalized_project)
+        except ValueError:
+            return None
+        if not rel.parts:
+            return None
+        root = rel.parts[0].lower()
+        if root in {"sources", "materials"}:
+            return root
+        return None

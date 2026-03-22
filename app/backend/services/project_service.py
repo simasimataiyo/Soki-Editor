@@ -83,6 +83,21 @@ class ProjectService:
         """metadata/materials/{mat_id}/ ディレクトリパスを返す"""
         return Path(project.json_file_path).parent / "metadata" / "materials" / mat_id
 
+    @staticmethod
+    def get_project_dir(project: Project) -> Path:
+        """project.json の親ディレクトリを返す（パブリックラッパー）"""
+        return ProjectService._project_dir(project)
+
+    @staticmethod
+    def get_source_metadata_dir(project: Project, source_id: str) -> Path:
+        """metadata/sources/{source_id}/ ディレクトリパスを返す（パブリックラッパー）"""
+        return ProjectService._source_metadata_dir(project, source_id)
+
+    @staticmethod
+    def get_material_metadata_dir(project: Project, mat_id: str) -> Path:
+        """metadata/materials/{mat_id}/ ディレクトリパスを返す（パブリックラッパー）"""
+        return ProjectService._material_metadata_dir(project, mat_id)
+
     async def create_project(
         self, name: str, json_file_path: str, data_dir: str
     ) -> Project:
@@ -157,53 +172,6 @@ class ProjectService:
         await self._update_registry(project.id, json_file_path)
         return project
 
-    @staticmethod
-    def _load_v2_split_files(project_json_path: Path, data: dict) -> None:
-        """v2 フォーマット: 分割ファイルからデータを読み込んで data dict に追記する。"""
-        project_dir = project_json_path.parent
-
-        # content.md
-        content_path = project_dir / "content.md"
-        if content_path.exists():
-            data["content"] = content_path.read_text(encoding="utf-8")
-        else:
-            data.setdefault("content", "")
-
-        # sources (IDリスト → オブジェクトリストに展開)
-        source_ids: list[str] = data.get("sources", [])
-        if source_ids and isinstance(source_ids[0], str):
-            sources_dir = project_dir / "sources"
-            loaded_sources = []
-            for src_id in source_ids:
-                meta_path = sources_dir / f"{src_id}.meta.json"
-                if not meta_path.exists():
-                    continue
-                src_data = json.loads(meta_path.read_text(encoding="utf-8"))
-                txt_path = sources_dir / f"{src_id}.txt"
-                src_data["full_text"] = txt_path.read_text(encoding="utf-8") if txt_path.exists() else ""
-                loaded_sources.append(src_data)
-            data["sources"] = loaded_sources
-
-        # materials (IDリスト → オブジェクトリストに展開)
-        material_ids: list[str] = data.get("materials", [])
-        if material_ids and isinstance(material_ids[0], str):
-            materials_dir = project_dir / "materials"
-            loaded_materials = []
-            for mat_id in material_ids:
-                meta_path = materials_dir / f"{mat_id}.meta.json"
-                if not meta_path.exists():
-                    continue
-                mat_data = json.loads(meta_path.read_text(encoding="utf-8"))
-                loaded_materials.append(mat_data)
-            data["materials"] = loaded_materials
-
-        # chat_edit.jsonl
-        chat_path = project_dir / "chat_edit.jsonl"
-        if chat_path.exists():
-            lines = chat_path.read_text(encoding="utf-8").splitlines()
-            data["chat_history"] = [json.loads(line) for line in lines if line.strip()]
-        else:
-            data.setdefault("chat_history", [])
 
     @staticmethod
     def _load_v3_split_files(project_json_path: Path, data: dict) -> None:

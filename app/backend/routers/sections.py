@@ -4,13 +4,10 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from app.backend.models import Section, SectionCreate, SectionOrder, SectionUpdate
+from app.backend.routers.deps import not_found as _not_found
 from app.backend.routers.projects import get_service
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["sections"])
-
-
-def _not_found(project_id: str):
-    raise HTTPException(status_code=404, detail=f"プロジェクトが見つかりません: {project_id}")
 
 
 @router.get("/sections", response_model=list[Section])
