@@ -1,10 +1,19 @@
+import { ApiClient } from './api-client.js';
+import { showToast } from './toast.js';
+import { appState } from './state-manager.js';
+import { Modal } from './modal.js';
+import { escHtml } from './dom-utils.js';
+import { SVG_CHEVRON_RIGHT, SVG_CHEVRON_DOWN, SVG_IMAGE_SM, SVG_IMAGE_LG, SVG_DELETE } from './svg-icons.js';
+import { marked } from './tiptap-bundle.js';
+
 /**
  * MaterialTab — マテリアル管理 UI（タスク 13）
  */
 
-const MaterialTab = (() => {
+export const MaterialTab = (() => {
   const DEFAULT_MATERIAL_NAME = '新しいマテリアル';
-  const _APP_TOKEN = window.__APP_TOKEN__ || '';
+  const _APP_TOKEN = ApiClient.getAppToken();
+  let _tiptapEditor = null;
 
   function _authFetch(url, options = {}) {
     const headers = new Headers(options.headers || {});
@@ -147,7 +156,7 @@ const MaterialTab = (() => {
       if (e.target.closest('.material-drag-handle')) return;
       _flushPendingSave();
       _activeId = mat.id;
-      window.appState.setState({ activeMaterialId: mat.id });
+      appState.setState({ activeMaterialId: mat.id });
       _renderList();
       _renderDetail(mat.id);
     });
@@ -227,7 +236,7 @@ const MaterialTab = (() => {
   }
 
   async function _handleMaterialReorder(draggedId, targetId, position) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     const materials = [...project.materials];
     const fromIdx = materials.findIndex(m => m.id === draggedId);
     const toIdx   = materials.findIndex(m => m.id === targetId);
@@ -381,7 +390,7 @@ const MaterialTab = (() => {
         showToast('画像ファイル（jpg, png, bmp など）のみ対応しています', 'error');
         return;
       }
-      const project = window.appState.getProject();
+      const project = appState.getProject();
       const formData = new FormData();
       formData.append('file', file);
       try {
@@ -439,9 +448,7 @@ const MaterialTab = (() => {
     if (tableContentEl && tablePreviewEl) {
       const updateTablePreview = () => {
         const md = tableContentEl.value;
-        if (typeof marked !== 'undefined') {
-          tablePreviewEl.innerHTML = marked.parse(md);
-        }
+        tablePreviewEl.innerHTML = marked.parse(md);
       };
       updateTablePreview();
       tableContentEl.addEventListener('input', updateTablePreview);
@@ -451,7 +458,7 @@ const MaterialTab = (() => {
     const typeEl = document.getElementById('mat-type');
     if (typeEl) {
       typeEl.addEventListener('change', () => {
-        const project = window.appState.getProject();
+        const project = appState.getProject();
         const currentMat = project.materials.find(m => m.id === mat.id);
         if (currentMat) {
           currentMat.type = typeEl.value;
@@ -474,7 +481,7 @@ const MaterialTab = (() => {
         clearTimeout(_nameTimer);
         _nameTimer = setTimeout(() => {
           // 常に最新のプロジェクトからマテリアルを参照
-          const project = window.appState.getProject();
+          const project = appState.getProject();
           const currentMat = project.materials.find(m => m.id === mat.id);
           if (currentMat) {
             currentMat.name = nameEl.value;
@@ -488,7 +495,7 @@ const MaterialTab = (() => {
   }
 
   async function _updateFigureCaptionsInSections(mat) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     if (!project) return;
     const newCaption = mat.caption || mat.name;
     const figPattern = new RegExp(`!\\[[^\\]]*\\]\\(([^"]*"${mat.id}")\\)`, 'g');
@@ -508,7 +515,7 @@ const MaterialTab = (() => {
   }
 
   async function _saveMaterial(matId) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     // マテリアルIDで常に最新を参照
     const mat = project.materials.find(m => m.id === matId);
     if (!mat) return;
@@ -530,7 +537,7 @@ const MaterialTab = (() => {
 
   async function _deleteMaterial(mat) {
     if (!(await Modal.confirm(`「${mat.name}」を削除しますか？`))) return;
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     try {
       await ApiClient.delete(`/api/projects/${project.id}/materials/${mat.id}`);
       project.materials = project.materials.filter(m => m.id !== mat.id);
@@ -540,7 +547,7 @@ const MaterialTab = (() => {
       try {
         const result = await ApiClient.get(`/api/projects/${project.id}/content`);
         project.content = result.content;
-        if (window.TiptapEditor) window.TiptapEditor.setContentFromMarkdown(project.content);
+        if (_tiptapEditor) _tiptapEditor.setContentFromMarkdown(project.content);
       } catch (_) {}
     } catch (_) {}
   }
@@ -568,7 +575,7 @@ const MaterialTab = (() => {
     const newName = result.name.trim();
     if (!newName || newName === mat.name) return;
 
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     try {
       const updated = await ApiClient.put(
         `/api/projects/${project.id}/materials/${mat.id}`,
@@ -592,7 +599,7 @@ const MaterialTab = (() => {
     input.onchange = async (e) => {
       const file = e.target.files[0];
       if (!file) return;
-      const project = window.appState.getProject();
+      const project = appState.getProject();
       const formData = new FormData();
       formData.append('file', file);
       try {
@@ -621,9 +628,10 @@ const MaterialTab = (() => {
     input.click();
   }
 
-  function bindEvents() {
+  function bindEvents({ tiptapEditor } = {}) {
+    _tiptapEditor = tiptapEditor || null;
     document.getElementById('btn-add-material').addEventListener('click', async () => {
-      const project = window.appState.getProject();
+      const project = appState.getProject();
       if (!project) return;
       const mat = await ApiClient.post(`/api/projects/${project.id}/materials`);
       project.materials.push(mat);
@@ -654,3 +662,4 @@ const MaterialTab = (() => {
 
   return { render, bindEvents, reset };
 })();
+

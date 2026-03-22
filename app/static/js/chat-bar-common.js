@@ -1,10 +1,14 @@
+import { showToast } from './toast.js';
+import { CommandParser } from './command-parser.js';
+import { AutocompletePopup } from './autocomplete-popup.js';
+
 /**
  * ChatBarCommon — エディット・レビュータブのチャットバー共通処理
  *
  * コマンドパース、オートコンプリート、リサイズハンドル、Enter送信などの共通機能
  */
 
-const ChatBarCommon = (() => {
+export const ChatBarCommon = (() => {
   // 入力欄ID → 設定のマップ
   const _configByInputId = new Map();
 
@@ -29,7 +33,7 @@ const ChatBarCommon = (() => {
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         // オートコンプリートポップアップ表示中はEnter送信を抑止（候補確定のみ）
-        if (window.AutocompletePopup && AutocompletePopup.isOpen()) return;
+        if (AutocompletePopup.isOpen()) return;
 
         let shouldSend = true;
         if (config.onEnter) {
@@ -151,6 +155,4 @@ function initResizeHandle(handleId, textareaId) {
   });
 }
 
-// app.jsから呼び出せるようにグローバルに公開
-window.initResizeHandle = initResizeHandle;
-
+export { initResizeHandle };

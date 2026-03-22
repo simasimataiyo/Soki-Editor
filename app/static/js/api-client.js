@@ -3,7 +3,9 @@
  * すべての API 呼び出しをラップし、エラーハンドリングを統一する。
  */
 
-class ApiError extends Error {
+import { showToast } from './toast.js';
+
+export class ApiError extends Error {
   constructor(status, detail) {
     super(detail);
     this.status = status;
@@ -172,7 +174,15 @@ const ApiClient = (() => {
     return _fetch('POST', '/api/dialog/write-file', { path, content });
   }
 
+  function withApiToken(url) {
+    if (!_TOKEN) return url;
+    const sep = url.includes('?') ? '&' : '?';
+    return `${url}${sep}app_token=${encodeURIComponent(_TOKEN)}`;
+  }
+
   return {
+    getAppToken: () => _TOKEN,
+    withApiToken,
     get: (path) => _fetch('GET', path),
     getText: (path) => _fetchText('GET', path),
     post: (path, body) => _fetch('POST', path, body),
@@ -186,3 +196,5 @@ const ApiClient = (() => {
     writeFile,
   };
 })();
+
+export { ApiClient };

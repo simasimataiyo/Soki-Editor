@@ -1,11 +1,17 @@
+import { ApiClient } from './api-client.js';
+import { showToast } from './toast.js';
+import { appState } from './state-manager.js';
+import { SourceTab } from './source-tab.js';
+import { MaterialTab } from './material-tab.js';
+
 /**
  * WatchSSEClient — ファイル監視 SSE クライアント
  * プロジェクト open 時に /api/projects/{id}/watch-events に接続し、
  * source_added/removed, material_added/removed イベントに応じて通知と状態同期を行う。
  */
-const WatchSSEClient = (() => {
+export const WatchSSEClient = (() => {
   const _global = typeof globalThis !== 'undefined' ? globalThis : {};
-  const _TOKEN = (_global.window && _global.window.__APP_TOKEN__) || '';
+  const _TOKEN = ApiClient.getAppToken();
   let _projectId = null;
   let _eventSource = null;
   let _retryCount = 0;
@@ -193,7 +199,7 @@ const WatchSSEClient = (() => {
     if (!data || !data.type) return;
     if (!shouldHandleProjectEvent(data, _projectId)) return;
 
-    const currentProject = window.appState?.getProject?.();
+    const currentProject = appState?.getProject?.();
     if (!currentProject) return;
 
     if (isNotifiableEventType(data.type)) {
@@ -237,8 +243,8 @@ const WatchSSEClient = (() => {
           _emitToast(toast.message, toast.level);
         }
 
-        window.appState.setProject(updated);
-        if (typeof SourceTab !== 'undefined' && _isTabActive('source')) {
+        appState.setProject(updated);
+        if (_isTabActive('source')) {
           SourceTab.render(updated);
         }
       })
@@ -263,8 +269,8 @@ const WatchSSEClient = (() => {
           _emitToast(toast.message, toast.level);
         }
 
-        window.appState.setProject(updated);
-        if (typeof MaterialTab !== 'undefined' && _isTabActive('material')) {
+        appState.setProject(updated);
+        if (_isTabActive('material')) {
           MaterialTab.render(updated);
         }
       })
@@ -298,3 +304,4 @@ if (typeof module !== 'undefined' && module.exports) {
     __test__: WatchSSEClient.__test__,
   };
 }
+

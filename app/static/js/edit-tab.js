@@ -1,11 +1,20 @@
+import { ApiClient } from './api-client.js';
+import { showToast } from './toast.js';
+import { appState } from './state-manager.js';
+import { Modal } from './modal.js';
+import { escHtml } from './dom-utils.js';
+import { SVG_CHEVRON_RIGHT, SVG_CHEVRON_DOWN, SVG_DELETE } from './svg-icons.js';
+
 /**
  * EditTab — アウトライン・ドキュメントビュー・文献/図表挿入（タスク 11）
  */
 
-const EditTab = (() => {
+export const EditTab = (() => {
+  let _onScopeChange = () => {};
   let _project = null;
   let _dragState = null;  // ドラッグ操作状態
   let _savedTiptapPos = null; // モーダル表示前のカーソル位置保存用（Tiptap ProseMirror位置）
+  let _tiptapEditor = null; // DI注入されたTiptapEditorインスタンス（app.jsから注入）
 
   // Tiptapのupdateイベントハンドラ管理
   let _tiptapUpdateTimer = null;
@@ -13,6 +22,7 @@ const EditTab = (() => {
 
   // セクション削除API呼び出し中フラグ（二重実行防止）
   let _deletionPending = false;
+  let _headingDetectionPending = false;
 
   // ツールチップ DOM
   let _tooltip = null;
@@ -107,15 +117,9 @@ const EditTab = (() => {
     _reconcileContentAndSections(project);
     _renderOutline();
 
-    if (window.TiptapEditor && window.TiptapEditor.getEditor()) {
+    if (_tiptapEditor && _tiptapEditor.getEditor()) {
       _renderDocView();
       _registerTiptapUpdateHandler();
-    } else {
-      // type="module" スクリプトの遅延読み込みに対応
-      document.addEventListener('tiptap-ready', () => {
-        _renderDocView();
-        _registerTiptapUpdateHandler();
-      }, { once: true });
     }
 
     _initReferencesCheckbox(project);
@@ -127,13 +131,13 @@ const EditTab = (() => {
    * render()が呼ばれるたびに旧ハンドラを解除して再登録する
    */
   function _registerTiptapUpdateHandler() {
-    const editor = window.TiptapEditor.getEditor();
+    const editor = _tiptapEditor.getEditor();
     if (!editor) return;
 
     if (_tiptapUpdateHandler) editor.off('update', _tiptapUpdateHandler);
 
     _tiptapUpdateHandler = () => {
-      if (window.TiptapEditor._suppressUpdate) return;
+      if (_tiptapEditor._suppressUpdate) return;
       _onTiptapUpdate();
     };
 
@@ -145,7 +149,7 @@ const EditTab = (() => {
    * Tiptapノードを唯一の真実のソースとしてアウトラインを更新する
    */
   function _onTiptapUpdate() {
-    const tiptapSections = window.TiptapEditor.parseSectionsFromDoc();
+    const tiptapSections = _tiptapEditor.parseSectionsFromDoc();
 
     // 1. アウトライン同期（undo復元・タイトル変化・階層変化を含む）
     _syncOutlineFromTiptap(tiptapSections);
@@ -224,7 +228,7 @@ const EditTab = (() => {
 
       // Ensure the tiptap node has the correct attributes
       if (ts.parentId !== ts.calculatedParentId || ts.sectionOrder !== ts.calculatedOrder) {
-        window.TiptapEditor.updateSectionMetaById(ts.id, {
+        _tiptapEditor.updateSectionMetaById(ts.id, {
           parentId: ts.calculatedParentId,
           sectionOrder: ts.calculatedOrder
         });
@@ -248,7 +252,7 @@ const EditTab = (() => {
 
     _deletionPending = true;
 
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     if (!project) { _deletionPending = false; return; }
 
     for (const sec of deletedSections) {
@@ -268,9 +272,9 @@ const EditTab = (() => {
    * TiptapのMarkdownコンテンツをバックエンドのproject.contentとして保存する
    */
   async function _syncContentToBackend() {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     if (!project) return;
-    const content = window.TiptapEditor.getContentAsMarkdown();
+    const content = _tiptapEditor.getContentAsMarkdown();
     try {
       await ApiClient.put(`/api/projects/${project.id}/content`, { content });
       project.content = content;
@@ -318,11 +322,11 @@ const EditTab = (() => {
         enabled,
       });
       // ローカルプロジェクト状態を更新
-      const proj = window.appState.getProject();
+      const proj = appState.getProject();
       if (proj) {
         proj.references_section_enabled = enabled;
-        if (window.TiptapEditor) {
-          window.TiptapEditor.setProjectData(enabled, proj.sources || [], proj.materials || []);
+        if (_tiptapEditor) {
+          _tiptapEditor.setProjectData(enabled, proj.sources || [], proj.materials || [], proj.id);
         }
       }
     });
@@ -353,7 +357,7 @@ const EditTab = (() => {
     list.addEventListener('click', (e) => {
       // クリックしたのが outline-item でない場合、全セクション非選択
       if (!e.target.closest('.outline-item')) {
-        window.appState.setSelectedSectionId(null);
+        appState.setSelectedSectionId(null);
         _updateDocViewEditMode();
       }
     });
@@ -371,7 +375,7 @@ const EditTab = (() => {
     const children = allSorted.filter(s => s.parent_id === sec.id);
     const hasChildren = children.length > 0;
     const isCollapsed = _collapsed[sec.id];
-    const isSelected = (window.appState.getSelectedSectionId() === sec.id);
+    const isSelected = (appState.getSelectedSectionId() === sec.id);
 
     const li = document.createElement('li');
     li.className = `outline-item level-${depth}${isSelected ? ' selected' : ''}`;
@@ -473,8 +477,8 @@ const EditTab = (() => {
 
     li.addEventListener('click', () => {
       // TiptapEditor.scrollToSection を使ってスクロール
-      if (window.TiptapEditor && window.TiptapEditor.scrollToSection) {
-        window.TiptapEditor.scrollToSection(sec.id);
+      if (_tiptapEditor && _tiptapEditor.scrollToSection) {
+        _tiptapEditor.scrollToSection(sec.id);
       } else {
         // フォールバック
         const headingEl = document.querySelector(`#tiptap-editor-mount [data-section-id="${sec.id}"]`);
@@ -498,10 +502,10 @@ const EditTab = (() => {
       });
       li.classList.add('selected');
       li.classList.add('active');
-      window.appState.setSelectedSectionId(sec.id);
+      appState.setSelectedSectionId(sec.id);
       _updateDocViewEditMode();
 
-      AppShell.setCurrentScope(sec.id);
+      _onScopeChange(sec.id);
     });
 
     // ダブルクリックでタイトル編集
@@ -537,26 +541,26 @@ const EditTab = (() => {
    * 初回ロード・リロード時に旧形式マーカーのデータを補完するために呼ぶ。
    */
   function _injectSectionMeta() {
-    if (!_project || !window.TiptapEditor) return;
-    window.TiptapEditor._suppressUpdate = true;
+    if (!_project || !_tiptapEditor) return;
+    _tiptapEditor._suppressUpdate = true;
     for (const sec of _project.sections) {
-      window.TiptapEditor.updateSectionMetaById(sec.id, {
+      _tiptapEditor.updateSectionMetaById(sec.id, {
         summary: sec.summary || '',
         parentId: sec.parent_id || null,
         sectionOrder: sec.order ?? 0,
       });
     }
-    setTimeout(() => { window.TiptapEditor._suppressUpdate = false; }, 50);
+    setTimeout(() => { _tiptapEditor._suppressUpdate = false; }, 50);
   }
 
   function _renderDocView() {
-    if (!window.TiptapEditor) return;
+    if (!_tiptapEditor) return;
 
     // Set Editor Project Data for extensions to use (CharacterCount, References)
-    window.TiptapEditor.setProjectData(_project.references_section_enabled, _project.sources || [], _project.materials || []);
+    _tiptapEditor.setProjectData(_project.references_section_enabled, _project.sources || [], _project.materials || [], _project.id);
 
     // Tiptapにproject.contentをセット（新アーキテクチャ）
-    window.TiptapEditor.setContentFromMarkdown(_project.content || '');
+    _tiptapEditor.setContentFromMarkdown(_project.content || '');
     // project.sections[] のメタデータ（summary/parentId/order）をTiptapノード属性に注入
     _injectSectionMeta();
 
@@ -571,7 +575,7 @@ const EditTab = (() => {
    * @param {object} sec - 編集対象のセクションオブジェクト
    */
   async function _editSectionMeta(sec) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     const sections = project.sections;
 
     // 自分と子孫のIDセットを作成（親選択肢から除外してループを防ぐ）
@@ -667,7 +671,7 @@ const EditTab = (() => {
       metaUpdate.sectionOrder = updateData.order;
     }
     if (Object.keys(metaUpdate).length > 0) {
-      window.TiptapEditor.updateSectionMetaById(sec.id, metaUpdate);
+      _tiptapEditor.updateSectionMetaById(sec.id, metaUpdate);
     }
 
     await _syncOutlineToBody();
@@ -680,7 +684,7 @@ const EditTab = (() => {
    * @param {object} sec - 削除対象のセクションオブジェクト
    */
   async function _deleteSection(sec) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     const sections = project.sections;
 
     // 自分と子孫のIDセットを作成
@@ -700,10 +704,10 @@ const EditTab = (() => {
     project.sections = project.sections.filter(s => !idsToDelete.has(s.id));
 
     // Tiptapドキュメントから該当ブロック（子セクションとその中身を含む）をすべて削除
-    if (window.TiptapEditor.deleteSectionBlock) {
-      window.TiptapEditor.deleteSectionBlock(sec.id);
+    if (_tiptapEditor.deleteSectionBlock) {
+      _tiptapEditor.deleteSectionBlock(sec.id);
     } else {
-      window.TiptapEditor.deleteSectionHeading(sec.id);
+      _tiptapEditor.deleteSectionHeading(sec.id);
     }
 
     await _syncContentToBackend();
@@ -717,7 +721,7 @@ const EditTab = (() => {
    * @param {number} direction - 移動方向（-1: 上へ、1: 下へ）
    */
   async function _moveSection(sec, direction) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     const siblings = project.sections
       .filter(s => s.parent_id === sec.parent_id)
       .sort((a, b) => a.order - b.order);
@@ -729,9 +733,9 @@ const EditTab = (() => {
     const swapSec = siblings[swapIdx];
 
     // Tiptap APIに移動を委譲
-    if (window.TiptapEditor && window.TiptapEditor.moveSectionBlock) {
+    if (_tiptapEditor && _tiptapEditor.moveSectionBlock) {
       const position = direction === -1 ? 'before' : 'after';
-      window.TiptapEditor.moveSectionBlock(sec.id, swapSec.id, position);
+      _tiptapEditor.moveSectionBlock(sec.id, swapSec.id, position);
     }
     showToast('セクションを移動しました', 'success');
   }
@@ -742,7 +746,7 @@ const EditTab = (() => {
    * タイトル入力プロンプトを表示し、ルート直下に新しい章セクションを追加する
    */
   async function _addChapter() {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     const title = await Modal.prompt('章を追加', '章タイトルを入力してください');
     if (!title) return;
     const maxOrder = project.sections.filter(s => !s.parent_id)
@@ -760,8 +764,8 @@ const EditTab = (() => {
    * 選択中セクションがルートなら同じ親、それ以外は選択中を親として追加する
    */
   async function _addSection() {
-    const project = window.appState.getProject();
-    const activeId = window.appState.getState().activeSectionId;
+    const project = appState.getProject();
+    const activeId = appState.getState().activeSectionId;
     const activeSec = project.sections.find(s => s.id === activeId);
     const parentId = activeSec ? (activeSec.parent_id ? activeSec.parent_id : activeSec.id) : null;
     const title = await Modal.prompt('節を追加', '節タイトルを入力してください');
@@ -782,7 +786,7 @@ const EditTab = (() => {
    * 現在のTiptapカーソル位置を _savedTiptapPos に保存する
    */
   function _saveCursorPosition() {
-    const editor = window.TiptapEditor && window.TiptapEditor.getEditor();
+    const editor = _tiptapEditor && _tiptapEditor.getEditor();
     if (editor) {
       _savedTiptapPos = editor.state.selection.from;
     } else {
@@ -796,7 +800,7 @@ const EditTab = (() => {
    */
   async function _showInsertRefDialog(sectionId) {
     _saveCursorPosition();
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     const filteredSources = project.sources.filter(s => s.bibliography?.include_in_references === true);
     if (!filteredSources.length) { showToast('参考文献に含めるソースがありません', 'error'); return; }
     const items = filteredSources.map(s => ({ value: s.id, label: s.bibliography?.title || s.name }));
@@ -808,13 +812,13 @@ const EditTab = (() => {
   }
 
   function _insertRefNode(sectionId, refId) {
-    const editor = window.TiptapEditor && window.TiptapEditor.getEditor();
+    const editor = _tiptapEditor && _tiptapEditor.getEditor();
     if (!editor) return;
     const nodeContent = { type: 'referenceNode', attrs: { refId } };
     if (_savedTiptapPos !== null) {
       editor.chain().focus().insertContentAt(_savedTiptapPos, nodeContent).run();
     } else {
-      const endPos = sectionId ? window.TiptapEditor.getSectionContentEnd(sectionId) : null;
+      const endPos = sectionId ? _tiptapEditor.getSectionContentEnd(sectionId) : null;
       if (endPos !== null) {
         editor.chain().focus().insertContentAt(endPos, nodeContent).run();
       } else {
@@ -830,7 +834,7 @@ const EditTab = (() => {
    */
   async function _showInsertFigDialog(sectionId) {
     _saveCursorPosition();
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     if (!project.materials.length) { showToast('マテリアルがありません', 'error'); return; }
     const items = project.materials.map(m => ({ value: m.id, label: m.name }));
     const choice = await Modal.select('図表を挿入', 'マテリアルを選択してください', items, { large: true });
@@ -844,13 +848,13 @@ const EditTab = (() => {
    * FigureNode（図表番号インライン）をTiptapエディタに直接挿入する
    */
   function _insertFigNumberNode(sectionId, mat) {
-    const editor = window.TiptapEditor && window.TiptapEditor.getEditor();
+    const editor = _tiptapEditor && _tiptapEditor.getEditor();
     if (!editor) return;
     const nodeContent = { type: 'figureNode', attrs: { figId: mat.id, altText: mat.caption || mat.name } };
     if (_savedTiptapPos !== null) {
       editor.chain().focus().insertContentAt(_savedTiptapPos, nodeContent).run();
     } else {
-      const endPos = sectionId ? window.TiptapEditor.getSectionContentEnd(sectionId) : null;
+      const endPos = sectionId ? _tiptapEditor.getSectionContentEnd(sectionId) : null;
       if (endPos !== null) {
         editor.chain().focus().insertContentAt(endPos, nodeContent).run();
       } else {
@@ -866,7 +870,7 @@ const EditTab = (() => {
    */
   async function _showInsertFigBlockDialog(sectionId) {
     _saveCursorPosition();
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     if (!project.materials.length) { showToast('マテリアルがありません', 'error'); return; }
     const items = project.materials.map(m => ({ value: m.id, label: m.name }));
     const choice = await Modal.select('図表を挿入', 'マテリアルを選択してください', items, { large: true });
@@ -880,13 +884,13 @@ const EditTab = (() => {
    * FigureBlockNodeをTiptapエディタに直接挿入する
    */
   function _insertFigBlockNode(sectionId, figId) {
-    const editor = window.TiptapEditor && window.TiptapEditor.getEditor();
+    const editor = _tiptapEditor && _tiptapEditor.getEditor();
     if (!editor) return;
     const blockNode = { type: 'figureBlockNode', attrs: { figId } };
     if (_savedTiptapPos !== null) {
       editor.chain().focus().insertContentAt(_savedTiptapPos, blockNode).createParagraphNear().focus().run();
     } else {
-      const endPos = sectionId ? window.TiptapEditor.getSectionContentEnd(sectionId) : null;
+      const endPos = sectionId ? _tiptapEditor.getSectionContentEnd(sectionId) : null;
       if (endPos !== null) {
         editor.chain().focus().insertContentAt(endPos, blockNode).createParagraphNear().focus().run();
       } else {
@@ -903,10 +907,10 @@ const EditTab = (() => {
    * これにより、アウトライン上のドラッグ&ドロップやタイトル編集が本文に即時同期される。
    */
   async function _syncOutlineToBody() {
-    if (!window.TiptapEditor || !_project) return;
+    if (!_tiptapEditor || !_project) return;
 
     // 現在のテキストを抽出
-    const currentContent = window.TiptapEditor.getContentAsMarkdown();
+    const currentContent = _tiptapEditor.getContentAsMarkdown();
     // 新形式: {JSON} / 旧形式: uuid の両方にマッチ
     const MARKER_RE = /<!-- soki-section:(\{[^}]*\}|[a-f0-9-]+) -->\n?/g;
     const allMatches = [...currentContent.matchAll(MARKER_RE)];
@@ -971,8 +975,8 @@ const EditTab = (() => {
     });
 
     _project.content = newContent;
-    window.TiptapEditor._suppressUpdate = true;
-    window.TiptapEditor.setContentFromMarkdown(newContent, true);
+    _tiptapEditor._suppressUpdate = true;
+    _tiptapEditor.setContentFromMarkdown(newContent, true);
     // setContentFromMarkdown後にsummary/parentId/orderをノード属性に再注入
     _injectSectionMeta();
     // _injectSectionMetaが_suppressUpdateをfalseにするので即座にawaitしてから解除
@@ -1028,7 +1032,7 @@ const EditTab = (() => {
    * @param {'before'|'after'|'child'} position - ドロップ位置
    */
   async function _handleSectionDrop(draggedId, targetId, position) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     const draggedSec = project.sections.find(s => s.id === draggedId);
     const targetSec = project.sections.find(s => s.id === targetId);
 
@@ -1047,8 +1051,8 @@ const EditTab = (() => {
     }
 
     // Tiptap APIに移動を委譲（Tiptapのupdateイベントが発火し、backend同期も行われる）
-    if (window.TiptapEditor && window.TiptapEditor.moveSectionBlock) {
-      window.TiptapEditor.moveSectionBlock(draggedId, targetId, position);
+    if (_tiptapEditor && _tiptapEditor.moveSectionBlock) {
+      _tiptapEditor.moveSectionBlock(draggedId, targetId, position);
     }
     showToast('セクションを移動しました', 'success');
   }
@@ -1091,21 +1095,21 @@ const EditTab = (() => {
   function _updateCharCount() {
     const display = document.getElementById('char-count-display');
     if (!display) return;
-    const project = window.appState.getProject();
-    if (!project || window.appState.getState().activeTab !== 'edit') {
+    const project = appState.getProject();
+    if (!project || appState.getState().activeTab !== 'edit') {
       display.style.display = 'none';
       return;
     }
 
     const content = project.content || '';
-    const selectedId = window.appState.getSelectedSectionId();
+    const selectedId = appState.getSelectedSectionId();
     let count, label;
 
     if (selectedId) {
       count = _countSectionBodyChars(content, selectedId);
       label = `選択中: ${count.toLocaleString()} 文字`;
     } else {
-      count = window.TiptapEditor ? window.TiptapEditor.getCharacterCount() : _countBodyChars(content);
+      count = _tiptapEditor ? _tiptapEditor.getCharacterCount() : _countBodyChars(content);
       label = `全文: ${count.toLocaleString()} 文字`;
     }
 
@@ -1120,7 +1124,7 @@ const EditTab = (() => {
    * アウトライン選択状態・セクションツールバーの表示/非表示を管理する
    */
   function _updateDocViewEditMode() {
-    const selectedId = window.appState.getSelectedSectionId();
+    const selectedId = appState.getSelectedSectionId();
 
     // アウトラインの選択状態を全セクションで更新
     document.querySelectorAll('.outline-item').forEach(item => {
@@ -1184,7 +1188,7 @@ const EditTab = (() => {
 
       if (!selectedId) {
         // 全セクション非選択時はスコープを「全セクション(骨子)」に戻す
-        AppShell.setCurrentScope('all');
+        _onScopeChange('all');
       }
     }
 
@@ -1202,7 +1206,7 @@ const EditTab = (() => {
    *   undefined → 選択中セクションがあればそれを親に自動設定
    */
   async function _showAddSectionModal(parentId = undefined) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     const sections = project.sections;
 
     // 階層順（深さ優先）でソートして親セクション選択肢を構築
@@ -1242,7 +1246,7 @@ const EditTab = (() => {
       defaultParent = parentId;
     } else {
       // 未指定の場合: 選択中セクションをデフォルト親に
-      defaultParent = window.appState.getSelectedSectionId() || null;
+      defaultParent = appState.getSelectedSectionId() || null;
     }
 
     // フォームモーダルを表示
@@ -1301,13 +1305,13 @@ const EditTab = (() => {
     await _syncOutlineToBody();
 
     // 新規セクションを選択状態に
-    window.appState.setSelectedSectionId(sec.id);
+    appState.setSelectedSectionId(sec.id);
 
     _renderOutline();
 
     // Tiptap上で新規セクションの見出しにスクロール
-    if (window.TiptapEditor && window.TiptapEditor.scrollToSection) {
-      window.TiptapEditor.scrollToSection(sec.id);
+    if (_tiptapEditor && _tiptapEditor.scrollToSection) {
+      _tiptapEditor.scrollToSection(sec.id);
     }
 
     _updateDocViewEditMode();
@@ -1332,10 +1336,10 @@ const EditTab = (() => {
 
     // Tiptapのテキスト選択時の文字数表示とセクション同期（tiptap-ready後に登録）
     function _bindTiptapSelectionUpdate() {
-      const editor = window.TiptapEditor && window.TiptapEditor.getEditor();
+      const editor = _tiptapEditor && _tiptapEditor.getEditor();
       if (!editor) return;
       editor.on('selectionUpdate', ({ editor: ed }) => {
-        if (window.appState.getState().activeTab !== 'edit') return;
+        if (appState.getState().activeTab !== 'edit') return;
 
         const { from, to } = ed.state.selection;
 
@@ -1356,14 +1360,14 @@ const EditTab = (() => {
         currentSectionId = lastSectionId;
 
         // 選択状態が変わった場合のみ更新（無限ループや不要な再描画を防ぐ）
-        if (currentSectionId && currentSectionId !== window.appState.getSelectedSectionId()) {
-          window.appState.setSelectedSectionId(currentSectionId);
-          AppShell.setCurrentScope(currentSectionId);
+        if (currentSectionId && currentSectionId !== appState.getSelectedSectionId()) {
+          appState.setSelectedSectionId(currentSectionId);
+          _onScopeChange(currentSectionId);
           _updateDocViewEditMode();
-        } else if (!currentSectionId && window.appState.getSelectedSectionId()) {
+        } else if (!currentSectionId && appState.getSelectedSectionId()) {
           // 本文冒頭（最初の見出しより前）にカーソルがある場合はセクション非選択状態
-          window.appState.setSelectedSectionId(null);
-          AppShell.setCurrentScope('all');
+          appState.setSelectedSectionId(null);
+          _onScopeChange('all');
           _updateDocViewEditMode();
         }
 
@@ -1382,7 +1386,7 @@ const EditTab = (() => {
       });
     }
 
-    if (window.TiptapEditor && window.TiptapEditor.getEditor()) {
+    if (_tiptapEditor && _tiptapEditor.getEditor()) {
       _bindTiptapSelectionUpdate();
     } else {
       document.addEventListener('tiptap-ready', _bindTiptapSelectionUpdate, { once: true });
@@ -1391,7 +1395,7 @@ const EditTab = (() => {
     // ESCキー: 本文編集中に押下で全セクション選択解除
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
-      if (window.appState.getState().activeTab !== 'edit') return;
+      if (appState.getState().activeTab !== 'edit') return;
       // モーダルが開いている場合は処理しない
       if (document.querySelector('.modal-overlay')) return;
       // エディタ内またはアウトライン内にフォーカスがある場合に解除
@@ -1399,7 +1403,7 @@ const EditTab = (() => {
       const isInEditor = tiptapMount && tiptapMount.contains(document.activeElement);
       const outlineList = document.getElementById('outline-list');
       const isInOutline = outlineList && outlineList.contains(document.activeElement);
-      if (isInEditor || isInOutline || window.appState.getSelectedSectionId()) {
+      if (isInEditor || isInOutline || appState.getSelectedSectionId()) {
         clearSectionSelection();
       }
     });
@@ -1419,8 +1423,8 @@ const EditTab = (() => {
     clearTimeout(_tiptapUpdateTimer);
     _tiptapUpdateTimer = null;
     // Tiptapのupdateハンドラを解除
-    if (_tiptapUpdateHandler && window.TiptapEditor) {
-      const editor = window.TiptapEditor.getEditor();
+    if (_tiptapUpdateHandler && _tiptapEditor) {
+      const editor = _tiptapEditor.getEditor();
       if (editor) editor.off('update', _tiptapUpdateHandler);
     }
     _tiptapUpdateHandler = null;
@@ -1430,16 +1434,22 @@ const EditTab = (() => {
    * 全セクションの選択を解除する（外部から呼び出し可能）
    */
   function clearSectionSelection() {
-    window.appState.setSelectedSectionId(null);
+    appState.setSelectedSectionId(null);
     document.querySelectorAll('.outline-item').forEach(el => {
       el.classList.remove('selected');
       el.classList.remove('active');
     });
     _updateDocViewEditMode();
-    AppShell.setCurrentScope('all');
+    _onScopeChange('all');
+  }
+
+  function init({ onScopeChange, tiptapEditor } = {}) {
+    _onScopeChange = onScopeChange || (() => {});
+    if (tiptapEditor) _tiptapEditor = tiptapEditor;
   }
 
   return {
+    init,
     render,
     bindEvents,
     insertRef: _showInsertRefDialog,
@@ -1451,4 +1461,3 @@ const EditTab = (() => {
     clearSectionSelection,
   };
 })();
-window.EditTab = EditTab;

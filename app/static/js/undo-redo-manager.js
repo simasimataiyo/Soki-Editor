@@ -1,9 +1,15 @@
+import { ApiClient } from './api-client.js';
+import { showToast } from './toast.js';
+import { appState } from './state-manager.js';
+
 /**
  * UndoRedoManager — セクション操作の取り消し・やり直し管理（タスク 11.3）
  * スタック上限 50 件。
  */
 
-const UndoRedoManager = (() => {
+export const UndoRedoManager = (() => {
+  let _editTab = null;
+  let _projectSelector = null;
   const MAX_STACK = 50;
   let undoStack = [];
   let redoStack = [];
@@ -54,15 +60,15 @@ const UndoRedoManager = (() => {
       await redo();
     } else if (e.ctrlKey && e.key === 's') {
       e.preventDefault();
-      const project = window.appState.getProject();
+      const project = appState.getProject();
       if (project) {
         try {
-          if (window.EditTab && window.EditTab.forceSync) {
-            await window.EditTab.forceSync();
+          if (_editTab && _editTab.forceSync) {
+            await _editTab.forceSync();
           }
           await ApiClient.put(`/api/projects/${project.id}/save`);
           // showOpenFilePicker で開いたファイルがあれば元のファイルへ書き戻す
-          const fileHandle = (typeof ProjectSelector !== 'undefined') ? ProjectSelector.getOpenFileHandle() : null;
+          const fileHandle = _projectSelector ? _projectSelector.getOpenFileHandle() : null;
           if (fileHandle) {
             const projectData = await ApiClient.get(`/api/projects/${project.id}`);
             const writable = await fileHandle.createWritable();
@@ -75,5 +81,11 @@ const UndoRedoManager = (() => {
     }
   });
 
-  return { push, undo, redo, canUndo, canRedo, clear };
+  function init({ editTab, projectSelector } = {}) {
+    _editTab = editTab || null;
+    _projectSelector = projectSelector || null;
+  }
+
+  return { init, push, undo, redo, canUndo, canRedo, clear };
 })();
+

@@ -1,6 +1,5 @@
 /**
- * StateManager — アプリ全体状態管理シングルトン（タスク 10.2）
- * window.appState としてグローバルに公開。
+ * StateManager — アプリ全体状態管理シングルトン
  */
 
 const StateManager = (() => {
@@ -58,5 +57,4 @@ const StateManager = (() => {
   return { setState, setProject, setActiveTab, getState, getProject, setSelectedSectionId, getSelectedSectionId, resetSelections };
 })();
 
-// グローバル公開
-window.appState = StateManager;
+export { StateManager as appState };

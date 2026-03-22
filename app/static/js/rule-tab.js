@@ -1,8 +1,21 @@
+import { ApiClient } from './api-client.js';
+import { showToast } from './toast.js';
+import { appState } from './state-manager.js';
+import { Modal } from './modal.js';
+import { escHtml } from './dom-utils.js';
+import {
+  SVG_CHEVRON_RIGHT,
+  SVG_CHEVRON_DOWN,
+  SVG_ADD_CHILD,
+  SVG_EDIT,
+  SVG_DELETE,
+} from './svg-icons.js';
+
 /**
  * RuleTab — ルール・カテゴリ管理 UI（タスク 14）
  */
 
-const RuleTab = (() => {
+export const RuleTab = (() => {
   let _project = null;
   let _activeCategoryId = null;
   let _sectionCollapsed = {};   // 右パネルセクション折りたたみ
@@ -151,7 +164,7 @@ const RuleTab = (() => {
     const newName = result.name.trim();
     if (!newName || newName === cat.name) return;
 
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     try {
       await ApiClient.put(
         `/api/projects/${project.id}/rule-categories/${cat.id}`,
@@ -164,7 +177,7 @@ const RuleTab = (() => {
 
   async function _deleteCategory(cat) {
     if (!(await Modal.confirm(`カテゴリ「${cat.name}」と配下のルールをすべて削除しますか？`))) return;
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     try {
       await ApiClient.delete(`/api/projects/${project.id}/rule-categories/${cat.id}`);
       project.rule_categories = project.rule_categories.filter(c => c.id !== cat.id);
@@ -175,7 +188,7 @@ const RuleTab = (() => {
   }
 
   async function _toggleRule(rule, enabled) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     try {
       await ApiClient.put(`/api/projects/${project.id}/rules/${rule.id}`, { enabled });
       rule.enabled = enabled;
@@ -183,7 +196,7 @@ const RuleTab = (() => {
   }
 
   async function _updateRuleContent(rule, content) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     try {
       await ApiClient.put(`/api/projects/${project.id}/rules/${rule.id}`, { content });
       rule.content = content;
@@ -191,7 +204,7 @@ const RuleTab = (() => {
   }
 
   async function _deleteRule(rule) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     try {
       await ApiClient.delete(`/api/projects/${project.id}/rules/${rule.id}`);
       project.rules = project.rules.filter(r => r.id !== rule.id);
@@ -202,7 +215,7 @@ const RuleTab = (() => {
   // ─── トップバーから呼び出される公開関数 ──────────────
 
   async function addCategory() {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     if (!project) return;
     const name = await Modal.prompt('カテゴリ追加', 'カテゴリを入力してください');
     if (!name) return;
@@ -216,7 +229,7 @@ const RuleTab = (() => {
 
   // 左パネル「新規追加」ボタンからルール追加（カテゴリ選択付き）
   async function addRuleFromPanel() {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     if (!project) return;
 
     const cats = [...project.rule_categories].sort((a, b) => a.order - b.order);
@@ -262,7 +275,7 @@ const RuleTab = (() => {
   }
 
   async function addRuleToCategory(categoryId) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     if (!project) return;
     const content = await Modal.prompt('ルール追加', 'ルール内容を入力してください');
     if (!content) return;
@@ -279,7 +292,7 @@ const RuleTab = (() => {
   }
 
   async function exportCsv() {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     if (!project) return;
     try {
       const csvText = await ApiClient.getText(`/api/projects/${project.id}/rules/export`);
@@ -297,7 +310,7 @@ const RuleTab = (() => {
   }
 
   async function importCsv() {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     if (!project) return;
     try {
       const dialog = await ApiClient.openFileDialog([['CSV ファイル', '*.csv']]);
@@ -305,7 +318,7 @@ const RuleTab = (() => {
       const data = await ApiClient.post(`/api/projects/${project.id}/rules/import-native`, { path: dialog.path });
       showToast(`${data.imported} 件インポートしました`, 'success');
       const updated = await ApiClient.get(`/api/projects/${project.id}`);
-      window.appState.setProject(updated);
+      appState.setProject(updated);
     } catch (_) {
       showToast('インポートに失敗しました', 'error');
     }

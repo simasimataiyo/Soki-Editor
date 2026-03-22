@@ -22,12 +22,11 @@ import { marked } from 'marked';
 // marked の設定: GFMオン、改行保持
 marked.setOptions({ gfm: true, breaks: false });
 
-const APP_TOKEN = window.__APP_TOKEN__ || '';
-
 function withApiToken(url) {
-  if (!APP_TOKEN) return url;
+  const token = window.__APP_TOKEN__ || '';
+  if (!token) return url;
   const sep = url.includes('?') ? '&' : '?';
-  return `${url}${sep}app_token=${encodeURIComponent(APP_TOKEN)}`;
+  return `${url}${sep}app_token=${encodeURIComponent(token)}`;
 }
 
 // ─── カスタムノード: SectionHeading ─────────────────────────
@@ -258,7 +257,7 @@ const FigureNumberExtension = Extension.create({
         key: FigureNumberPluginKey,
         props: {
           decorations(state) {
-            const materials = (window.TiptapEditor && window.TiptapEditor._materialsData) || [];
+            const materials = (TiptapEditor._materialsData) || [];
             const matById = {};
             materials.forEach(m => { matById[m.id] = m; });
 
@@ -336,8 +335,8 @@ const FigureBlockExtension = Extension.create({
         key: FigureBlockPluginKey,
         props: {
           decorations(state) {
-            const materials = (window.TiptapEditor && window.TiptapEditor._materialsData) || [];
-            const projectId = window.appState && window.appState.getProject && window.appState.getProject()?.id;
+            const materials = (TiptapEditor._materialsData) || [];
+            const projectId = TiptapEditor._projectId;
             const matById = {};
             materials.forEach(m => { matById[m.id] = m; });
 
@@ -442,7 +441,7 @@ const ReferenceListExtension = Extension.create({
         },
         props: {
           decorations(state) {
-            const isEnabled = window.TiptapEditor && window.TiptapEditor._referencesEnabled;
+            const isEnabled = TiptapEditor._referencesEnabled;
             if (!isEnabled) return DecorationSet.empty;
             const refMap = {};
             let counter = 0;
@@ -460,7 +459,7 @@ const ReferenceListExtension = Extension.create({
             block.className = 'section-block references-block';
             block.contentEditable = 'false';
 
-            const sources = (window.TiptapEditor && window.TiptapEditor._sourcesData) ? window.TiptapEditor._sourcesData : [];
+            const sources = TiptapEditor._sourcesData || [];
             const srcById = {};
             sources.forEach(s => {
               if (s.bibliography && s.bibliography.include_in_references) {
@@ -515,7 +514,7 @@ const ReferenceNumberExtension = Extension.create({
       key: ReferenceNumberPluginKey,
       props: {
         decorations(state) {
-          const isEnabled = window.TiptapEditor && window.TiptapEditor._referencesEnabled;
+          const isEnabled = TiptapEditor._referencesEnabled;
           if (!isEnabled) return DecorationSet.empty;
           const refMap = {};
           let counter = 0;
@@ -587,12 +586,12 @@ const TooltipExtension = Extension.create({
               }
               if (target.matches('span.reference-node') || target.matches('span.reference-ref-badge')) {
                 const srcId = target.getAttribute('data-ref-id');
-                const src = ((window.TiptapEditor && window.TiptapEditor._sourcesData) || []).find(s => s.id === srcId);
+                const src = (TiptapEditor._sourcesData || []).find(s => s.id === srcId);
                 if (src) { showTooltip(src.bibliography?.title || src.name); return false; }
               }
               if (target.matches('span.figure-node')) {
                 const figId = target.getAttribute('data-fig-id');
-                const mat = ((window.TiptapEditor && window.TiptapEditor._materialsData) || []).find(s => s.id === figId);
+                const mat = ((TiptapEditor._materialsData) || []).find(s => s.id === figId);
                 if (mat) { showTooltip(mat.caption || mat.name); return false; }
               }
 
@@ -719,8 +718,8 @@ function _initEditor() {
       TableOfContents.configure({
         anchorTypes: ['sectionHeading'],
         onUpdate: (data) => {
-          if (window.TiptapEditor && window.TiptapEditor._onTOCUpdate) {
-            window.TiptapEditor._onTOCUpdate(data);
+          if (TiptapEditor._onTOCUpdate) {
+            TiptapEditor._onTOCUpdate(data);
           }
         },
       }),
@@ -743,14 +742,14 @@ function _initEditor() {
       handleKeyDown: (view, event) => {
         if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
           event.preventDefault();
-          if (!window.BubblePrompt) return false;
+          if (!TiptapEditor._bubblePromptToggle) return false;
           const { selection } = view.state;
           const coords = view.coordsAtPos(selection.head);
           const rect = { top: coords.top, bottom: coords.bottom, left: coords.left };
           const selectedText = selection.empty
             ? ''
             : view.state.doc.textBetween(selection.from, selection.to, ' ');
-          window.BubblePrompt.toggle(rect, selectedText);
+          TiptapEditor._bubblePromptToggle(rect, selectedText);
           return true;
         }
         if ((event.ctrlKey || event.metaKey) && event.key === 'h') {
@@ -1509,16 +1508,19 @@ function _moveSectionBlock(draggedId, targetId, position) {
 
 // ─── 公開 API ────────────────────────────────────────────────
 
-window.TiptapEditor = {
+const TiptapEditor = {
   _referencesEnabled: false,
   _sourcesData: [],
   _materialsData: [],
+  _projectId: null,
   _onTOCUpdate: null,
+  _bubblePromptToggle: null,
 
-  setProjectData(enabled, sources, materials) {
+  setProjectData(enabled, sources, materials, projectId) {
     this._referencesEnabled = enabled;
     this._sourcesData = sources;
     this._materialsData = materials;
+    this._projectId = projectId || null;
     if (editor && editor.view) {
       editor.view.dispatch(editor.state.tr.setMeta('projectDataUpdate', true));
     }
@@ -1730,17 +1732,14 @@ window.TiptapEditor = {
   },
 };
 
-// markedをグローバルに公開（material-tab.js等の非モジュールスクリプトから参照するため）
-window.marked = marked;
-
 // ─── 初期化 ──────────────────────────────────────────────────
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    _initEditor();
-    document.dispatchEvent(new Event('tiptap-ready'));
-  });
+  document.addEventListener('DOMContentLoaded', () => { _initEditor(); });
 } else {
   _initEditor();
-  document.dispatchEvent(new Event('tiptap-ready'));
 }
+
+
+export { marked };
+export default TiptapEditor;
