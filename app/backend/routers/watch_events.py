@@ -23,6 +23,11 @@ def _get_watcher(request: Request):
     return watcher
 
 
+def _is_target_project_event(event: object, project_id: str) -> bool:
+    """SSEで現在購読中プロジェクトのイベントのみ配信する。"""
+    return getattr(event, "project_id", None) == project_id
+
+
 # ── SSE ストリーム ────────────────────────────────────────────────
 
 @router.get("/projects/{project_id}/watch-events")
@@ -48,6 +53,9 @@ async def watch_events(project_id: str, request: Request):
                     break
                 try:
                     event = await asyncio.wait_for(client_queue.get(), timeout=30.0)
+                    if not _is_target_project_event(event, project_id):
+                        client_queue.task_done()
+                        continue
                     payload = json.dumps(event.model_dump(), ensure_ascii=False)
                     yield f"data: {payload}\n\n"
                     client_queue.task_done()

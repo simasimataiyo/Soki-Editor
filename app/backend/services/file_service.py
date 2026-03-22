@@ -21,6 +21,31 @@ if TYPE_CHECKING:
 class FileService:
     """ファイル変換、サムネイル生成を担う。"""
 
+    def safe_unlink(self, path: Path | str) -> None:
+        """ファイル削除。失敗時は握りつぶす。"""
+        try:
+            Path(path).unlink(missing_ok=True)
+        except Exception:
+            logger.debug("ファイル削除失敗: %s", path)
+
+    def safe_rmtree(self, path: Path | str) -> None:
+        """ディレクトリ削除。失敗時は握りつぶす。"""
+        target = Path(path)
+        if not target.exists():
+            return
+        import shutil
+
+        try:
+            shutil.rmtree(target)
+        except Exception:
+            logger.debug("ディレクトリ削除失敗: %s", path)
+
+    def delete_related_files(self, base_dir: Path | str, item_id: str) -> None:
+        """`{item_id}_*` および `{item_id}.*` 形式の関連ファイルを削除する。"""
+        base = Path(base_dir)
+        for old in list(base.glob(f"{item_id}_*")) + list(base.glob(f"{item_id}.*")):
+            self.safe_unlink(old)
+
     async def read_file_as_text(self, file_path: str) -> str:
         """markitdown で .txt/.md/.pdf/.csv 等を Markdown テキストに変換する。"""
         path = Path(file_path)
@@ -55,6 +80,12 @@ class FileService:
         return await asyncio.to_thread(
             self._generate_thumbnail_to_sync, file_path, dest_path, size
         )
+
+    async def generate_pdf_images(
+        self, file_path: str, thumb_dir: str, page_dir: str, dpi: int
+    ) -> None:
+        """PDF 各ページのサムネイルと等倍画像を生成する。"""
+        await asyncio.to_thread(self._gen_pdf_images, file_path, thumb_dir, page_dir, dpi)
 
     async def create_source_from_file(
         self, project_service: ProjectService, project_id: str, path: Path

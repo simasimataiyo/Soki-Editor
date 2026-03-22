@@ -25,28 +25,6 @@ async def _get_project_or_404(svc, project_id: str):
         _not_found(project_id)
 
 
-def _safe_unlink(path: Path) -> None:
-    try:
-        path.unlink(missing_ok=True)
-    except Exception:
-        pass
-
-
-def _safe_rmtree(path: Path) -> None:
-    if not path.exists():
-        return
-    import shutil
-    try:
-        shutil.rmtree(path)
-    except Exception:
-        pass
-
-
-def _delete_related_files(base_dir: Path, item_id: str) -> None:
-    for old in list(base_dir.glob(f"{item_id}_*")) + list(base_dir.glob(f"{item_id}.*")):
-        _safe_unlink(old)
-
-
 @router.post("/materials/reorder")
 async def reorder_materials(project_id: str, body: MaterialsReorder) -> dict:
     svc = get_service()
@@ -98,13 +76,13 @@ async def delete_material(project_id: str, mat_id: str) -> dict:
     if mat:
         # 実ファイル削除
         if mat.file_path:
-            _safe_unlink(Path(mat.file_path))
+            _file_service.safe_unlink(Path(mat.file_path))
         # materials/{mat_id}_* の残骸も削除
         materials_dir = ProjectService._project_dir(project) / "materials"
-        _delete_related_files(materials_dir, mat_id)
+        _file_service.delete_related_files(materials_dir, mat_id)
         # v3: metadata/materials/{id}/ ディレクトリを丸ごと削除
         meta_dir = ProjectService._material_metadata_dir(project, mat_id)
-        _safe_rmtree(meta_dir)
+        _file_service.safe_rmtree(meta_dir)
 
     return {"status": "ok"}
 
@@ -126,7 +104,7 @@ async def upload_material_file(
     materials_dir.mkdir(parents=True, exist_ok=True)
     original_name = Path(file.filename or "file").name
     # 既存の関連ファイルを削除（拡張子変更時の残骸対策）
-    _delete_related_files(materials_dir, mat_id)
+    _file_service.delete_related_files(materials_dir, mat_id)
     dest_path = materials_dir / f"{mat_id}_{original_name}"
     dest_path.write_bytes(await file.read())
 

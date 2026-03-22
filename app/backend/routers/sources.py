@@ -5,7 +5,6 @@ import asyncio
 import csv
 import io
 import json
-import os
 import tempfile
 from pathlib import Path
 
@@ -51,28 +50,6 @@ def _get_source_or_404(project, source_id: str) -> Source:
     if not src:
         raise HTTPException(status_code=404, detail="ソースが見つかりません")
     return src
-
-
-def _safe_unlink(path: Path) -> None:
-    try:
-        path.unlink(missing_ok=True)
-    except Exception:
-        pass
-
-
-def _safe_rmtree(path: Path) -> None:
-    if not path.exists():
-        return
-    import shutil
-    try:
-        shutil.rmtree(path)
-    except Exception:
-        pass
-
-
-def _delete_related_files(base_dir: Path, item_id: str) -> None:
-    for old in list(base_dir.glob(f"{item_id}_*")) + list(base_dir.glob(f"{item_id}.*")):
-        _safe_unlink(old)
 
 
 async def _build_summary_update(src: Source, *, clear_extended_when_short: bool) -> SourceUpdate:
@@ -130,9 +107,9 @@ async def delete_source(project_id: str, source_id: str) -> dict:
 
     # 関連ファイルをディスクから削除（sources/{source_id}_*）
     sources_dir = ProjectService._project_dir(project) / "sources"
-    _delete_related_files(sources_dir, source_id)
+    _file_service.delete_related_files(sources_dir, source_id)
     if src and src.file_path:
-        _safe_unlink(Path(src.file_path))
+        _file_service.safe_unlink(Path(src.file_path))
 
     return {"status": "ok"}
 
@@ -224,7 +201,7 @@ async def read_source_file_upload(
     sources_dir = project_dir / "sources"
     sources_dir.mkdir(parents=True, exist_ok=True)
     # 既存の関連ファイルを削除（拡張子変更時の残骸対策）
-    _delete_related_files(sources_dir, source_id)
+    _file_service.delete_related_files(sources_dir, source_id)
     saved_path = sources_dir / f"{source_id}_{filename}"
     saved_path.write_bytes(content)
 
@@ -238,34 +215,19 @@ async def read_source_file_upload(
 
     # PDFの場合: サムネイルと等倍画像をディスクに保存
     if file_type == "pdf":
-        import fitz  # PyMuPDF
-
         # v3: page/ と thumbnails/ は metadata/sources/{id}/ 配下
         src_meta_dir = ProjectService._source_metadata_dir(project, source_id)
         page_dir = src_meta_dir / "page"
         thumb_dir = src_meta_dir / "thumbnails"
         # 既存のページ画像・サムネイルを削除（差し替え時の残骸対策）
-        _safe_rmtree(page_dir)
-        _safe_rmtree(thumb_dir)
+        _file_service.safe_rmtree(page_dir)
+        _file_service.safe_rmtree(thumb_dir)
         page_dir.mkdir(parents=True, exist_ok=True)
         thumb_dir.mkdir(parents=True, exist_ok=True)
         raw_dpi = get_settings_service().get().pdf_page_dpi
 
-        def _generate_pdf_images(path_str: str, thumb_dir_str: str, page_dir_str: str, dpi: int) -> None:
-            doc = fitz.open(path_str)
-            for page_num in range(len(doc)):
-                page = doc.load_page(page_num)
-                # サムネイル (72dpi)
-                pix = page.get_pixmap(dpi=72)
-                pix.save(str(Path(thumb_dir_str) / f"page_{page_num}.jpg"))
-                # 等倍画像（設定DPI）
-                pix_raw = page.get_pixmap(dpi=dpi)
-                pix_raw.save(str(Path(page_dir_str) / f"page_raw_{page_num}.jpg"))
-            doc.close()
-
         try:
-            await asyncio.to_thread(
-                _generate_pdf_images,
+            await _file_service.generate_pdf_images(
                 str(saved_path),
                 str(thumb_dir),
                 str(page_dir),
@@ -304,10 +266,7 @@ async def analyze_source_image_upload(
         raise HTTPException(status_code=502, detail=f"画像解析失敗: {e}")
     finally:
         if tmp_path:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+            _file_service.safe_unlink(tmp_path)
 
     return await svc.update_source(
         project_id, source_id, SourceUpdate(full_text=text)
