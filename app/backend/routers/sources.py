@@ -23,26 +23,16 @@ router = APIRouter(prefix="/api/projects/{project_id}", tags=["sources"])
 _llm_service = LLMService()
 _file_service = FileService()
 
-_LONG_SUMMARY_EXTS = {".txt", ".md", ".pdf", ".docx", ".pptx"}
-_SHORT_ONLY_EXTS = {".csv", ".xlsx"}
+_SHORT_ONLY_TYPES = {"image", "csv", "xlsx"}
+_SHORT_ONLY_EXTS = {"csv", "xlsx"}
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
 
 
 def _should_generate_extended_summary(src: Source) -> bool:
     """長文の要約を生成するか判別する"""
-    if src.file_type == "image":
-        return False
-    if src.file_type in {"csv", "xlsx"}:
-        return False
-    if src.file_type in {"pdf", "txt", "md", "docx", "pptx", "text"}:
-        return True
-    if src.file_path:
-        suffix = Path(src.file_path).suffix.lower()
-        if suffix in _SHORT_ONLY_EXTS:
-            return False
-        if suffix in _LONG_SUMMARY_EXTS:
-            return True
-    return True
+    file_type = (src.file_type or "").lower()
+    suffix = Path(src.file_path).suffix.lower().lstrip(".") if src.file_path else ""
+    return file_type not in _SHORT_ONLY_TYPES and suffix not in _SHORT_ONLY_EXTS
 
 
 def _not_found(project_id: str):

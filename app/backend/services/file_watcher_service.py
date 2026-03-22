@@ -15,6 +15,12 @@ from watchdog.events import (
 )
 from watchdog.observers import Observer
 
+from app.backend.services.file_service import (
+    MATERIAL_EXTENSIONS,
+    SOURCE_TEXT_EXTENSIONS,
+    FileService,
+)
+
 if TYPE_CHECKING:
     from app.backend.models import WatchEvent
     from app.backend.services.project_service import ProjectService
@@ -22,9 +28,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger("app.file_watcher")
 
 # sources/ で監視対象の拡張子
-_SOURCE_EXTENSIONS = {".txt", ".md", ".pdf", ".csv"}
+_SOURCE_EXTENSIONS = SOURCE_TEXT_EXTENSIONS
 # materials/ で監視対象の拡張子
-_MATERIAL_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
+_MATERIAL_EXTENSIONS = MATERIAL_EXTENSIONS
 
 # デバウンス秒数
 _DEBOUNCE_SECONDS = 1.0
@@ -108,6 +114,7 @@ class FileWatcherService:
         # SSE subscriber キュー（fan-out ブロードキャスト）
         self._subscribers: list[asyncio.Queue] = []
         self._sub_lock = threading.Lock()
+        self._file_service = FileService()
 
     def set_project_service(self, svc: ProjectService) -> None:
         self._project_service = svc
@@ -434,98 +441,22 @@ class FileWatcherService:
         await self._put_event("material_removed", project_id, mat.id)
 
     async def _create_source_from_file(self, project_id: str, path: Path) -> object:
-        """ファイルから Source エントリを作成し、テキスト抽出・PDF画像生成を行う。"""
-        from app.backend.models import SourceUpdate
-        from app.backend.services.file_service import FileService
-        from app.backend.routers.settings import get_service as get_settings_service
-
+        """FileService を使ってファイルから Source エントリを作成する。"""
         svc = self._project_service
-        src = await svc.add_source(project_id)
-        # 名前をファイル名（拡張子なし）に設定
-        stem = path.stem
-        await svc.update_source(
-            project_id, src.id,
-            SourceUpdate(name=stem, file_path=str(path)),
+        if svc is None:
+            raise RuntimeError("ProjectService が設定されていません")
+        return await self._file_service.create_source_from_file(
+            project_service=svc, project_id=project_id, path=path
         )
-
-        suffix = path.suffix.lower()
-        file_type = "pdf" if suffix == ".pdf" else suffix.lstrip(".") or "text"
-
-        # テキスト抽出
-        text = ""
-        try:
-            file_svc = FileService()
-            text = await file_svc.read_file_as_text(str(path))
-        except Exception:
-            logger.exception("テキスト抽出失敗: %s", path)
-
-        # PDF ページ画像生成
-        if suffix == ".pdf":
-            try:
-                project = await svc.get_project(project_id)
-                from app.backend.services.project_service import ProjectService
-                src_meta_dir = ProjectService._source_metadata_dir(project, src.id)
-                page_dir = src_meta_dir / "page"
-                thumb_dir = src_meta_dir / "thumbnails"
-                page_dir.mkdir(parents=True, exist_ok=True)
-                thumb_dir.mkdir(parents=True, exist_ok=True)
-                raw_dpi = get_settings_service().get().pdf_page_dpi
-
-                import asyncio as _asyncio
-                import fitz  # noqa: PLC0415
-
-                def _gen_pdf_images(path_str: str, td: str, pd: str, dpi: int) -> None:
-                    doc = fitz.open(path_str)
-                    for i in range(len(doc)):
-                        pg = doc.load_page(i)
-                        pg.get_pixmap(dpi=72).save(str(Path(td) / f"page_{i}.jpg"))
-                        pg.get_pixmap(dpi=dpi).save(str(Path(pd) / f"page_raw_{i}.jpg"))
-                    doc.close()
-
-                await _asyncio.to_thread(
-                    _gen_pdf_images, str(path), str(thumb_dir), str(page_dir), raw_dpi
-                )
-            except Exception:
-                logger.exception("PDF 画像生成失敗: %s", path)
-
-        src = await svc.update_source(
-            project_id, src.id,
-            SourceUpdate(full_text=text, file_path=str(path), file_type=file_type),
-        )
-        return src
 
     async def _create_material_from_file(self, project_id: str, path: Path) -> object:
-        """ファイルから Material エントリを作成し、サムネイルを生成する。"""
-        from app.backend.models import MaterialUpdate
-        from app.backend.services.file_service import FileService
-        from app.backend.services.project_service import ProjectService
-
+        """FileService を使ってファイルから Material エントリを作成する。"""
         svc = self._project_service
-        mat = await svc.add_material(project_id)
-
-        stem = path.stem
-        await svc.update_material(
-            project_id, mat.id,
-            MaterialUpdate(name=stem, file_path=str(path)),
+        if svc is None:
+            raise RuntimeError("ProjectService が設定されていません")
+        return await self._file_service.create_material_from_file(
+            project_service=svc, project_id=project_id, path=path
         )
-
-        # サムネイル生成
-        thumb_path = None
-        try:
-            project = await svc.get_project(project_id)
-            thumb_dir = ProjectService._material_metadata_dir(project, mat.id)
-            thumb_dir.mkdir(parents=True, exist_ok=True)
-            thumb_dest = str(thumb_dir / f"{mat.id}_thumb.png")
-            file_svc = FileService()
-            thumb_path = await file_svc.generate_thumbnail_to(str(path), thumb_dest)
-        except Exception:
-            logger.exception("サムネイル生成失敗: %s", path)
-
-        mat = await svc.update_material(
-            project_id, mat.id,
-            MaterialUpdate(thumbnail_path=thumb_path),
-        )
-        return mat
 
     async def _put_event(self, event_type: str, project_id: str, item_id: str) -> None:
         from app.backend.models import WatchEvent

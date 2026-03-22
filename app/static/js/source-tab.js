@@ -8,6 +8,10 @@ const SourceTab = (() => {
 
   const DEFAULT_SOURCE_NAME = '新しいソース';
   const _APP_TOKEN = window.__APP_TOKEN__ || '';
+  const SOURCE_TEXT_EXTENSIONS = ['.txt', '.md', '.pdf', '.csv', '.docx', '.xlsx', '.pptx'];
+  const SOURCE_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp'];
+  const SOURCE_UPLOAD_EXTENSIONS = [...SOURCE_TEXT_EXTENSIONS, ...SOURCE_IMAGE_EXTENSIONS];
+  const SOURCE_TEXT_ACCEPT = SOURCE_TEXT_EXTENSIONS.join(',');
 
   function _authFetch(url, options = {}) {
     const headers = new Headers(options.headers || {});
@@ -484,11 +488,10 @@ const SourceTab = (() => {
    */
   async function _bulkCreateSources(files, autoProcess) {
     const project = window.appState.getProject();
-    const ALLOWED_EXTENSIONS = ['.txt', '.md', '.pdf', '.csv', '.docx', '.xlsx', '.pptx', '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp'];
 
     const validFiles = files.filter(f => {
       const ext = '.' + f.name.split('.').pop().toLowerCase();
-      return ALLOWED_EXTENSIONS.includes(ext);
+      return SOURCE_UPLOAD_EXTENSIONS.includes(ext);
     });
 
     if (validFiles.length === 0) {
@@ -1041,7 +1044,7 @@ const SourceTab = (() => {
     const project = window.appState.getProject();
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.txt,.md,.pdf,.csv,.docx,.xlsx,.pptx';
+    input.accept = SOURCE_TEXT_ACCEPT;
     input.onchange = async (e) => {
       const file = e.target.files[0];
       if (!file) return;
