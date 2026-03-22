@@ -1,0 +1,15 @@
+You have just {{ "written" if command == "draft" else "rewritten" }} section body text. Evaluate your output from the following perspectives, and if there are issues, correct them.
+
+## Evaluation Criteria
+
+1. **Rule compliance**: Does the output violate any of the specified writing rules?
+2. **Citation appropriateness**: Are factual claims supported by appropriate citation tags `[^ref-xxx]`?
+3. **Logical consistency**: Is the logical flow natural with respect to surrounding sections?
+4. **Length**: Is the output significantly shorter or longer than the specified target length?
+
+## Instructions
+
+- If there are **no issues**, respond with only: "No issues found."
+- If there **are issues**, use `update_section` to fix the relevant section(s).
+- Do not rewrite sections unnecessarily — only fix actual problems identified above.
+- Respond in the same language as the user's message.

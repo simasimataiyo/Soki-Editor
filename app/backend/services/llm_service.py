@@ -466,12 +466,31 @@ class LLMService:
             if project_service and project_id:
                 context_builder = _SystemContextBuilder(self, project, settings, context_scope)
 
+            # リフレクションプロンプト（Phase 6: draft / rewrite / expand コマンド時のみ有効化）
+            reflection_prompt = None
+            normalized_cmd = self._normalize_command(command, command_args or []) if command else None
+            if normalized_cmd and normalized_cmd["base_command"] in ("draft", "rewrite", "expand"):
+                refl_template = self._load_template("reflection.jinja2")
+                reflection_prompt = refl_template.render(command=normalized_cmd["base_command"])
+
+            # 計画→実行ループ（Phase 5: コマンド未指定かつ複合タスク検出時）
+            if not command and self._needs_planning(user_message):
+                async for event in self._plan_and_execute(
+                    client, project, settings, user_message, context_scope,
+                    explicit_refs or [], selected_text,
+                    project_service, project_id or "",
+                    tool_executor, context_builder,
+                ):
+                    yield event
+                return
+
             agent = AgentLoop(
                 client=client,
                 tool_executor=tool_executor,
                 model=settings.model,
                 max_rounds=5,
                 context_builder=context_builder,
+                reflection_prompt=reflection_prompt,
             )
 
             async for event in agent.run(messages, call_kwargs):
@@ -1143,6 +1162,197 @@ class LLMService:
     def _sse(self, event_type: str, payload: dict) -> str:
         data = {"type": event_type, **payload}
         return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+    # ------------------------------------------------------------------
+    # Phase 5: 計画→実行の2段階エージェントループ
+    # ------------------------------------------------------------------
+
+    # 複合タスクを示すキーワードパターン（日本語・英語）
+    _PLANNING_PATTERNS = [
+        # 日本語: 順序を示す接続表現
+        "してから", "した後", "した上で", "してそれから",
+        "まず", "次に", "最後に", "はじめに", "そして",
+        # 日本語: 並列タスクを示す表現
+        "〜して〜して", "〜し、", "〜して、",
+        # 英語
+        "first", "then", "after that", "finally", "next",
+        "and then", "followed by",
+    ]
+
+    def _needs_planning(self, user_message: str) -> bool:
+        """複合タスクかどうかをヒューリスティクスで判定する。"""
+        msg_lower = user_message.lower()
+        matched = sum(1 for p in self._PLANNING_PATTERNS if p in msg_lower)
+        # 2つ以上の順序表現が含まれる場合は複合タスクと判定
+        return matched >= 2
+
+    async def _generate_plan(
+        self,
+        client,
+        messages: list[dict],
+        settings,
+    ) -> dict:
+        """LLM に実行計画を JSON 形式で生成させる（非ストリーミング）。"""
+        plan_template = self._load_template("plan_system.jinja2")
+        plan_system = plan_template.render()
+
+        plan_messages = [
+            {"role": "system", "content": plan_system},
+            # ユーザーメッセージのみ渡す（システムコンテキストは除く）
+            messages[-1],
+        ]
+        try:
+            response = await client.chat.completions.create(
+                model=settings.model,
+                messages=plan_messages,
+                response_format={"type": "json_object"},
+            )
+            content = response.choices[0].message.content or "{}"
+            plan = json.loads(content)
+            if "steps" not in plan:
+                plan = {"steps": [{"type": "chat", "description": "通常チャット"}], "reasoning": ""}
+        except (json.JSONDecodeError, Exception) as e:
+            logger.warning("計画生成失敗、通常チャットにフォールバック: %s", e)
+            plan = {"steps": [{"type": "chat", "description": "通常チャット"}], "reasoning": ""}
+        return plan
+
+    async def _plan_and_execute(
+        self,
+        client,
+        project,
+        settings,
+        user_message: str,
+        context_scope: str,
+        explicit_refs: list,
+        selected_text,
+        project_service,
+        project_id: str,
+        tool_executor,
+        context_builder,
+    ):
+        """計画生成 → ステップ順次実行を行う非同期ジェネレータ。"""
+        from app.backend.services.agent_loop import AgentLoop
+
+        messages = self._build_messages(
+            project, settings, user_message, context_scope,
+            explicit_refs=explicit_refs,
+            selected_text=selected_text,
+        )
+
+        # Step 1: 計画生成
+        plan = await self._generate_plan(client, messages, settings)
+        steps = plan.get("steps", [])
+        reasoning = plan.get("reasoning", "")
+
+        # 単一ステップかつチャット型なら通常フローにフォールバック
+        if len(steps) <= 1 and (not steps or steps[0].get("type") == "chat"):
+            call_kwargs: dict = {
+                "model": settings.model,
+                "messages": messages,
+                "stream": True,
+            }
+            if self._supports_tool_calling(settings.model):
+                import copy
+                call_kwargs["tools"] = copy.deepcopy(TOOLS)
+                call_kwargs["tool_choice"] = "auto"
+            agent = AgentLoop(
+                client=client,
+                tool_executor=tool_executor,
+                model=settings.model,
+                max_rounds=5,
+                context_builder=context_builder,
+            )
+            async for event in agent.run(messages, call_kwargs):
+                yield event
+            return
+
+        # 複数ステップの計画を SSE で通知
+        yield self._sse("plan", {"steps": steps, "reasoning": reasoning})
+
+        # Step 2: 各ステップを順次実行
+        for i, step in enumerate(steps):
+            step_type = step.get("type", "chat")
+            step_desc = step.get("description", "")
+            yield self._sse("plan_step_start", {"step": i, "description": step_desc})
+
+            # ステップごとに最新プロジェクト状態でメッセージを再構築
+            if project_service and project_id:
+                try:
+                    project = await project_service.get_project(project_id)
+                    tool_executor._project = project
+                except Exception:
+                    pass  # 失敗しても既存の project で続行
+
+            # ステップ種別に応じてコマンドを設定
+            step_command = None
+            step_command_args: list[str] = []
+            if step_type == "structure":
+                step_command = f"structure-{step.get('mode', 'replace')}"
+            elif step_type in ("draft", "rewrite", "expand"):
+                step_command = step_type
+            elif step_type == "fetch_sources":
+                step_command = None  # チャットモードで fetch_sources ツールを使わせる
+            # review や chat は step_command = None のまま
+
+            step_messages = self._build_messages(
+                project, settings, user_message, context_scope,
+                command=step_command,
+                command_args=step_command_args,
+                explicit_refs=explicit_refs,
+                selected_text=selected_text,
+            )
+
+            import copy
+            step_call_kwargs: dict = {
+                "model": settings.model,
+                "messages": step_messages,
+                "stream": True,
+            }
+
+            if self._supports_tool_calling(settings.model):
+                tools_copy = copy.deepcopy(TOOLS)
+                step_call_kwargs["tools"] = tools_copy
+                step_call_kwargs["tool_choice"] = "auto"
+
+                if step_command and step_command.startswith("structure"):
+                    command_mode = self._normalize_command(step_command, step_command_args)
+                    mode = command_mode["mode"]
+                    if mode == "replace":
+                        target = "set_document_structure"
+                        step_call_kwargs["tools"] = [t for t in tools_copy if t["function"]["name"] == target]
+                        step_call_kwargs["tool_choice"] = {"type": "function", "function": {"name": target}}
+                    elif mode == "add":
+                        target = "create_sections_under_parent"
+                        step_call_kwargs["tools"] = [t for t in tools_copy if t["function"]["name"] == target]
+                        step_call_kwargs["tool_choice"] = {"type": "function", "function": {"name": target}}
+
+            # リフレクション（draft / rewrite / expand ステップのみ）
+            step_reflection = None
+            if step_type in ("draft", "rewrite", "expand"):
+                refl_template = self._load_template("reflection.jinja2")
+                step_reflection = refl_template.render(command=step_type)
+
+            step_agent = AgentLoop(
+                client=client,
+                tool_executor=tool_executor,
+                model=settings.model,
+                max_rounds=5,
+                context_builder=context_builder,
+                reflection_prompt=step_reflection,
+            )
+            async for event in step_agent.run(step_messages, step_call_kwargs):
+                # done イベントはステップ完了後に plan_step_done に変換するためスキップ
+                try:
+                    payload = json.loads(event.removeprefix("data: ").strip())
+                    if payload.get("type") == "done":
+                        continue
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+                yield event
+
+            yield self._sse("plan_step_done", {"step": i})
+
+        yield self._sse("done", {})
 
 
 class _SystemContextBuilder:
