@@ -1,9 +1,15 @@
+import { ApiClient } from './api-client.js';
+import { showToast } from './toast.js';
+import { Modal } from './modal.js';
+import { escHtml } from './dom-utils.js';
+
 /**
  * ProjectSelector — プロジェクト選択画面の実装（タスク 10.4）
  */
 
-const ProjectSelector = (() => {
-  const _APP_TOKEN = window.__APP_TOKEN__ || '';
+export const ProjectSelector = (() => {
+  let _enterEditor = null;
+  const _APP_TOKEN = ApiClient.getAppToken();
 
   function _authFetch(url, options = {}) {
     const headers = new Headers(options.headers || {});
@@ -67,8 +73,9 @@ const ProjectSelector = (() => {
   async function _openRecentProject(filePath) {
     try {
       const project = await ApiClient.post('/api/projects/open', { json_file_path: filePath });
-      AppShell.enterEditor(project);
+      _enterEditor?.(project);
     } catch (e) {
+      console.error('[ProjectSelector] _openRecentProject error:', e);
       showToast('プロジェクトを開けませんでした', 'error');
     }
   }
@@ -221,7 +228,7 @@ const ProjectSelector = (() => {
         project_dir: projectDir,
       });
       _hideNewProjectModal();
-      AppShell.enterEditor(project);
+      _enterEditor?.(project);
     } catch (_) {
       showToast('プロジェクトを作成できませんでした', 'error');
     }
@@ -233,7 +240,7 @@ const ProjectSelector = (() => {
       const result = await ApiClient.openFileDialog([['Soki Project', '*.json'], ['JSON ファイル', '*.json']]);
       if (result && result.path) {
         const project = await ApiClient.post('/api/projects/open', { json_file_path: result.path });
-        AppShell.enterEditor(project);
+        _enterEditor?.(project);
         return;
       }
     } catch (_) {
@@ -255,7 +262,7 @@ const ProjectSelector = (() => {
         const project = await res.json();
         // 保存時に元のファイルへ書き戻せるよう FileHandle を保持
         _openFileHandle = handle;
-        AppShell.enterEditor(project);
+        _enterEditor?.(project);
         return;
       } catch (e) {
         if (e.name === 'AbortError') return; // ユーザーがキャンセル
@@ -275,7 +282,7 @@ const ProjectSelector = (() => {
         const res = await _authFetch('/api/projects/open-upload', { method: 'POST', body: formData });
         if (!res.ok) { const d = await res.json(); showToast(d.detail || 'エラー', 'error'); return; }
         const project = await res.json();
-        AppShell.enterEditor(project);
+        _enterEditor?.(project);
       } catch (_) {
         showToast('プロジェクトを開けませんでした', 'error');
       }
@@ -289,5 +296,9 @@ const ProjectSelector = (() => {
   /** プロジェクト切り替え時に FileHandle をクリアする。 */
   function clearOpenFileHandle() { _openFileHandle = null; }
 
-  return { init, getOpenFileHandle, clearOpenFileHandle };
+  function setEnterEditor(handler) {
+    _enterEditor = handler;
+  }
+
+  return { init, getOpenFileHandle, clearOpenFileHandle, setEnterEditor };
 })();

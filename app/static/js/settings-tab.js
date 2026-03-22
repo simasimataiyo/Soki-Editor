@@ -1,8 +1,12 @@
+import { ApiClient } from './api-client.js';
+import { showToast } from './toast.js';
+import { appState } from './state-manager.js';
+
 /**
  * SettingsTab — グローバル LLM 設定 UI
  */
 
-const SettingsTab = (() => {
+export const SettingsTab = (() => {
   function applyLeftPanelWidth(px) {
     document.documentElement.style.setProperty('--left-panel-w', px + 'px');
   }
@@ -44,7 +48,7 @@ const SettingsTab = (() => {
     // プロジェクト名フォーム
     document.getElementById('project-settings-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const project = StateManager.getProject();
+      const project = appState.getProject();
       if (!project) {
         showToast('プロジェクトが開かれていません', 'error');
         return;

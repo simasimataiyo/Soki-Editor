@@ -4,7 +4,9 @@
  * モーダルが既に開いている場合は「次ページ」として表示し、「← 戻る」で前のページへ戻る
  */
 
-const Modal = (() => {
+import { escHtml } from './dom-utils.js';
+
+export const Modal = (() => {
   // ─── シングルトン状態 ─────────────────────────────────────
 
   let _overlayEl = null;
@@ -349,3 +351,4 @@ const Modal = (() => {
     form,
   };
 })();
+

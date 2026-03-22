@@ -4,7 +4,7 @@
  * コマンドは引数を取らず、ユーザー指示はフリーテキストとして処理されます。
  */
 
-const CommandParser = (() => {
+export const CommandParser = (() => {
   // タブごとのコマンドレジストリ
   const COMMANDS = {
     edit: {

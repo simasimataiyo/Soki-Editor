@@ -2,81 +2,27 @@
  * AppShell — タブ切り替え・チャット機能・アプリ起動（タスク 10.1, 16）
  */
 
-// ─── ユーティリティ ────────────────────────────────────────
+import { showToast, dismissToast } from './toast.js';
+import { appState } from './state-manager.js';
+import { ApiClient } from './api-client.js';
+import { Modal } from './modal.js';
+import { ProjectSelector } from './project-selector.js';
+import { EditTab } from './edit-tab.js';
+import { SourceTab } from './source-tab.js';
+import { MaterialTab } from './material-tab.js';
+import { RuleTab } from './rule-tab.js';
+import { AutocompletePopup } from './autocomplete-popup.js';
+import { ChatBarCommon, initResizeHandle } from './chat-bar-common.js';
+import { SettingsTab } from './settings-tab.js';
+import { UndoRedoManager } from './undo-redo-manager.js';
+import { WatchSSEClient } from './watch-sse-client.js';
+import {
+  SVG_COPY, SVG_SEND, SVG_STOP,
+} from './svg-icons.js';
+import { escHtml } from './dom-utils.js';
 
-function escHtml(str) {
-  if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-/**
- * トーストを表示する
- * @param {string} message
- * @param {string} type - 'info' | 'success' | 'error'
- * @param {{persistent?: boolean, spinner?: boolean}} options
- * @returns {HTMLElement} トースト要素
- */
-function showToast(message, type = 'info', options = {}) {
-  const container = document.getElementById('toast-container');
-  const toast = document.createElement('div');
-  toast.className = `toast ${type}`;
-  if (options.spinner) {
-    toast.innerHTML = `<span class="toast-spinner"></span><span>${escHtml(message)}</span>`;
-  } else {
-    toast.textContent = message;
-  }
-  container.appendChild(toast);
-  if (!options.persistent) {
-    setTimeout(() => toast.remove(), 3000);
-  }
-  return toast;
-}
-
-/** persistentトーストを消去する */
-function dismissToast(toastEl) {
-  if (toastEl && toastEl.parentElement) toastEl.remove();
-}
-
-// ─── グローバル SVG アイコン定数 ───────────────────────────────
-
-// コラプス用シェブロン（12×12）
-const SVG_CHEVRON_RIGHT = `<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6,3 11,8 6,13"/></svg>`;
-const SVG_CHEVRON_DOWN = `<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,6 8,11 13,6"/></svg>`;
-
-// セクショントグル（14×14）
-const SVG_TOGGLE_RIGHT = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6,3 11,8 6,13"/></svg>`;
-const SVG_TOGGLE_DOWN = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,6 8,11 13,6"/></svg>`;
-
-// セクション操作アイコン（14×14）
-const SVG_ADD_CHILD = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg>`;
-const SVG_ARROW_UP = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,10 8,5 13,10"/></svg>`;
-const SVG_ARROW_DOWN = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,6 8,11 13,6"/></svg>`;
-const SVG_EDIT = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 2l3 3-8 8H3v-3l8-8z"/></svg>`;
-const SVG_DELETE = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,4 14,4"/><path d="M5,4V3h6v1"/><path d="M3,4l1,9h8l1-9"/></svg>`;
-
-// 編集ペンアイコン（16×16, 24×24 viewBox）
-const SVG_EDIT_PEN = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
-
-// 文書アイコン
-const SVG_DOCUMENT = `<svg class="item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
-
-// チャット送信・停止アイコン（16×16）
-const SVG_SEND = `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="13" x2="8" y2="3"/><polyline points="4,7 8,3 12,7"/></svg>`;
-const SVG_STOP = `<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><rect x="4" y="4" width="8" height="8" rx="1"/></svg>`;
-
-// チャット履歴コピーアイコン（14×14）
-const SVG_COPY = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M3 11V3a1 1 0 011-1h8"/></svg>`;
-
-// チャット履歴削除アイコン（14×14）
-const SVG_TRASH = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,4 14,4"/><path d="M5,4V3h6v1"/><path d="M3,4l1,9h8l1-9"/></svg>`;
-
-// 画像プレースホルダアイコン
-const SVG_IMAGE_SM = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`;
-const SVG_IMAGE_LG = `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`;
+import TiptapEditor from './tiptap-bundle.js';
+import { BubblePrompt } from './bubble-prompt.js';
 
 // ─── AppShell ─────────────────────────────────────────────
 
@@ -101,7 +47,7 @@ const AppShell = (() => {
 
     // プロジェクト選択に戻る（トップバー内の btn-back）
     document.getElementById('btn-back').addEventListener('click', () => {
-      const currentProject = window.appState.getProject();
+      const currentProject = appState.getProject();
       // SSE 接続を切断
       if (typeof WatchSSEClient !== 'undefined') WatchSSEClient.disconnect();
       // バックエンド側の監視も停止
@@ -111,7 +57,7 @@ const AppShell = (() => {
       _resetAllTabs();
       UndoRedoManager.clear();
       _showScreen('project-selector');
-      window.appState.setState({ project: null });
+      appState.setState({ project: null });
       ProjectSelector.init();
     });
 
@@ -134,9 +80,7 @@ const AppShell = (() => {
     });
 
     // チャット入力欄のリサイズハンドルを初期化
-    if (window.initResizeHandle) {
-      window.initResizeHandle('chat-resize-handle', 'chat-input');
-    }
+    initResizeHandle('chat-resize-handle', 'chat-input');
 
     // チャット入力欄にフォーカスする前にエディタ内選択テキストをキャプチャしてインジケーター表示
     const _chatInput = document.getElementById('chat-input');
@@ -186,7 +130,7 @@ const AppShell = (() => {
 
     // パブリックなMarkdownエクスポートボタン
     document.getElementById('btn-export-md')?.addEventListener('click', async () => {
-      const project = window.appState.getProject();
+      const project = appState.getProject();
       if (!project) return;
       try {
         const mdText = await ApiClient.getText(`/api/projects/${project.id}/export`);
@@ -220,7 +164,7 @@ const AppShell = (() => {
 
     // チャット履歴削除ボタン
     document.getElementById('btn-clear-history')?.addEventListener('click', async () => {
-      const project = window.appState.getProject();
+      const project = appState.getProject();
       if (!project) return;
       const confirmed = await Modal.confirm('チャット履歴をすべて削除しますか？', { danger: true, confirmText: '削除' });
       if (!confirmed) return;
@@ -235,10 +179,14 @@ const AppShell = (() => {
 
     // 各タブのイベント
     EditTab.bindEvents();
-    SourceTab.bindEvents();
-    MaterialTab.bindEvents();
+    SourceTab.bindEvents({ tiptapEditor: TiptapEditor });
+    MaterialTab.bindEvents({ tiptapEditor: TiptapEditor });
     RuleTab.bindEvents();
     SettingsTab.bindEvents();
+    EditTab.init({ onScopeChange: setCurrentScope, tiptapEditor: TiptapEditor });
+    TiptapEditor._bubblePromptToggle = (rect, selectedText) => BubblePrompt.toggle(rect, selectedText);
+    ProjectSelector.setEnterEditor(enterEditor);
+    UndoRedoManager.init({ editTab: EditTab, projectSelector: ProjectSelector });
 
     // ルール左パネルの新規追加ボタン
     document.getElementById('btn-add-rule-from-panel').addEventListener('click', () => {
@@ -262,8 +210,8 @@ const AppShell = (() => {
     document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
     document.getElementById(`tab-${tab}`)?.classList.add('active');
 
-    window.appState.setActiveTab(tab);
-    const project = window.appState.getProject();
+    appState.setActiveTab(tab);
+    const project = appState.getProject();
     if (project && TAB_MODULES[tab]) {
       TAB_MODULES[tab].render(project);
     }
@@ -281,7 +229,7 @@ const AppShell = (() => {
   }
 
   function _resetAllTabs() {
-    window.appState.resetSelections();
+    appState.resetSelections();
     EditTab.reset();
     SourceTab.reset();
     MaterialTab.reset();
@@ -294,21 +242,17 @@ const AppShell = (() => {
     // プロジェクト切り替え時にアンドゥ/リドゥスタックをリセット（別プロジェクトの履歴が混入するバグ修正）
     UndoRedoManager.clear();
     // 前のプロジェクトの FileHandle をクリア
-    if (typeof ProjectSelector !== 'undefined') ProjectSelector.clearOpenFileHandle();
-    window.appState.setProject(project);
+    ProjectSelector.clearOpenFileHandle();
+    appState.setProject(project);
     document.getElementById('project-name-display').textContent = project.name || '';
     _showScreen('editor-screen');
     switchTab('edit');
     _refreshHistoryPanel();
     // ファイル監視開始 + SSE 接続
-    if (typeof WatchSSEClient !== 'undefined') {
-      ApiClient.post(`/api/projects/${project.id}/start-watching`).catch(() => {});
-      WatchSSEClient.connect(project.id);
-    }
+    ApiClient.post(`/api/projects/${project.id}/start-watching`).catch(() => {});
+    WatchSSEClient.connect(project.id);
     // 起動時ファイル同期（非同期、完了後 SSE 経由でタブが更新される）
-    if (typeof WatchSSEClient !== 'undefined') {
-      ApiClient.post(`/api/projects/${project.id}/sync-files`).catch(() => {});
-    }
+    ApiClient.post(`/api/projects/${project.id}/sync-files`).catch(() => {});
   }
 
   function setCurrentScope(scope) {
@@ -329,7 +273,7 @@ const AppShell = (() => {
   function _renderTopBarActions(tab) {
     const container = document.getElementById('top-bar-actions');
     container.innerHTML = '';
-    const project = window.appState.getProject();
+    const project = appState.getProject();
 
     const tabDefs = {
       edit: [],
@@ -364,7 +308,7 @@ const AppShell = (() => {
   }
 
   async function _sendChat(parsed) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     if (!project) return;
     if (_currentSseCtrl) _currentSseCtrl.abort();
 
@@ -425,17 +369,17 @@ const AppShell = (() => {
     // /structure-section コマンドの場合、選択中のセクションを対象にする
     let contextScope = _currentScope;
     if (parsed.command && parsed.command.name === 'structure-section') {
-      const selectedSectionId = window.appState.getSelectedSectionId();
+      const selectedSectionId = appState.getSelectedSectionId();
       if (selectedSectionId) {
         contextScope = selectedSectionId;
       }
     }
 
     // 選択セクション情報を取得
-    const _selectedSectionId = window.appState.getSelectedSectionId();
+    const _selectedSectionId = appState.getSelectedSectionId();
     const _selectedSectionTitle = (() => {
       if (!_selectedSectionId) return null;
-      const proj = window.appState.getProject();
+      const proj = appState.getProject();
       if (!proj) return null;
       const sec = proj.sections.find(s => s.id === _selectedSectionId);
       return sec ? sec.title : null;
@@ -457,7 +401,7 @@ const AppShell = (() => {
     if (parsed.refs.length > 0) {
       body.explicit_refs = parsed.refs.map(r => r.id);
       // ソース/マテリアル名を解決する
-      const _proj = window.appState.getProject();
+      const _proj = appState.getProject();
       body.ref_names = parsed.refs.map(r => {
         if (!_proj) return r.id;
         if (r.type === 'source') {
@@ -532,11 +476,11 @@ const AppShell = (() => {
 
     // コマンド実行時: Tiptapエディタをロックして編集を無効化
     if (parsed.command) {
-      if (window.TiptapEditor) window.TiptapEditor.setEditable(false);
+      TiptapEditor.setEditable(false);
     }
 
     function _restoreEditability() {
-      if (window.TiptapEditor) window.TiptapEditor.setEditable(true);
+      TiptapEditor.setEditable(true);
     }
 
     const isCommand = !!parsed.command;
@@ -592,8 +536,8 @@ const AppShell = (() => {
           _hideHistoryPanelLoading();
           resetSendMode();
           // LLM実行後にセクション選択を解除する
-          if (window.EditTab && window.EditTab.clearSectionSelection) {
-            window.EditTab.clearSectionSelection();
+          if (EditTab.clearSectionSelection) {
+            EditTab.clearSectionSelection();
           }
           // コマンド実行: 要約をバックエンドに保存してからパネルをリフレッシュ
           const isReviewCommand = isCommand && parsed.command.name.startsWith('review');
@@ -671,7 +615,7 @@ const AppShell = (() => {
           { content }
         );
         project.content = result.content;
-        if (window.TiptapEditor) window.TiptapEditor.setContentFromMarkdown(project.content);
+        TiptapEditor.setContentFromMarkdown(project.content);
 
       } else if (tool === 'update_multiple_sections') {
         const { updates } = args;
@@ -688,7 +632,7 @@ const AppShell = (() => {
           project.content = result.content;
         }
         // 全更新後に一度だけTiptapを更新
-        if (window.TiptapEditor) window.TiptapEditor.setContentFromMarkdown(project.content);
+        TiptapEditor.setContentFromMarkdown(project.content);
 
       } else if (tool === 'create_section') {
         const { title, summary = '', parent_id = null } = args;
@@ -887,7 +831,6 @@ const AppShell = (() => {
       document.getElementById('outline-panel'),
       'right',
       pxVal('--outline-panel-min-w'), pxVal('--outline-panel-max-w'),
-      false,
       (px) => {
         SettingsTab.applyOutlinePanelWidth(px);
         ApiClient.patch('/api/settings', { outline_panel_width: px }).catch(() => {});
@@ -917,7 +860,7 @@ const AppShell = (() => {
       document.getElementById('source-panel'),
       'right',
       pxVal('--left-panel-min-w'), pxVal('--left-panel-max-w'),
-      false, saveLeftPanelWidth
+      saveLeftPanelWidth
     );
 
     // Material タブ左パネル
@@ -926,7 +869,7 @@ const AppShell = (() => {
       document.getElementById('material-panel'),
       'right',
       pxVal('--left-panel-min-w'), pxVal('--left-panel-max-w'),
-      false, saveLeftPanelWidth
+      saveLeftPanelWidth
     );
 
     // Rule タブ左パネル
@@ -935,7 +878,7 @@ const AppShell = (() => {
       document.getElementById('rule-panel'),
       'right',
       pxVal('--left-panel-min-w'), pxVal('--left-panel-max-w'),
-      false, saveLeftPanelWidth
+      saveLeftPanelWidth
     );
   }
 
@@ -1200,7 +1143,7 @@ const AppShell = (() => {
 
   async function _toggleHistoryPanel() {
     const sidePanel = document.getElementById('chat-history-side');
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     if (!project) return;
 
     _historyPanelOpen = !_historyPanelOpen;
@@ -1219,7 +1162,7 @@ const AppShell = (() => {
   }
 
   async function _refreshHistoryPanel() {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     if (!project) return;
 
     try {

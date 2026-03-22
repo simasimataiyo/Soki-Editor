@@ -2,7 +2,10 @@
  * BubblePrompt - Tiptapエディタ内からAIにプロンプトを送るインラインフォーム
  * Ctrl+K でトグル表示。/ コマンドと @ 参照に対応。
  */
-window.BubblePrompt = (function () {
+import { AutocompletePopup } from './autocomplete-popup.js';
+import { CommandParser } from './command-parser.js';
+
+export const BubblePrompt = (function () {
   let _el = null;
   let _textarea = null;
   let _isVisible = false;
@@ -37,9 +40,7 @@ window.BubblePrompt = (function () {
     _textarea = _el.querySelector('#bubble-prompt-input');
 
     // オートコンプリートをバブルのテキストエリアにも適用（1度のみ）
-    if (typeof AutocompletePopup !== 'undefined') {
-      AutocompletePopup.attachAll(['bubble-prompt-input']);
-    }
+    AutocompletePopup.attachAll(['bubble-prompt-input']);
 
     // キーボードハンドラ
     _textarea.addEventListener('keydown', function (e) {
@@ -50,7 +51,7 @@ window.BubblePrompt = (function () {
       }
       if (e.key === 'Enter' && !e.shiftKey) {
         // オートコンプリートが開いている間は送信しない（候補確定のみ）
-        if (typeof AutocompletePopup !== 'undefined' && AutocompletePopup.isOpen()) return;
+        if (AutocompletePopup.isOpen()) return;
         e.preventDefault();
         _handleSend();
       }
@@ -94,7 +95,6 @@ window.BubblePrompt = (function () {
     var message = _textarea.value.trim();
     if (!message) return;
 
-    if (typeof CommandParser === 'undefined') return;
     var parsed = CommandParser.parse(message, 'edit');
 
     if (parsed.error) {
@@ -161,3 +161,4 @@ window.BubblePrompt = (function () {
     isVisible: function () { return _isVisible; },
   };
 })();
+

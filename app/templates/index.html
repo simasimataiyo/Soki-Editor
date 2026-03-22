@@ -7,7 +7,33 @@
   <title>Soki Editor</title>
   <link rel="stylesheet" href="/static/css/main.css?v=2" />
   <link rel="icon" href="data:," />
-  <script>window.__APP_TOKEN__ = "{{ app_token }}";</script>
+  <script>
+    window.__APP_TOKEN__ = "{{ app_token }}";
+    var __appBooted = false;
+    window.addEventListener('load', function() { __appBooted = true; });
+    window.addEventListener('error', function(e) {
+      if (__appBooted) return;
+      var app = document.getElementById('app');
+      if (app) {
+        var msg = document.createElement('div');
+        msg.style.cssText = 'padding:24px;color:#c0392b;font-family:monospace;font-size:14px;background:#fff3f3;border:1px solid #e74c3c;margin:24px;border-radius:4px;';
+        msg.textContent = 'アプリの読み込みに失敗しました: ' + (e.message || '不明なエラー') + (e.filename ? ' (' + e.filename + ':' + e.lineno + ')' : '');
+        app.innerHTML = '';
+        app.appendChild(msg);
+      }
+    });
+    window.addEventListener('unhandledrejection', function(e) {
+      if (__appBooted) return;
+      var app = document.getElementById('app');
+      if (app) {
+        var msg = document.createElement('div');
+        msg.style.cssText = 'padding:24px;color:#c0392b;font-family:monospace;font-size:14px;background:#fff3f3;border:1px solid #e74c3c;margin:24px;border-radius:4px;';
+        msg.textContent = 'アプリの初期化に失敗しました: ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason));
+        app.innerHTML = '';
+        app.appendChild(msg);
+      }
+    });
+  </script>
 </head>
 
 <body>
@@ -440,23 +466,7 @@
   <div id="toast-container" class="toast-container"></div>
 
   <!-- JavaScript -->
-  <script src="/static/js/api-client.js"></script>
-  <script src="/static/js/state-manager.js"></script>
-  <script src="/static/js/undo-redo-manager.js"></script>
-  <script src="/static/js/modal.js"></script>
-  <script src="/static/js/project-selector.js"></script>
-  <script type="module" src="/static/js/tiptap-bundle.js?v=9"></script>
-  <script src="/static/js/edit-tab.js?v=8"></script>
-  <script src="/static/js/source-tab.js"></script>
-  <script src="/static/js/material-tab.js?v=2"></script>
-  <script src="/static/js/rule-tab.js"></script>
-  <script src="/static/js/command-parser.js"></script>
-  <script src="/static/js/autocomplete-popup.js"></script>
-  <script src="/static/js/bubble-prompt.js"></script>
-  <script src="/static/js/chat-bar-common.js"></script>
-  <script src="/static/js/settings-tab.js"></script>
-  <script src="/static/js/watch-sse-client.js"></script>
-  <script src="/static/js/app.js"></script>
+  <script type="module" src="/static/js/app.js"></script>
 </body>
 
 </html>

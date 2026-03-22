@@ -1,13 +1,21 @@
+import { ApiClient } from './api-client.js';
+import { showToast, dismissToast } from './toast.js';
+import { appState } from './state-manager.js';
+import { Modal } from './modal.js';
+import { escHtml } from './dom-utils.js';
+import { SVG_CHEVRON_RIGHT, SVG_CHEVRON_DOWN, SVG_DOCUMENT, SVG_DELETE } from './svg-icons.js';
+
 /**
- * SourceTab — ソース管理 UI（タスク 12）
+ * SourceTab — ソース管理 U
  */
 
-const SourceTab = (() => {
+export const SourceTab = (() => {
   let _project = null;
   let _activeId = null;
+  let _tiptapEditor = null;
 
   const DEFAULT_SOURCE_NAME = '新しいソース';
-  const _APP_TOKEN = window.__APP_TOKEN__ || '';
+  const _APP_TOKEN = ApiClient.getAppToken();
   const SOURCE_TEXT_EXTENSIONS = ['.txt', '.md', '.pdf', '.csv', '.docx', '.xlsx', '.pptx'];
   const SOURCE_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp'];
   const SOURCE_UPLOAD_EXTENSIONS = [...SOURCE_TEXT_EXTENSIONS, ...SOURCE_IMAGE_EXTENSIONS];
@@ -178,7 +186,7 @@ const SourceTab = (() => {
     const newName = result.name.trim();
     if (!newName || newName === src.name) return;
 
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     try {
       const updated = await ApiClient.put(
         `/api/projects/${project.id}/sources/${src.id}`,
@@ -359,7 +367,7 @@ const SourceTab = (() => {
       if (e.target.closest('.source-drag-handle')) return;
       _flushPendingSave();
       _activeId = src.id;
-      window.appState.setState({ activeSourceId: src.id });
+      appState.setState({ activeSourceId: src.id });
       _renderList();
       _renderDetail(src.id);
     });
@@ -453,7 +461,7 @@ const SourceTab = (() => {
    * ソース並べ替え処理（楽観的 UI 更新 → API 送信）
    */
   async function _handleSourceReorder(draggedId, targetId, position) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     const sources = [...project.sources];
     const fromIdx = sources.findIndex(s => s.id === draggedId);
     const toIdx   = sources.findIndex(s => s.id === targetId);
@@ -487,7 +495,7 @@ const SourceTab = (() => {
    * ファイルごとに新規ソースを作成し、auto-process が有効な場合は要約・文献情報抽出も実行する
    */
   async function _bulkCreateSources(files, autoProcess) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
 
     const validFiles = files.filter(f => {
       const ext = '.' + f.name.split('.').pop().toLowerCase();
@@ -829,7 +837,7 @@ const SourceTab = (() => {
      * @param {File} file - ドロップされたファイル
      */
     async function _handleFileDrop(file) {
-      const project = window.appState.getProject();
+      const project = appState.getProject();
       const formData = new FormData();
       formData.append('file', file);
       _cancelPendingSave();
@@ -954,7 +962,7 @@ const SourceTab = (() => {
         _scheduleSave(src.id);
         // タイトル変更時は最新のソースオブジェクトを使用
         if (el.dataset.field === 'title') {
-          const project = window.appState.getProject();
+          const project = appState.getProject();
           const currentSrc = project.sources.find(s => s.id === src.id);
           if (currentSrc) {
             currentSrc.bibliography.title = el.value;
@@ -976,7 +984,7 @@ const SourceTab = (() => {
     // ガード: 現在表示中のソースでなければスキップ（切替後の古いタイマーから保護）
     if (srcId !== _activeId) return;
 
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     const src = project.sources.find(s => s.id === srcId);
     if (!src) return;
 
@@ -1017,7 +1025,7 @@ const SourceTab = (() => {
    */
   async function _deleteSource(src) {
     if (!(await Modal.confirm(`「${_displayTitle(src)}」を削除しますか？`))) return false;
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     try {
       await ApiClient.delete(`/api/projects/${project.id}/sources/${src.id}`);
       project.sources = project.sources.filter(s => s.id !== src.id);
@@ -1027,7 +1035,7 @@ const SourceTab = (() => {
       try {
         const result = await ApiClient.get(`/api/projects/${project.id}/content`);
         project.content = result.content;
-        if (window.TiptapEditor) window.TiptapEditor.setContentFromMarkdown(project.content);
+        if (_tiptapEditor) _tiptapEditor.setContentFromMarkdown(project.content);
       } catch (_) {}
       return true;
     } catch (_) {
@@ -1041,7 +1049,7 @@ const SourceTab = (() => {
    * @param {object} src - 対象のソースオブジェクト
    */
   async function _readFile(src) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = SOURCE_TEXT_ACCEPT;
@@ -1092,7 +1100,7 @@ const SourceTab = (() => {
    * @param {object} src - 対象のソースオブジェクト
    */
   async function _analyzeImage(src) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
 
     // PDFソースの場合は保存済みサムネイルを使ってページ選択
     if (src.file_type === 'pdf') {
@@ -1140,7 +1148,7 @@ const SourceTab = (() => {
    * @param {object} src - 対象のソースオブジェクト（file_type === 'pdf'）
    */
   async function _analyzeSavedPdfPages(src) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
 
     let pageList;
     try {
@@ -1172,7 +1180,7 @@ const SourceTab = (() => {
    * @param {File} file - ユーザーが選択したPDFファイル
    */
   async function _analyzePdfWithPageSelection(src, file) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     showToast('PDFを読み込み中...', 'success');
 
     const formData1 = new FormData();
@@ -1202,7 +1210,7 @@ const SourceTab = (() => {
    * @param {File|null} pdfFile - アップロード版の場合はFileオブジェクト、保存済み版はnull
    */
   function _showPdfAnalysisModal(src, thumbnails, pdfFile) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
 
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
@@ -1626,7 +1634,7 @@ const SourceTab = (() => {
    * @param {object} src - ソースオブジェクト（file_type === 'pdf'）
    */
   function _showBatchPdfAnalysisModal(src) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
 
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
@@ -1846,7 +1854,7 @@ const SourceTab = (() => {
   async function _summarize(src) {
     _cancelPendingSave();
     _startProcessing(src.id, 'summary');  // フィールド無効化 + 再レンダリング
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     const loadingToast = showToast('要約生成中...', 'info', { persistent: true, spinner: true });
     try {
       const updated = await ApiClient.post(
@@ -1871,7 +1879,7 @@ const SourceTab = (() => {
   async function _summarizeExtended(src) {
     _cancelPendingSave();
     _startProcessing(src.id, 'summary');  // フィールド無効化 + 再レンダリング
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     const loadingToast = showToast('長い要約生成中...', 'info', { persistent: true, spinner: true });
     try {
       const updated = await ApiClient.post(
@@ -1896,7 +1904,7 @@ const SourceTab = (() => {
    * @param {object} src - 対象のソースオブジェクト
    */
   async function _extractBibliography(src) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     if (!(await Modal.confirm('LLMを使用して文献情報を抽出します。実行しますか？'))) return;
     _cancelPendingSave();
     _startProcessing(src.id, 'bibliography');  // bib フィールド無効化 + 再レンダリング
@@ -1922,7 +1930,7 @@ const SourceTab = (() => {
    * @param {string} bibType - 設定する文献種類（'paper'|'book'|'book_chapter'|'web'|'resource'）
    */
   function _showCitationFormatModal(bibType) {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     if (!project) return;
 
     // 現在のフォーマット（カスタムまたはデフォルト）を取得
@@ -2103,7 +2111,7 @@ const SourceTab = (() => {
           // プロジェクト状態を更新
           if (!project.citation_formats) project.citation_formats = {};
           project.citation_formats[bibType] = saved.tokens;
-          window.appState.setProject(project);
+          appState.setProject(project);
           overlay.remove();
           showToast('表記フォーマットを保存しました', 'success');
         } catch (_) {
@@ -2123,9 +2131,10 @@ const SourceTab = (() => {
    * ソースタブのグローバルイベントをバインドする（初期化時に1回だけ呼ぶ）
    * 「ソース追加」ボタンのクリックで新規ソースを作成してリストに追加する
    */
-  function bindEvents() {
+  function bindEvents({ tiptapEditor } = {}) {
+    _tiptapEditor = tiptapEditor || null;
     document.getElementById('btn-add-source').addEventListener('click', async () => {
-      const project = window.appState.getProject();
+      const project = appState.getProject();
       if (!project) return;
       const src = await ApiClient.post(`/api/projects/${project.id}/sources`);
       project.sources.push(src);
@@ -2151,7 +2160,7 @@ const SourceTab = (() => {
    * pywebview のネイティブ保存ダイアログを使ってファイルを書き出す
    */
   async function exportCsv() {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     if (!project) return;
     try {
       const res = await _authFetch(`/api/projects/${project.id}/sources/export`);
@@ -2176,7 +2185,7 @@ const SourceTab = (() => {
    * インポート後はプロジェクトを再取得してアプリ状態を更新する
    */
   async function importCsv() {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     if (!project) return;
     try {
       const dialog = await ApiClient.openFileDialog([['CSV ファイル', '*.csv']]);
@@ -2184,7 +2193,7 @@ const SourceTab = (() => {
       const data = await ApiClient.post(`/api/projects/${project.id}/sources/import-native`, { path: dialog.path });
       showToast(`${data.imported} 件インポートしました`, 'success');
       const updated = await ApiClient.get(`/api/projects/${project.id}`);
-      window.appState.setProject(updated);
+      appState.setProject(updated);
     } catch (_) {
       showToast('インポートに失敗しました', 'error');
     }
@@ -2209,3 +2218,4 @@ const SourceTab = (() => {
 
   return { render, bindEvents, exportCsv, importCsv, reset };
 })();
+

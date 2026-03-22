@@ -1,8 +1,12 @@
+import { appState } from './state-manager.js';
+import { CommandParser } from './command-parser.js';
+import { escHtml } from './dom-utils.js';
+
 /**
  * AutocompletePopup — @ 入力時のソース・マテリアル補完 & / コマンドヒント
  */
 
-const AutocompletePopup = (() => {
+export const AutocompletePopup = (() => {
   let _popup = null;
   let _textarea = null;
   let _items = [];
@@ -109,7 +113,7 @@ const AutocompletePopup = (() => {
   // ─── @参照アイテム ────────────────────────────────────
 
   function _refreshRefItems() {
-    const project = window.appState.getProject();
+    const project = appState.getProject();
     if (!project) { _items = []; return; }
 
     _items = [
@@ -146,7 +150,7 @@ const AutocompletePopup = (() => {
 
   function _refreshCommandItems() {
     // 現在のタブに応じてコマンドリストを取得
-    const activeTab = window.appState.getState().activeTab || 'edit';
+    const activeTab = appState.getState().activeTab || 'edit';
     const tab = (activeTab === 'review') ? 'review' : 'edit';
     const commands = CommandParser.getAvailableCommands(tab);
 
