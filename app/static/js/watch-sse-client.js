@@ -1,23 +1,132 @@
 /**
  * WatchSSEClient — ファイル監視 SSE クライアント
  * プロジェクト open 時に /api/projects/{id}/watch-events に接続し、
- * source_added/removed, material_added/removed イベントに応じてタブを更新する。
+ * source_added/removed, material_added/removed イベントに応じて通知と状態同期を行う。
  */
 const WatchSSEClient = (() => {
-  const _TOKEN = window.__APP_TOKEN__ || '';
+  const _global = typeof globalThis !== 'undefined' ? globalThis : {};
+  const _TOKEN = (_global.window && _global.window.__APP_TOKEN__) || '';
   let _projectId = null;
   let _eventSource = null;
   let _retryCount = 0;
   const MAX_RETRIES = 5;
   const RETRY_DELAY_MS = 5000;
+  const DEDUPE_WINDOW_MS = 1500;
   let _retryTimer = null;
+  let _recentEventKeys = new Map();
+  let _connectionState = 'disconnected';
+
+  function isNotifiableEventType(type) {
+    return (
+      type === 'source_added' ||
+      type === 'source_removed' ||
+      type === 'material_added' ||
+      type === 'material_removed'
+    );
+  }
+
+  function shouldHandleProjectEvent(data, activeProjectId) {
+    if (!activeProjectId) return false;
+    if (!data || typeof data !== 'object') return false;
+    if (!data.project_id) {
+      return data.type === 'connected';
+    }
+    return data.project_id === activeProjectId;
+  }
+
+  function buildChangeToast(type, itemName = '') {
+    const isSource = type.startsWith('source_');
+    const isAdded = type.endsWith('_added');
+    const target = isSource ? 'ソース' : 'マテリアル';
+    const change = isAdded ? '追加されました' : '削除されました';
+    const message = itemName ? `${target}：${itemName}が${change}` : `${target}が${change}`;
+    return {
+      level: isAdded ? 'success' : 'info',
+      message,
+    };
+  }
+
+  function _resolveItemNameFromProject(project, eventType, itemId) {
+    if (!project || !itemId) return '';
+    if (eventType.startsWith('source_')) {
+      const src = (project.sources || []).find((s) => s.id === itemId);
+      return src?.name || '';
+    }
+    const mat = (project.materials || []).find((m) => m.id === itemId);
+    return mat?.name || '';
+  }
+
+  function buildConnectionToast(state) {
+    if (state === 'retrying') {
+      return { level: 'info', message: 'ファイル監視との接続が切断されました。再接続を試みています。' };
+    }
+    if (state === 'unavailable') {
+      return { level: 'error', message: 'ファイル監視に接続できません。変更通知は一時停止中です。' };
+    }
+    if (state === 'recovered') {
+      return { level: 'success', message: 'ファイル監視との接続が復旧しました。' };
+    }
+    return null;
+  }
+
+  function _makeEventKey(event) {
+    return [
+      event?.project_id || '',
+      event?.type || '',
+      event?.item_id || '',
+      event?.added || 0,
+      event?.removed || 0,
+    ].join('|');
+  }
+
+  function shouldNotifyByDedupe(event, memory, nowMs, windowMs = DEDUPE_WINDOW_MS) {
+    const pruneThreshold = windowMs * 4;
+    for (const [k, ts] of memory.entries()) {
+      if (typeof ts === 'number' && nowMs - ts > pruneThreshold) {
+        memory.delete(k);
+      }
+    }
+
+    const key = _makeEventKey(event);
+    const lastTs = memory.get(key);
+    if (typeof lastTs === 'number' && nowMs - lastTs < windowMs) {
+      return false;
+    }
+    memory.set(key, nowMs);
+    return true;
+  }
+
+  function _emitToast(message, type, options) {
+    try {
+      if (typeof showToast === 'function') {
+        return showToast(message, type, options);
+      }
+    } catch (err) {
+      try {
+        if (typeof showToast === 'function') {
+          showToast('通知表示中にエラーが発生しました', 'error');
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  function _notifyConnectionState(nextState) {
+    if (_connectionState === nextState) return;
+    _connectionState = nextState;
+    const toast = buildConnectionToast(nextState);
+    if (toast) {
+      _emitToast(toast.message, toast.level);
+    }
+  }
 
   function connect(projectId) {
-    // 既存接続があれば切断
     disconnect();
 
     _projectId = projectId;
     _retryCount = 0;
+    _recentEventKeys = new Map();
+    _connectionState = 'connecting';
     _openConnection();
   }
 
@@ -32,6 +141,8 @@ const WatchSSEClient = (() => {
     }
     _projectId = null;
     _retryCount = 0;
+    _recentEventKeys = new Map();
+    _connectionState = 'disconnected';
   }
 
   function _openConnection() {
@@ -49,7 +160,7 @@ const WatchSSEClient = (() => {
         const data = JSON.parse(e.data);
         _handleEvent(data);
       } catch (err) {
-        // JSON parse エラーは無視（keepalive コメントは onmessage に来ない）
+        _emitToast('変更通知の解析に失敗しました', 'error');
       }
     };
 
@@ -58,117 +169,132 @@ const WatchSSEClient = (() => {
       _eventSource = null;
       if (_projectId && _retryCount < MAX_RETRIES) {
         _retryCount++;
+        _notifyConnectionState('retrying');
         console.warn(`[WatchSSEClient] 接続切断。${RETRY_DELAY_MS / 1000}秒後に再接続します（${_retryCount}/${MAX_RETRIES}）`);
         _retryTimer = setTimeout(_openConnection, RETRY_DELAY_MS);
       } else if (_retryCount >= MAX_RETRIES) {
+        _notifyConnectionState('unavailable');
         console.error('[WatchSSEClient] 最大再接続回数に達しました。監視を停止します。');
       }
     };
 
     es.onopen = () => {
+      const needsRecoveredToast = _connectionState === 'retrying' || _connectionState === 'unavailable';
       _retryCount = 0;
+      if (needsRecoveredToast) {
+        _notifyConnectionState('recovered');
+      } else {
+        _connectionState = 'connected';
+      }
     };
   }
 
   function _handleEvent(data) {
-    // 現在開いているプロジェクトのイベントのみ処理
     if (!data || !data.type) return;
-    if (data.project_id && data.project_id !== _projectId) return;
+    if (!shouldHandleProjectEvent(data, _projectId)) return;
 
     const currentProject = window.appState?.getProject?.();
+    if (!currentProject) return;
 
-    switch (data.type) {
-      case 'source_added': {
-        // ソースタブのリロード（スピナートースト → 完了トースト）
-        _reloadSourceTab(currentProject, 'added');
-        break;
+    if (isNotifiableEventType(data.type)) {
+      if (!shouldNotifyByDedupe(data, _recentEventKeys, Date.now())) {
+        return;
       }
-      case 'source_removed': {
-        _reloadSourceTab(currentProject, 'removed');
-        break;
+
+      if (data.type.startsWith('source_')) {
+        _reloadSourceTab(currentProject, data);
+      } else {
+        _reloadMaterialTab(currentProject, data);
       }
-      case 'material_added': {
-        _reloadMaterialTab(currentProject, 'added');
-        break;
+      return;
+    }
+
+    if (data.type === 'sync_complete') {
+      if ((data.added || 0) + (data.removed || 0) > 0) {
+        _reloadSourceTab(currentProject);
+        _reloadMaterialTab(currentProject);
       }
-      case 'material_removed': {
-        _reloadMaterialTab(currentProject, 'removed');
-        break;
-      }
-      case 'sync_complete': {
-        // 同期完了後にタブを再読み込み
-        if ((data.added || 0) + (data.removed || 0) > 0) {
-          _reloadSourceTab(currentProject, null);
-          _reloadMaterialTab(currentProject, null);
-        }
-        break;
-      }
-      default:
-        break;
     }
   }
 
-  function _reloadSourceTab(project, changeType) {
+  function _isTabActive(tabName) {
+    return document.querySelector(`.nav-item[data-tab="${tabName}"]`)?.classList.contains('active');
+  }
+
+  function _reloadSourceTab(project, changeEvent = null) {
     if (!project) return;
-    // 現在アクティブなタブが source の場合はトーストを表示
-    const isSourceTabActive = document.querySelector('.nav-item[data-tab="source"]')?.classList.contains('active');
     const loadLatestProject = () => ApiClient.get(`/api/projects/${encodeURIComponent(project.id)}`);
 
-    if (changeType === 'added' && isSourceTabActive) {
-      const spinnerToast = showToast('ファイルを検出しました…', 'info', { persistent: true, spinner: true });
-      if (typeof SourceTab !== 'undefined') {
-        // APIから最新プロジェクトを再取得してタブを再描画
-        loadLatestProject().then(updated => {
-          window.appState.setProject(updated);
-          SourceTab.render(updated);
-          dismissToast(spinnerToast);
-          showToast('ソースを追加しました', 'success');
-        }).catch(() => {
-          dismissToast(spinnerToast);
-        });
-      } else {
-        dismissToast(spinnerToast);
-      }
-    } else if (typeof SourceTab !== 'undefined') {
-      loadLatestProject().then(updated => {
-        window.appState.setProject(updated);
-        if (isSourceTabActive) {
-          SourceTab.render(updated);
-          if (changeType === 'removed') showToast('ソースを削除しました', 'info');
+    loadLatestProject()
+      .then((updated) => {
+        if (changeEvent) {
+          const resolvedName =
+            _resolveItemNameFromProject(updated, changeEvent.type, changeEvent.item_id) ||
+            _resolveItemNameFromProject(project, changeEvent.type, changeEvent.item_id) ||
+            changeEvent.item_name ||
+            '';
+          const toast = buildChangeToast(changeEvent.type, resolvedName);
+          _emitToast(toast.message, toast.level);
         }
-      }).catch(() => {});
-    }
+
+        window.appState.setProject(updated);
+        if (typeof SourceTab !== 'undefined' && _isTabActive('source')) {
+          SourceTab.render(updated);
+        }
+      })
+      .catch(() => {
+        _emitToast('ソース変更の反映に失敗しました', 'error');
+      });
   }
 
-  function _reloadMaterialTab(project, changeType) {
+  function _reloadMaterialTab(project, changeEvent = null) {
     if (!project) return;
-    const isMaterialTabActive = document.querySelector('.nav-item[data-tab="material"]')?.classList.contains('active');
     const loadLatestProject = () => ApiClient.get(`/api/projects/${encodeURIComponent(project.id)}`);
 
-    if (changeType === 'added' && isMaterialTabActive) {
-      const spinnerToast = showToast('ファイルを検出しました…', 'info', { persistent: true, spinner: true });
-      if (typeof MaterialTab !== 'undefined') {
-        loadLatestProject().then(updated => {
-          window.appState.setProject(updated);
-          MaterialTab.render(updated);
-          dismissToast(spinnerToast);
-          showToast('マテリアルを追加しました', 'success');
-        }).catch(() => {
-          dismissToast(spinnerToast);
-        });
-      } else {
-        dismissToast(spinnerToast);
-      }
-    } else if (typeof MaterialTab !== 'undefined') {
-      loadLatestProject().then(updated => {
-        window.appState.setProject(updated);
-        if (isMaterialTabActive) {
-          MaterialTab.render(updated);
-          if (changeType === 'removed') showToast('マテリアルを削除しました', 'info');
+    loadLatestProject()
+      .then((updated) => {
+        if (changeEvent) {
+          const resolvedName =
+            _resolveItemNameFromProject(updated, changeEvent.type, changeEvent.item_id) ||
+            _resolveItemNameFromProject(project, changeEvent.type, changeEvent.item_id) ||
+            changeEvent.item_name ||
+            '';
+          const toast = buildChangeToast(changeEvent.type, resolvedName);
+          _emitToast(toast.message, toast.level);
         }
-      }).catch(() => {});
-    }
+
+        window.appState.setProject(updated);
+        if (typeof MaterialTab !== 'undefined' && _isTabActive('material')) {
+          MaterialTab.render(updated);
+        }
+      })
+      .catch(() => {
+        _emitToast('マテリアル変更の反映に失敗しました', 'error');
+      });
   }
 
-  return { connect, disconnect };
+  return {
+    connect,
+    disconnect,
+    __test__: {
+      isNotifiableEventType,
+      shouldHandleProjectEvent,
+      buildChangeToast,
+      buildConnectionToast,
+      shouldNotifyByDedupe,
+      handleEvent: _handleEvent,
+      setProjectId: (projectId) => { _projectId = projectId; },
+      resetState: () => {
+        _recentEventKeys = new Map();
+        _retryCount = 0;
+        _connectionState = 'disconnected';
+      },
+    },
+  };
 })();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    __test__: WatchSSEClient.__test__,
+  };
+}
