@@ -101,6 +101,13 @@ const AppShell = (() => {
 
     // プロジェクト選択に戻る（トップバー内の btn-back）
     document.getElementById('btn-back').addEventListener('click', () => {
+      const currentProject = window.appState.getProject();
+      // SSE 接続を切断
+      if (typeof WatchSSEClient !== 'undefined') WatchSSEClient.disconnect();
+      // バックエンド側の監視も停止
+      if (currentProject?.id) {
+        ApiClient.post(`/api/projects/${encodeURIComponent(currentProject.id)}/stop-watching`).catch(() => {});
+      }
       _resetAllTabs();
       UndoRedoManager.clear();
       _showScreen('project-selector');
@@ -293,6 +300,15 @@ const AppShell = (() => {
     _showScreen('editor-screen');
     switchTab('edit');
     _refreshHistoryPanel();
+    // ファイル監視開始 + SSE 接続
+    if (typeof WatchSSEClient !== 'undefined') {
+      ApiClient.post(`/api/projects/${project.id}/start-watching`).catch(() => {});
+      WatchSSEClient.connect(project.id);
+    }
+    // 起動時ファイル同期（非同期、完了後 SSE 経由でタブが更新される）
+    if (typeof WatchSSEClient !== 'undefined') {
+      ApiClient.post(`/api/projects/${project.id}/sync-files`).catch(() => {});
+    }
   }
 
   function setCurrentScope(scope) {
