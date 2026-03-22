@@ -82,6 +82,8 @@ async def chat_stream(project_id: str, body: ChatRequest) -> StreamingResponse:
             command_args=body.command_args if body.command_args else None,
             explicit_refs=body.explicit_refs if body.explicit_refs else None,
             selected_text=body.selected_text if body.selected_text else None,
+            project_service=svc,
+            project_id=project_id,
         ):
             if chunk.startswith("data:"):
                 try:

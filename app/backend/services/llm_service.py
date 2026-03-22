@@ -367,6 +367,8 @@ class LLMService:
         command_args: list[str] | None = None,
         explicit_refs: list[str] | None = None,
         selected_text: str | None = None,
+        project_service=None,
+        project_id: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """SSE ペイロード文字列を yield する。形式: data: {json}\\n\\n
 
@@ -374,6 +376,9 @@ class LLMService:
         再度 LLM API を呼び出す多段フローを実行する（フロントエンドには透過的）。
         reviewコマンドの場合は Structured Output（非ストリーミング）で呼び出す。
         """
+        from app.backend.services.agent_loop import AgentLoop
+        from app.backend.services.tool_executor import ToolExecutor
+
         client = self._make_client(settings)
 
         messages = self._build_messages(
@@ -448,104 +453,29 @@ class LLMService:
                             "function": {"name": target_tool_name}
                         }
 
-            # 多段ループ: fetch_sources が呼ばれたら全文を注入して再呼び出し
-            max_rounds = 3
-            for round_num in range(max_rounds):
-                stream = await self._chat_with_retry(client, call_kwargs)
+            # ToolExecutor と AgentLoop を構築してエージェントループを実行
+            tool_executor = ToolExecutor(
+                project_service=project_service,
+                project_id=project_id or "",
+                project=project,
+                settings=settings,
+            )
 
-                text_chunks: list[str] = []
-                all_tool_calls: list[dict] = []
+            # コンテキストビルダー（Phase 4: project_service がある場合のみ有効化）
+            context_builder = None
+            if project_service and project_id:
+                context_builder = _SystemContextBuilder(self, project, settings, context_scope)
 
-                async for etype, data in self._iter_stream_events(stream):
-                    if etype == "chunk":
-                        yield self._sse("chunk", data)
-                        text_chunks.append(data["text"])
-                    elif etype == "tool_call":
-                        all_tool_calls.append(data)
+            agent = AgentLoop(
+                client=client,
+                tool_executor=tool_executor,
+                model=settings.model,
+                max_rounds=5,
+                context_builder=context_builder,
+            )
 
-                # fetch_sources / fetch_sections とフロントエンド向けツールコールを分離
-                _BACKEND_TOOLS = {"fetch_sources", "fetch_sections"}
-                source_fetches = [
-                    tc for tc in all_tool_calls if tc["tool"] == "fetch_sources"
-                ]
-                section_fetches = [
-                    tc for tc in all_tool_calls if tc["tool"] == "fetch_sections"
-                ]
-                frontend_tools = [
-                    tc for tc in all_tool_calls if tc["tool"] not in _BACKEND_TOOLS
-                ]
-
-                # フロントエンド向けツールコールは即座に yield
-                for tc in frontend_tools:
-                    yield self._sse(
-                        "tool_call", {"tool": tc["tool"], "args": tc["args"]}
-                    )
-
-                if not source_fetches and not section_fetches and not frontend_tools:
-                    break  # ツールコールなし → 完了
-
-                # assistant メッセージ + tool 結果を追加して再呼び出し
-                assistant_tool_calls = [
-                    {
-                        "id": tc["id"],
-                        "type": "function",
-                        "function": {
-                            "name": tc["tool"],
-                            "arguments": json.dumps(
-                                tc["args"], ensure_ascii=False
-                            ),
-                        },
-                    }
-                    for tc in all_tool_calls
-                ]
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": "".join(text_chunks) or None,
-                        "tool_calls": assistant_tool_calls,
-                    }
-                )
-                for tc in source_fetches:
-                    ids = tc["args"].get("source_ids", [])[:settings.max_fetch_source_count]
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": self._resolve_source_full_texts(
-                                project, ids
-                            ),
-                        }
-                    )
-                for tc in section_fetches:
-                    ids = tc["args"].get("section_ids", [])
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": self._resolve_section_bodies(project, ids),
-                        }
-                    )
-                for tc in frontend_tools:
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": "実行完了",
-                        }
-                    )
-
-                call_kwargs["messages"] = messages
-                if source_fetches or section_fetches:
-                    logger.info(
-                        "バックエンドツール ラウンド %d 完了、再呼び出し (fetch_sources=%d, fetch_sections=%d)",
-                        round_num + 1, len(source_fetches), len(section_fetches)
-                    )
-                else:
-                    # フロントエンドツールのみ: 次ラウンドはサマリ生成専用なのでツール禁止
-                    call_kwargs["tool_choice"] = "none"
-                    logger.info("フロントエンドツール実行完了、サマリ生成のための追加呼び出し (%d / %d)", round_num + 1, max_rounds)
-
-            yield self._sse("done", {})
+            async for event in agent.run(messages, call_kwargs):
+                yield event
 
         except Exception as e:
             logger.error("LLM チャットエラー: %s", e)
@@ -1213,3 +1143,43 @@ class LLMService:
     def _sse(self, event_type: str, payload: dict) -> str:
         data = {"type": event_type, **payload}
         return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+class _SystemContextBuilder:
+    """AgentLoop のコンテキスト再注入用ビルダー（Phase 4）。
+
+    各ラウンドで最新のプロジェクト状態を system メッセージに反映する。
+    """
+
+    def __init__(
+        self,
+        llm_service: LLMService,
+        project: Project,
+        settings: LLMSettings,
+        context_scope: str,
+    ):
+        self._llm_service = llm_service
+        self._settings = settings
+        self._context_scope = context_scope
+
+    def build_system(self, project: Project) -> str:
+        """最新の project 状態を元に system プロンプトを再生成する。"""
+        sorted_sections = _sort_sections_hierarchically(project.sections)
+        enabled_rules = [r for r in project.rules if r.enabled]
+        source_summaries = [
+            {
+                "id": s.id,
+                "name": s.name,
+                "summary": s.summary,
+                "include_in_references": s.bibliography.include_in_references,
+            }
+            for s in project.sources
+            if s.summary
+        ]
+        system_template = self._llm_service._load_template("chat_system.jinja2")
+        return system_template.render(
+            enabled_rules=enabled_rules,
+            sections=sorted_sections,
+            source_summaries=source_summaries,
+            max_fetch_source_count=self._settings.max_fetch_source_count,
+        )
