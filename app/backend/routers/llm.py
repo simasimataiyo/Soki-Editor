@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response, StreamingResponse
 
 from app.backend.models import ChatMessage, ChatRequest, ReviewCommentItem, ReviewRequest, SectionPreview
+from app.backend.routers.deps import not_found as _not_found
 from app.backend.routers.projects import get_service
 from app.backend.routers.settings import get_service as get_settings_service
 from app.backend.services.export_service import ExportService
@@ -18,10 +19,6 @@ from app.backend.services.llm_service import LLMService
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["llm"])
 _llm_service = LLMService()
 _export_service = ExportService()
-
-
-def _not_found(project_id: str):
-    raise HTTPException(status_code=404, detail=f"プロジェクトが見つかりません: {project_id}")
 
 
 # ─── チャット生成 SSE ─────────────────────────────────────────

@@ -12,11 +12,13 @@ from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from app.backend.models import Bibliography, Source, SourceUpdate, SourcesReorder
+from app.backend.routers.deps import get_project_or_404 as _get_project_or_404, not_found as _not_found
 from app.backend.routers.projects import get_service
 from app.backend.routers.settings import get_service as get_settings_service
 from app.backend.services.file_service import FileService
 from app.backend.services.llm_service import LLMService
 from app.backend.services.project_service import ProjectService
+from app.backend.services.source_ingestion_service import get_source_ingestion_service
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["sources"])
 _llm_service = LLMService()
@@ -32,17 +34,6 @@ def _should_generate_extended_summary(src: Source) -> bool:
     file_type = (src.file_type or "").lower()
     suffix = Path(src.file_path).suffix.lower().lstrip(".") if src.file_path else ""
     return file_type not in _SHORT_ONLY_TYPES and suffix not in _SHORT_ONLY_EXTS
-
-
-def _not_found(project_id: str):
-    raise HTTPException(status_code=404, detail=f"プロジェクトが見つかりません: {project_id}")
-
-
-async def _get_project_or_404(svc, project_id: str):
-    try:
-        return await svc.get_project(project_id)
-    except KeyError:
-        _not_found(project_id)
 
 
 def _get_source_or_404(project, source_id: str) -> Source:
@@ -82,7 +73,7 @@ async def create_source(project_id: str) -> Source:
     try:
         return await svc.add_source(project_id)
     except KeyError:
-        _not_found(project_id)
+        _not_found(project_id)  # type: ignore[return-value]
 
 
 @router.put("/sources/{source_id}", response_model=Source)
@@ -106,7 +97,7 @@ async def delete_source(project_id: str, source_id: str) -> dict:
         raise HTTPException(status_code=404, detail=str(e))
 
     # 関連ファイルをディスクから削除（sources/{source_id}_*）
-    sources_dir = ProjectService._project_dir(project) / "sources"
+    sources_dir = ProjectService.get_project_dir(project) / "sources"
     _file_service.delete_related_files(sources_dir, source_id)
     if src and src.file_path:
         _file_service.safe_unlink(Path(src.file_path))
@@ -193,58 +184,11 @@ async def read_source_file_upload(
     project = await _get_project_or_404(svc, project_id)
 
     filename = Path(file.filename or "file").name
-    suffix = Path(filename).suffix.lower()
     content = await file.read()
+    settings = get_settings_service().get()
 
-    # v3: ファイルを sources/{source_id}_{filename} に永続保存
-    project_dir = ProjectService._project_dir(project)
-    sources_dir = project_dir / "sources"
-    sources_dir.mkdir(parents=True, exist_ok=True)
-    # 既存の関連ファイルを削除（拡張子変更時の残骸対策）
-    _file_service.delete_related_files(sources_dir, source_id)
-    saved_path = sources_dir / f"{source_id}_{filename}"
-    saved_path.write_bytes(content)
-
-    # ファイル形式を判定
-    if suffix == ".pdf":
-        file_type = "pdf"
-    elif suffix in _IMAGE_SUFFIXES:
-        file_type = "image"
-    else:
-        file_type = suffix.lstrip(".") or "text"
-
-    # PDFの場合: サムネイルと等倍画像をディスクに保存
-    if file_type == "pdf":
-        # v3: page/ と thumbnails/ は metadata/sources/{id}/ 配下
-        src_meta_dir = ProjectService._source_metadata_dir(project, source_id)
-        page_dir = src_meta_dir / "page"
-        thumb_dir = src_meta_dir / "thumbnails"
-        # 既存のページ画像・サムネイルを削除（差し替え時の残骸対策）
-        _file_service.safe_rmtree(page_dir)
-        _file_service.safe_rmtree(thumb_dir)
-        page_dir.mkdir(parents=True, exist_ok=True)
-        thumb_dir.mkdir(parents=True, exist_ok=True)
-        raw_dpi = get_settings_service().get().pdf_page_dpi
-
-        try:
-            await _file_service.generate_pdf_images(
-                str(saved_path),
-                str(thumb_dir),
-                str(page_dir),
-                raw_dpi,
-            )
-        except Exception:
-            pass  # PDFページ画像の保存に失敗しても続行（テキスト抽出を優先）
-
-    # テキスト抽出
-    try:
-        text = await _file_service.read_file_as_text(str(saved_path))
-    except Exception:
-        text = ""
-
-    return await svc.update_source(
-        project_id, source_id,
-        SourceUpdate(full_text=text, file_path=str(saved_path), file_type=file_type)
+    return await get_source_ingestion_service().add_source_from_upload(
+        project_id, project, source_id, content, filename, settings
     )
 
 
@@ -286,7 +230,7 @@ async def get_pdf_page_list(project_id: str, source_id: str) -> dict:
         raise HTTPException(status_code=400, detail="PDFソースではありません")
 
     # v3: metadata/sources/{id}/ 配下を参照
-    src_meta_dir = ProjectService._source_metadata_dir(project, source_id)
+    src_meta_dir = ProjectService.get_source_metadata_dir(project, source_id)
     thumb_dir = src_meta_dir / "thumbnails"
     page_dir = src_meta_dir / "page"
 
@@ -322,7 +266,7 @@ async def analyze_saved_pdf_pages(
         raise HTTPException(status_code=422, detail="ページ番号が必要です")
 
     # v3: metadata/sources/{id}/page/
-    page_dir = ProjectService._source_metadata_dir(project, source_id) / "page"
+    page_dir = ProjectService.get_source_metadata_dir(project, source_id) / "page"
 
     analyses = []
     for page_num in page_indices:
@@ -366,7 +310,7 @@ async def analyze_saved_pdf_page_stream(
 
     page_num: int = body.get("page", 0)
     # v3: metadata/sources/{id}/page/
-    page_dir = ProjectService._source_metadata_dir(project, source_id) / "page"
+    page_dir = ProjectService.get_source_metadata_dir(project, source_id) / "page"
     raw_path = page_dir / f"page_raw_{page_num}.jpg"
     if not raw_path.exists():
         raise HTTPException(status_code=404, detail="ページ画像が見つかりません")
@@ -423,7 +367,7 @@ async def analyze_all_pages_stream(
         except (TypeError, ValueError):
             max_chars = None
     # v3: metadata/sources/{id}/page/
-    page_dir = ProjectService._source_metadata_dir(project, source_id) / "page"
+    page_dir = ProjectService.get_source_metadata_dir(project, source_id) / "page"
 
     # 全 page_raw_{n}.jpg を昇順で収集
     page_paths: list[tuple[int, Path]] = []

@@ -126,7 +126,7 @@ async def serve_local_file(path: str, project_id: str) -> FileResponse:
     requested = Path(path).resolve()
 
     # v3: project_dir 配下（sources/, materials/, metadata/ を含む）を許可
-    project_dir = ProjectService._project_dir(project).resolve()
+    project_dir = ProjectService.get_project_dir(project).resolve()
     def _is_relative_to(path: Path, base: Path) -> bool:
         try:
             path.relative_to(base)

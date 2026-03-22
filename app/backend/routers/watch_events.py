@@ -116,7 +116,7 @@ async def start_watching(project_id: str, request: Request) -> dict:
 
     watcher = _get_watcher(request)
     from app.backend.services.project_service import ProjectService
-    project_dir = ProjectService._project_dir(project)
+    project_dir = ProjectService.get_project_dir(project)
     await watcher.start_watching(project_id, project_dir)
     return {"status": "watching", "project_id": project_id}
 

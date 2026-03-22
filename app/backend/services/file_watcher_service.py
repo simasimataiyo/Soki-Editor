@@ -20,8 +20,9 @@ from watchdog.observers import Observer
 from app.backend.services.file_service import (
     MATERIAL_EXTENSIONS,
     SOURCE_TEXT_EXTENSIONS,
-    FileService,
 )
+from app.backend.services.material_ingestion_service import get_material_ingestion_service
+from app.backend.services.source_ingestion_service import get_source_ingestion_service
 
 if TYPE_CHECKING:
     from app.backend.models import WatchEvent
@@ -122,7 +123,6 @@ class FileWatcherService:
         # SSE subscriber キュー（fan-out ブロードキャスト）
         self._subscribers: list[asyncio.Queue] = []
         self._sub_lock = threading.Lock()
-        self._file_service = FileService()
 
     def set_project_service(self, svc: ProjectService) -> None:
         self._project_service = svc
@@ -487,21 +487,23 @@ class FileWatcherService:
         await self._put_event("material_removed", project_id, mat.id)
 
     async def _create_source_from_file(self, project_id: str, path: Path) -> object:
-        """FileService を使ってファイルから Source エントリを作成する。"""
-        svc = self._project_service
-        if svc is None:
+        """SourceIngestionService を使ってファイルから Source エントリを作成する。"""
+        if self._project_service is None:
             raise RuntimeError("ProjectService が設定されていません")
-        return await self._file_service.create_source_from_file(
-            project_service=svc, project_id=project_id, path=path
+        from app.backend.routers.settings import get_service as get_settings_service
+        project = await self._project_service.get_project(project_id)
+        settings = get_settings_service().get()
+        return await get_source_ingestion_service().add_source_from_path(
+            project_id, project, path, settings
         )
 
     async def _create_material_from_file(self, project_id: str, path: Path) -> object:
-        """FileService を使ってファイルから Material エントリを作成する。"""
-        svc = self._project_service
-        if svc is None:
+        """MaterialIngestionService を使ってファイルから Material エントリを作成する。"""
+        if self._project_service is None:
             raise RuntimeError("ProjectService が設定されていません")
-        return await self._file_service.create_material_from_file(
-            project_service=svc, project_id=project_id, path=path
+        project = await self._project_service.get_project(project_id)
+        return await get_material_ingestion_service().add_material_from_path(
+            project_id, project, path
         )
 
     async def _put_event(self, event_type: str, project_id: str, item_id: str) -> None:

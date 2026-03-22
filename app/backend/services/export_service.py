@@ -6,6 +6,48 @@ import re
 from app.backend.models import CitationToken, Project, SectionPreview
 
 
+# デフォルトの参考文献フォーマット（種類ごと）
+DEFAULT_CITATION_FORMATS: dict[str, list[CitationToken]] = {
+    "paper": [
+        CitationToken(field="author"),
+        CitationToken(field="year", prefix="(", suffix=")"),
+        CitationToken(field="title", prefix="『", suffix="』"),
+        CitationToken(field="journal"),
+        CitationToken(field="volume"),
+        CitationToken(field="issue", prefix="(", suffix=")"),
+        CitationToken(field="pages", prefix=":"),
+    ],
+    "book": [
+        CitationToken(field="author"),
+        CitationToken(field="year", prefix="(", suffix=")"),
+        CitationToken(field="title", prefix="『", suffix="』"),
+        CitationToken(field="publisher"),
+        CitationToken(field="publication_place"),
+    ],
+    "book_chapter": [
+        CitationToken(field="author"),
+        CitationToken(field="year", prefix="(", suffix=")"),
+        CitationToken(field="title", prefix="『", suffix="』"),
+        CitationToken(field="editor", suffix="(編)"),
+        CitationToken(field="publisher"),
+        CitationToken(field="pages", prefix="pp."),
+    ],
+    "web": [
+        CitationToken(field="author"),
+        CitationToken(field="year", prefix="(", suffix=")"),
+        CitationToken(field="title"),
+        CitationToken(field="site_name"),
+        CitationToken(field="url"),
+        CitationToken(field="accessed_date", prefix="[参照: ", suffix="]"),
+    ],
+    "resource": [
+        CitationToken(field="author"),
+        CitationToken(field="year", prefix="(", suffix=")"),
+        CitationToken(field="title"),
+    ],
+}
+
+
 class ExportService:
     """プロジェクトデータから Markdown を生成し、参照 ID を番号形式に変換する。"""
 
@@ -127,10 +169,10 @@ class ExportService:
     def get_preview_content(self, project: Project) -> list[SectionPreview]:
         """Review タブ表示用: 各セクションの参照解決済みコンテンツを返す。"""
         from app.backend.services.project_service import ProjectService
-        from app.backend.services.llm_service import _sort_sections_hierarchically
+        from app.backend.services.utils import sort_sections_hierarchically
         ref_map, fig_map = self.build_reference_maps(project)
         previews: list[SectionPreview] = []
-        sorted_sections = _sort_sections_hierarchically(project.sections)
+        sorted_sections = sort_sections_hierarchically(project.sections)
         for sec in sorted_sections:
             body = ProjectService.extract_section_body(project.content, sec.id)
             resolved = self.resolve_references(body, ref_map, fig_map)
@@ -171,52 +213,11 @@ class ExportService:
 
         return self._FIG_BLOCK_PATTERN.sub(replace_fig_block, content)
 
-    # デフォルトの参考文献フォーマット（種類ごと）
-    DEFAULT_CITATION_FORMATS: dict[str, list[CitationToken]] = {
-        "paper": [
-            CitationToken(field="author"),
-            CitationToken(field="year", prefix="(", suffix=")"),
-            CitationToken(field="title", prefix="『", suffix="』"),
-            CitationToken(field="journal"),
-            CitationToken(field="volume"),
-            CitationToken(field="issue", prefix="(", suffix=")"),
-            CitationToken(field="pages", prefix=":"),
-        ],
-        "book": [
-            CitationToken(field="author"),
-            CitationToken(field="year", prefix="(", suffix=")"),
-            CitationToken(field="title", prefix="『", suffix="』"),
-            CitationToken(field="publisher"),
-            CitationToken(field="publication_place"),
-        ],
-        "book_chapter": [
-            CitationToken(field="author"),
-            CitationToken(field="year", prefix="(", suffix=")"),
-            CitationToken(field="title", prefix="『", suffix="』"),
-            CitationToken(field="editor", suffix="(編)"),
-            CitationToken(field="publisher"),
-            CitationToken(field="pages", prefix="pp."),
-        ],
-        "web": [
-            CitationToken(field="author"),
-            CitationToken(field="year", prefix="(", suffix=")"),
-            CitationToken(field="title"),
-            CitationToken(field="site_name"),
-            CitationToken(field="url"),
-            CitationToken(field="accessed_date", prefix="[参照: ", suffix="]"),
-        ],
-        "resource": [
-            CitationToken(field="author"),
-            CitationToken(field="year", prefix="(", suffix=")"),
-            CitationToken(field="title"),
-        ],
-    }
-
     def _format_bibliography(self, bib, tokens: list[CitationToken] | None = None) -> str:
         """参考文献エントリをトークンリストに従ってフォーマットする。
         tokens が None の場合はデフォルトフォーマットを使用する。"""
         if tokens is None:
-            tokens = self.DEFAULT_CITATION_FORMATS.get(bib.type, self.DEFAULT_CITATION_FORMATS["resource"])
+            tokens = DEFAULT_CITATION_FORMATS.get(bib.type, DEFAULT_CITATION_FORMATS["resource"])
 
         parts: list[str] = []
         for tok in tokens:
