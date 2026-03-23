@@ -270,6 +270,24 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_sections",
+            "description": "指定したセクションのタイトル・概要・本文を取得する。他のセクションの内容を参照しながら執筆する際に使用してください。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "section_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "取得するセクションのIDリスト",
+                    },
+                },
+                "required": ["section_ids"],
+            },
+        },
+    },
 ]
 
 # Tool Calling 非対応モデルの識別キーワード
@@ -349,6 +367,8 @@ class LLMService:
         command_args: list[str] | None = None,
         explicit_refs: list[str] | None = None,
         selected_text: str | None = None,
+        project_service=None,
+        project_id: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """SSE ペイロード文字列を yield する。形式: data: {json}\\n\\n
 
@@ -356,6 +376,9 @@ class LLMService:
         再度 LLM API を呼び出す多段フローを実行する（フロントエンドには透過的）。
         reviewコマンドの場合は Structured Output（非ストリーミング）で呼び出す。
         """
+        from app.backend.services.agent_loop import AgentLoop
+        from app.backend.services.tool_executor import ToolExecutor
+
         client = self._make_client(settings)
 
         messages = self._build_messages(
@@ -430,90 +453,48 @@ class LLMService:
                             "function": {"name": target_tool_name}
                         }
 
-            # 多段ループ: fetch_sources が呼ばれたら全文を注入して再呼び出し
-            max_rounds = 3
-            for round_num in range(max_rounds):
-                stream = await self._chat_with_retry(client, call_kwargs)
+            # ToolExecutor と AgentLoop を構築してエージェントループを実行
+            tool_executor = ToolExecutor(
+                project_service=project_service,
+                project_id=project_id or "",
+                project=project,
+                settings=settings,
+            )
 
-                text_chunks: list[str] = []
-                all_tool_calls: list[dict] = []
+            # コンテキストビルダー（Phase 4: project_service がある場合のみ有効化）
+            context_builder = None
+            if project_service and project_id:
+                context_builder = _SystemContextBuilder(self, project, settings, context_scope)
 
-                async for etype, data in self._iter_stream_events(stream):
-                    if etype == "chunk":
-                        yield self._sse("chunk", data)
-                        text_chunks.append(data["text"])
-                    elif etype == "tool_call":
-                        all_tool_calls.append(data)
+            # リフレクションプロンプト（Phase 6: draft / rewrite / expand コマンド時のみ有効化）
+            reflection_prompt = None
+            normalized_cmd = self._normalize_command(command, command_args or []) if command else None
+            if normalized_cmd and normalized_cmd["base_command"] in ("draft", "rewrite", "expand"):
+                refl_template = self._load_template("reflection.jinja2")
+                reflection_prompt = refl_template.render(command=normalized_cmd["base_command"])
 
-                # fetch_sources とフロントエンド向けツールコールを分離
-                source_fetches = [
-                    tc for tc in all_tool_calls if tc["tool"] == "fetch_sources"
-                ]
-                frontend_tools = [
-                    tc for tc in all_tool_calls if tc["tool"] != "fetch_sources"
-                ]
+            # 計画→実行ループ（Phase 5: コマンド未指定かつ複合タスク検出時）
+            if not command and self._needs_planning(user_message):
+                async for event in self._plan_and_execute(
+                    client, project, settings, user_message, context_scope,
+                    explicit_refs or [], selected_text,
+                    project_service, project_id or "",
+                    tool_executor, context_builder,
+                ):
+                    yield event
+                return
 
-                # フロントエンド向けツールコールは即座に yield
-                for tc in frontend_tools:
-                    yield self._sse(
-                        "tool_call", {"tool": tc["tool"], "args": tc["args"]}
-                    )
+            agent = AgentLoop(
+                client=client,
+                tool_executor=tool_executor,
+                model=settings.model,
+                max_rounds=5,
+                context_builder=context_builder,
+                reflection_prompt=reflection_prompt,
+            )
 
-                if not source_fetches and not frontend_tools:
-                    break  # ツールコールなし → 完了
-
-                # assistant メッセージ + tool 結果を追加して再呼び出し
-                assistant_tool_calls = [
-                    {
-                        "id": tc["id"],
-                        "type": "function",
-                        "function": {
-                            "name": tc["tool"],
-                            "arguments": json.dumps(
-                                tc["args"], ensure_ascii=False
-                            ),
-                        },
-                    }
-                    for tc in all_tool_calls
-                ]
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": "".join(text_chunks) or None,
-                        "tool_calls": assistant_tool_calls,
-                    }
-                )
-                for tc in source_fetches:
-                    ids = tc["args"].get("source_ids", [])[:settings.max_fetch_source_count]
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": self._resolve_source_full_texts(
-                                project, ids
-                            ),
-                        }
-                    )
-                for tc in frontend_tools:
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": "実行完了",
-                        }
-                    )
-
-                call_kwargs["messages"] = messages
-                if source_fetches:
-                    logger.info(
-                        "fetch_sources ラウンド %d 完了、再呼び出し", round_num + 1
-                    )
-                else:
-                    # フロントエンドツールのみ: 次ラウンドはサマリ生成専用なのでツール禁止
-                    call_kwargs["tool_choice"] = "none"
-                    logger.info("フロントエンドツール実行完了、サマリ生成のための追加呼び出し (%d / %d)", round_num + 1, max_rounds)
-
-            yield self._sse("done", {})
+            async for event in agent.run(messages, call_kwargs):
+                yield event
 
         except Exception as e:
             logger.error("LLM チャットエラー: %s", e)
@@ -1124,6 +1105,26 @@ class LLMService:
                     )
                 tool_calls_acc.clear()
 
+    def _resolve_section_bodies(self, project: Project, section_ids: list[str]) -> str:
+        """セクションIDリストをタイトル・概要・本文テキストに解決する。"""
+        sec_by_id = {s.id: s for s in project.sections}
+        logger.info("fetch_sections: 要求されたIDs=%s", section_ids)
+        texts = []
+        for sid in section_ids:
+            sec = sec_by_id.get(sid)
+            if not sec:
+                logger.warning("fetch_sections: ID=%s が見つかりません", sid)
+                continue
+            body = self._extract_section_body(project.content, sid)
+            texts.append(
+                f"### セクション ID: {sec.id} | {sec.title}\n"
+                f"概要: {sec.summary or '(なし)'}\n\n"
+                f"{body or '(本文なし)'}"
+            )
+        if not texts:
+            return "指定されたセクションは見つかりませんでした。"
+        return "\n\n---\n\n".join(texts)
+
     def _resolve_source_full_texts(self, project: Project, source_ids: list[str]) -> str:
         """ソースIDリストを詳細サマリー（なければ全文冒頭）に解決する。"""
         src_by_id = {s.id: s for s in project.sources}
@@ -1161,3 +1162,234 @@ class LLMService:
     def _sse(self, event_type: str, payload: dict) -> str:
         data = {"type": event_type, **payload}
         return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+    # ------------------------------------------------------------------
+    # Phase 5: 計画→実行の2段階エージェントループ
+    # ------------------------------------------------------------------
+
+    # 複合タスクを示すキーワードパターン（日本語・英語）
+    _PLANNING_PATTERNS = [
+        # 日本語: 順序を示す接続表現
+        "してから", "した後", "した上で", "してそれから",
+        "まず", "次に", "最後に", "はじめに", "そして",
+        # 日本語: 並列タスクを示す表現
+        "〜して〜して", "〜し、", "〜して、",
+        # 英語
+        "first", "then", "after that", "finally", "next",
+        "and then", "followed by",
+    ]
+
+    def _needs_planning(self, user_message: str) -> bool:
+        """複合タスクかどうかをヒューリスティクスで判定する。"""
+        msg_lower = user_message.lower()
+        matched = sum(1 for p in self._PLANNING_PATTERNS if p in msg_lower)
+        # 2つ以上の順序表現が含まれる場合は複合タスクと判定
+        return matched >= 2
+
+    async def _generate_plan(
+        self,
+        client,
+        messages: list[dict],
+        settings,
+    ) -> dict:
+        """LLM に実行計画を JSON 形式で生成させる（非ストリーミング）。"""
+        plan_template = self._load_template("plan_system.jinja2")
+        plan_system = plan_template.render()
+
+        plan_messages = [
+            {"role": "system", "content": plan_system},
+            # ユーザーメッセージのみ渡す（システムコンテキストは除く）
+            messages[-1],
+        ]
+        try:
+            response = await client.chat.completions.create(
+                model=settings.model,
+                messages=plan_messages,
+                response_format={"type": "json_object"},
+            )
+            content = response.choices[0].message.content or "{}"
+            plan = json.loads(content)
+            if "steps" not in plan:
+                plan = {"steps": [{"type": "chat", "description": "通常チャット"}], "reasoning": ""}
+        except (json.JSONDecodeError, Exception) as e:
+            logger.warning("計画生成失敗、通常チャットにフォールバック: %s", e)
+            plan = {"steps": [{"type": "chat", "description": "通常チャット"}], "reasoning": ""}
+        return plan
+
+    async def _plan_and_execute(
+        self,
+        client,
+        project,
+        settings,
+        user_message: str,
+        context_scope: str,
+        explicit_refs: list,
+        selected_text,
+        project_service,
+        project_id: str,
+        tool_executor,
+        context_builder,
+    ):
+        """計画生成 → ステップ順次実行を行う非同期ジェネレータ。"""
+        from app.backend.services.agent_loop import AgentLoop
+
+        messages = self._build_messages(
+            project, settings, user_message, context_scope,
+            explicit_refs=explicit_refs,
+            selected_text=selected_text,
+        )
+
+        # Step 1: 計画生成
+        plan = await self._generate_plan(client, messages, settings)
+        steps = plan.get("steps", [])
+        reasoning = plan.get("reasoning", "")
+
+        # 単一ステップかつチャット型なら通常フローにフォールバック
+        if len(steps) <= 1 and (not steps or steps[0].get("type") == "chat"):
+            call_kwargs: dict = {
+                "model": settings.model,
+                "messages": messages,
+                "stream": True,
+            }
+            if self._supports_tool_calling(settings.model):
+                import copy
+                call_kwargs["tools"] = copy.deepcopy(TOOLS)
+                call_kwargs["tool_choice"] = "auto"
+            agent = AgentLoop(
+                client=client,
+                tool_executor=tool_executor,
+                model=settings.model,
+                max_rounds=5,
+                context_builder=context_builder,
+            )
+            async for event in agent.run(messages, call_kwargs):
+                yield event
+            return
+
+        # 複数ステップの計画を SSE で通知
+        yield self._sse("plan", {"steps": steps, "reasoning": reasoning})
+
+        # Step 2: 各ステップを順次実行
+        for i, step in enumerate(steps):
+            step_type = step.get("type", "chat")
+            step_desc = step.get("description", "")
+            yield self._sse("plan_step_start", {"step": i, "description": step_desc})
+
+            # ステップごとに最新プロジェクト状態でメッセージを再構築
+            if project_service and project_id:
+                try:
+                    project = await project_service.get_project(project_id)
+                    tool_executor._project = project
+                except Exception:
+                    pass  # 失敗しても既存の project で続行
+
+            # ステップ種別に応じてコマンドを設定
+            step_command = None
+            step_command_args: list[str] = []
+            if step_type == "structure":
+                step_command = f"structure-{step.get('mode', 'replace')}"
+            elif step_type in ("draft", "rewrite", "expand"):
+                step_command = step_type
+            elif step_type == "fetch_sources":
+                step_command = None  # チャットモードで fetch_sources ツールを使わせる
+            # review や chat は step_command = None のまま
+
+            step_messages = self._build_messages(
+                project, settings, user_message, context_scope,
+                command=step_command,
+                command_args=step_command_args,
+                explicit_refs=explicit_refs,
+                selected_text=selected_text,
+            )
+
+            import copy
+            step_call_kwargs: dict = {
+                "model": settings.model,
+                "messages": step_messages,
+                "stream": True,
+            }
+
+            if self._supports_tool_calling(settings.model):
+                tools_copy = copy.deepcopy(TOOLS)
+                step_call_kwargs["tools"] = tools_copy
+                step_call_kwargs["tool_choice"] = "auto"
+
+                if step_command and step_command.startswith("structure"):
+                    command_mode = self._normalize_command(step_command, step_command_args)
+                    mode = command_mode["mode"]
+                    if mode == "replace":
+                        target = "set_document_structure"
+                        step_call_kwargs["tools"] = [t for t in tools_copy if t["function"]["name"] == target]
+                        step_call_kwargs["tool_choice"] = {"type": "function", "function": {"name": target}}
+                    elif mode == "add":
+                        target = "create_sections_under_parent"
+                        step_call_kwargs["tools"] = [t for t in tools_copy if t["function"]["name"] == target]
+                        step_call_kwargs["tool_choice"] = {"type": "function", "function": {"name": target}}
+
+            # リフレクション（draft / rewrite / expand ステップのみ）
+            step_reflection = None
+            if step_type in ("draft", "rewrite", "expand"):
+                refl_template = self._load_template("reflection.jinja2")
+                step_reflection = refl_template.render(command=step_type)
+
+            step_agent = AgentLoop(
+                client=client,
+                tool_executor=tool_executor,
+                model=settings.model,
+                max_rounds=5,
+                context_builder=context_builder,
+                reflection_prompt=step_reflection,
+            )
+            async for event in step_agent.run(step_messages, step_call_kwargs):
+                # done イベントはステップ完了後に plan_step_done に変換するためスキップ
+                try:
+                    payload = json.loads(event.removeprefix("data: ").strip())
+                    if payload.get("type") == "done":
+                        continue
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+                yield event
+
+            yield self._sse("plan_step_done", {"step": i})
+
+        yield self._sse("done", {})
+
+
+class _SystemContextBuilder:
+    """AgentLoop のコンテキスト再注入用ビルダー（Phase 4）。
+
+    各ラウンドで最新のプロジェクト状態を system メッセージに反映する。
+    """
+
+    def __init__(
+        self,
+        llm_service: LLMService,
+        project: Project,
+        settings: LLMSettings,
+        context_scope: str,
+    ):
+        self._llm_service = llm_service
+        self._settings = settings
+        self._context_scope = context_scope
+
+    def build_system(self, project: Project) -> str:
+        """最新の project 状態を元に system プロンプトを再生成する。"""
+        sorted_sections = _sort_sections_hierarchically(project.sections)
+        enabled_rules = [r for r in project.rules if r.enabled]
+        source_summaries = [
+            {
+                "id": s.id,
+                "name": s.name,
+                "summary": s.summary,
+                "include_in_references": s.bibliography.include_in_references,
+            }
+            for s in project.sources
+            if s.summary
+        ]
+        system_template = self._llm_service._load_template("chat_system.jinja2")
+        return system_template.render(
+            enabled_rules=enabled_rules,
+            sections=sorted_sections,
+            source_summaries=source_summaries,
+            max_fetch_source_count=self._settings.max_fetch_source_count,
+        )

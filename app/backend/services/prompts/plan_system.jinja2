@@ -1,0 +1,33 @@
+Analyze the user's request and return an execution plan in JSON format.
+
+## Available Step Types
+
+- `fetch_sources`: Retrieve full text of references
+- `structure`: Create or modify document structure (outline)
+- `draft`: Write body text for sections
+- `rewrite`: Rewrite existing body text
+- `review`: Perform a review of the document
+
+## Output Format
+
+Return a JSON object with the following structure:
+```json
+{
+  "steps": [
+    {"type": "fetch_sources", "description": "Retrieve full text of relevant sources"},
+    {"type": "structure", "mode": "replace", "description": "Create a 3-chapter outline"},
+    {"type": "draft", "mode": "all", "description": "Write draft for all sections"}
+  ],
+  "reasoning": "The user has requested a new paper draft, so..."
+}
+```
+
+## Rules
+
+- For simple tasks (completable in 1 step), use only 1 step
+- Order steps logically: fetch first, then structure, then draft/rewrite
+- Set `mode` to `replace` for full structure regeneration, `add` for adding to existing structure
+- Set `mode` to `all` when drafting all sections, `target` when drafting a specific section
+- `reasoning` should explain why this plan was chosen in the language of the user's message
+- Respond in the same language as the user's message
+- Return only valid JSON, no additional text
