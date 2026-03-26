@@ -171,7 +171,7 @@ async def index(request: Request, launch_token: str):
     template_path = _TEMPLATE_DIR / "index.html"
     if template_path.exists():
         response = templates.TemplateResponse(
-            "index.html", {"request": request, "app_token": _app_security.APP_TOKEN}
+            request, "index.html", {"app_token": _app_security.APP_TOKEN}
         )
         response.headers["Content-Security-Policy"] = _CSP
         return response
