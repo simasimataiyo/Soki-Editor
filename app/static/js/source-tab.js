@@ -13,6 +13,7 @@ export const SourceTab = (() => {
   let _project = null;
   let _activeId = null;
   let _tiptapEditor = null;
+  let _shouldAutoSelect = true;
 
   const DEFAULT_SOURCE_NAME = '新しいソース';
   const _APP_TOKEN = ApiClient.getAppToken();
@@ -270,17 +271,22 @@ export const SourceTab = (() => {
   function render(project) {
     _flushPendingSave();
     _project = project;
-    
-    
-    if(!_activeId && _project.sources.length ){
+
+    if (_activeId && !_project.sources.find(s => s.id === _activeId)) {
+      _activeId = null;
+      appState.setState({ activeSourceId: null });
+      _shouldAutoSelect = false;
+    }
+
+    if (!_activeId && _project.sources.length && _shouldAutoSelect) {
       _activeId = _project.sources[0]["id"];
     }
 
-    if (_activeId){
+    if (_activeId) {
       _renderDetail(_activeId);
-    }else document.getElementById('source-detail').innerHTML =
+    } else document.getElementById('source-detail').innerHTML =
       '<p class="placeholder-text">ソースを選択してください</p>';
-      
+
     _renderList();
   }
 
@@ -367,6 +373,7 @@ export const SourceTab = (() => {
       if (e.target.closest('.source-drag-handle')) return;
       _flushPendingSave();
       _activeId = src.id;
+      _shouldAutoSelect = true;
       appState.setState({ activeSourceId: src.id });
       _renderList();
       _renderDetail(src.id);
