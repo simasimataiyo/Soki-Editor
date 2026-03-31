@@ -321,6 +321,15 @@ async def analyze_saved_pdf_page_stream(
         "テキスト、図表、数式などを含む場合はできる限りmarkdown構文で表現してください。"
     )
 
+    max_chars_raw = body.get("max_chars_per_page")
+    max_chars: int | None = None
+    if max_chars_raw is not None:
+        try:
+            parsed = int(max_chars_raw)
+            max_chars = parsed if parsed > 0 else None
+        except (TypeError, ValueError):
+            max_chars = None
+
     async def event_stream():
         try:
             async for chunk in _llm_service.analyze_image_bytes_with_vision_stream(

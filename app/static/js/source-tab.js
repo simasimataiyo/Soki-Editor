@@ -699,7 +699,6 @@ export const SourceTab = (() => {
 
             <div class="source-actions">
               <button class="btn btn-secondary btn-sm" id="btn-analyze-image" ${fullTextProc ? 'disabled' : ''}>画像解説を追加</button>
-              <button class="btn btn-secondary btn-sm" id="btn-analyze-all-pages" ${fullTextProc || src.file_type !== 'pdf' ? 'disabled' : ''}>全ページ一括解析</button>
               <button class="btn btn-secondary btn-sm" id="btn-read-file" ${fullTextProc ? 'disabled' : ''}>ファイル読み込み</button>
               <button class="btn btn-primary btn-sm" id="btn-save-source" ${fullTextProc ? 'disabled' : ''}>保存</button>
             </div>
@@ -804,7 +803,6 @@ export const SourceTab = (() => {
     document.getElementById('btn-delete-source').addEventListener('click', () => _deleteSource(src));
     document.getElementById('btn-read-file').addEventListener('click', () => _readFile(src));
     document.getElementById('btn-analyze-image').addEventListener('click', () => _analyzeImage(src));
-    document.getElementById('btn-analyze-all-pages').addEventListener('click', () => _showBatchPdfAnalysisModal(src));
     document.getElementById('btn-save-source').addEventListener('click', async () => {
       _cancelPendingSave();
       await _saveSource(src.id);
@@ -1226,6 +1224,7 @@ export const SourceTab = (() => {
     document.body.appendChild(overlay);
 
     let abortController = null;
+    let _maxCharsPerPage = null;
 
     /**
      * モーダルを閉じ、進行中のストリーミングをキャンセルする
@@ -1247,6 +1246,7 @@ export const SourceTab = (() => {
           <span class="pdf-page-label">${escHtml(t.label)}</span>
         </label>
       `).join('');
+      const initialMaxChars = _maxCharsPerPage ? String(_maxCharsPerPage) : '';
 
       modal.innerHTML = `
         <div class="pdf-modal-header">
@@ -1254,6 +1254,10 @@ export const SourceTab = (() => {
           <button class="pdf-modal-close" title="閉じる">×</button>
         </div>
         <p style="color:var(--color-text-muted);font-size:13px;margin-bottom:8px">解析するページを選択してください（複数選択可）</p>
+        <div class="form-group" style="margin-bottom:12px">
+          <label>1ページあたりの最大文字数（省略可）</label>
+          <input type="number" class="form-control" id="pdf-max-chars-input" placeholder="例: 2000" min="100" max="10000" step="100" value="${escHtml(initialMaxChars)}" />
+        </div>
         <div style="margin-bottom:10px;display:flex;gap:8px">
           <button class="btn btn-secondary btn-sm" id="pdf-select-all">全選択</button>
           <button class="btn btn-secondary btn-sm" id="pdf-deselect-all">全解除</button>
@@ -1265,13 +1269,25 @@ export const SourceTab = (() => {
         </div>
       `;
 
+      function _parseMaxCharsInput() {
+        const input = modal.querySelector('#pdf-max-chars-input');
+        if (!input) return null;
+        const trimmed = input.value.trim();
+        if (!trimmed) return null;
+        const parsed = parseInt(trimmed, 10);
+        if (Number.isNaN(parsed) || parsed <= 0) {
+          showToast('1ページあたりの最大文字数には正の整数を入力してください', 'error');
+          return undefined;
+        }
+        return parsed;
+      }
+
       function _updateSelectedCount() {
         const checked = modal.querySelectorAll('input[name="pdf-page-check"]:checked');
         modal.querySelector('#pdf-selected-count').textContent = `${checked.length} ページ選択中`;
       }
 
       modal.querySelectorAll('.pdf-page-thumb input[type="checkbox"]').forEach(cb => {
-        // preselected pages の復元
         if (preselectedPages && preselectedPages.includes(parseInt(cb.value))) {
           cb.checked = true;
           cb.closest('.pdf-page-thumb').classList.add('selected');
@@ -1306,10 +1322,12 @@ export const SourceTab = (() => {
         const checked = [...modal.querySelectorAll('input[name="pdf-page-check"]:checked')];
         if (checked.length === 0) { showToast('ページを選択してください', 'error'); return; }
         const pages = checked.map(cb => parseInt(cb.value)).sort((a, b) => a - b);
+        const parsed = _parseMaxCharsInput();
+        if (parsed === undefined) return;
+        _maxCharsPerPage = parsed;
         _startMultiAnalysis(pages);
       });
     }
-
     // ── 解析実行（ストリーミング）────────────────────────────
     /**
      * 指定ページのVision解析をSSEストリーミングで実行し、結果をリアルタイム表示する
@@ -1329,21 +1347,36 @@ export const SourceTab = (() => {
           <div class="pdf-analysis-spinner"></div>
           <span>LLMが解析しています...</span>
         </div>
+        <div class="modal-actions pdf-stop-actions">
+          <button class="btn btn-secondary btn-sm" id="pdf-btn-stop">解析完了として扱う</button>
+        </div>
         <div class="pdf-analysis-result" id="pdf-analysis-text"></div>
       `;
 
       modal.querySelector('.pdf-modal-close').addEventListener('click', _closeModal);
+      const stopBtn = modal.querySelector('#pdf-btn-stop');
 
       const resultEl = modal.querySelector('#pdf-analysis-text');
       let fullText = '';
+      let stopCompletionRequested = false;
+      if (stopBtn) {
+        stopBtn.addEventListener('click', () => {
+          stopCompletionRequested = true;
+          if (abortController) abortController.abort();
+        });
+      }
 
       try {
         let streamUrl, streamOptions;
+        const maxChars = _maxCharsPerPage;
 
         if (pdfFile) {
           const formData = new FormData();
           formData.append('file', pdfFile);
           formData.append('page', String(pageNum));
+          if (maxChars !== null) {
+            formData.append('max_chars_per_page', String(maxChars));
+          }
           streamUrl = `/api/projects/${project.id}/sources/${src.id}/analyze-pdf-page-stream`;
           streamOptions = { method: 'POST', body: formData, signal: abortController.signal };
         } else {
@@ -1351,7 +1384,11 @@ export const SourceTab = (() => {
           streamOptions = {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ page: pageNum }),
+            body: JSON.stringify(
+              maxChars !== null
+                ? { page: pageNum, max_chars_per_page: maxChars }
+                : { page: pageNum }
+            ),
             signal: abortController.signal,
           };
         }
@@ -1399,7 +1436,12 @@ export const SourceTab = (() => {
         _showResult(pageNum, fullText);
 
       } catch (e) {
-        if (e.name === 'AbortError') return;
+        if (e.name === 'AbortError') {
+          if (stopCompletionRequested) {
+            _showResult(pageNum, fullText);
+          }
+          return;
+        }
         const errEl = document.createElement('p');
         errEl.style.cssText = 'color:var(--color-danger);margin-top:8px;font-size:13px';
         errEl.textContent = `エラー: ${e.message}`;
@@ -1415,25 +1457,40 @@ export const SourceTab = (() => {
      * @param {number[]} pages - 解析するページの0始まりインデックス配列（昇順）
      */
     async function _startMultiAnalysis(pages) {
+      if (pages.length === 0) return;
       if (abortController) abortController.abort();
       abortController = new AbortController();
 
+      const selection = [...pages];
       const pageTexts = {};
       let currentIdx = 0;
+      let stopRequested = false;
+      const processedPages = [];
+      const maxChars = _maxCharsPerPage;
 
       function _renderProgress(pageNum) {
         modal.innerHTML = `
           <div class="pdf-modal-header">
-            <h3>解析中... (${currentIdx + 1} / ${pages.length} ページ)</h3>
+            <h3>解析中... (${currentIdx + 1} / ${selection.length} ページ)</h3>
             <button class="pdf-modal-close" title="閉じる">×</button>
           </div>
           <div class="pdf-analysis-progress">
             <div class="pdf-analysis-spinner"></div>
             <span>p.${pageNum + 1} を解析しています...</span>
           </div>
+          <div class="modal-actions pdf-stop-actions">
+            <button class="btn btn-secondary btn-sm" id="pdf-btn-stop">解析完了として扱う</button>
+          </div>
           <div class="pdf-analysis-result" id="pdf-analysis-text"></div>
         `;
         modal.querySelector('.pdf-modal-close').addEventListener('click', _closeModal);
+        const stopBtn = modal.querySelector('#pdf-btn-stop');
+        if (stopBtn) {
+          stopBtn.addEventListener('click', () => {
+            stopRequested = true;
+            if (abortController) abortController.abort();
+          });
+        }
       }
 
       async function _analyzeOnePage(pageNum) {
@@ -1446,14 +1503,21 @@ export const SourceTab = (() => {
           const formData = new FormData();
           formData.append('file', pdfFile);
           formData.append('page', String(pageNum));
+          if (maxChars !== null) {
+            formData.append('max_chars_per_page', String(maxChars));
+          }
           streamUrl = `/api/projects/${project.id}/sources/${src.id}/analyze-pdf-page-stream`;
           streamOptions = { method: 'POST', body: formData, signal: abortController.signal };
         } else {
+          const payload = { page: pageNum };
+          if (maxChars !== null) {
+            payload.max_chars_per_page = maxChars;
+          }
           streamUrl = `/api/projects/${project.id}/sources/${src.id}/analyze-saved-pdf-page-stream`;
           streamOptions = {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ page: pageNum }),
+            body: JSON.stringify(payload),
             signal: abortController.signal,
           };
         }
@@ -1472,7 +1536,8 @@ export const SourceTab = (() => {
           const { done, value } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
+          const lines = buffer.split('
+');
           buffer = lines.pop();
           for (const line of lines) {
             if (!line.startsWith('data: ')) continue;
@@ -1490,26 +1555,34 @@ export const SourceTab = (() => {
               if (!(e instanceof SyntaxError)) throw e;
             }
           }
+          if (stopRequested) break;
         }
         return fullText;
       }
 
       const errors = {};
       for (let i = 0; i < pages.length; i++) {
+        if (stopRequested) break;
         currentIdx = i;
         const pageNum = pages[i];
+        processedPages.push(pageNum);
         try {
           pageTexts[pageNum] = await _analyzeOnePage(pageNum);
+          if (stopRequested) break;
         } catch (e) {
-          if (e.name === 'AbortError') return;
+          if (e.name === 'AbortError') break;
           errors[pageNum] = e.message;
           pageTexts[pageNum] = '';
         }
       }
 
-      _showMultiResult(pages, pageTexts, errors);
-    }
+      if (processedPages.length === 0) {
+        _closeModal();
+        return;
+      }
 
+      _showMultiResult(processedPages, selection, pageTexts, errors);
+    }
     // ── 複数ページ解析結果確認画面 ───────────────────────────
     /**
      * 複数ページ解析完了後の結果確認画面を表示する
@@ -1517,16 +1590,16 @@ export const SourceTab = (() => {
      * @param {Object} pageTexts - {page: text} の結果マップ
      * @param {Object} errors - {page: errorMessage} のエラーマップ
      */
-    function _showMultiResult(pages, pageTexts, errors) {
+    function _showMultiResult(displayPages, retryPages, pageTexts, errors) {
       const hasError = Object.keys(errors).length > 0;
-      const combined = pages.map(p => {
+      const combined = displayPages.map(p => {
         if (errors[p]) return `--- ${p + 1}ページ目 ---\n[エラー: ${errors[p]}]`;
         return `--- ${p + 1}ページ目 ---\n${pageTexts[p] || ''}`;
       }).join('\n\n');
 
       modal.innerHTML = `
         <div class="pdf-modal-header">
-          <h3>${hasError ? '解析完了（一部エラー）' : '解析完了'} — ${pages.length} ページ</h3>
+          <h3>${hasError ? '解析完了（一部エラー）' : '解析完了'} — ${displayPages.length} ページ</h3>
           <button class="pdf-modal-close" title="閉じる">×</button>
         </div>
         <div class="pdf-analysis-result" style="height:400px;overflow-y:auto;white-space:pre-wrap;font-size:13px;padding:12px;background:var(--color-bg-secondary);border-radius:6px;margin-bottom:12px">${escHtml(combined)}</div>
@@ -1538,8 +1611,8 @@ export const SourceTab = (() => {
       `;
 
       modal.querySelector('.pdf-modal-close').addEventListener('click', _closeModal);
-      modal.querySelector('#pdf-btn-back').addEventListener('click', () => _showPageSelect(pages));
-      modal.querySelector('#pdf-btn-retry').addEventListener('click', () => _startMultiAnalysis(pages));
+      modal.querySelector('#pdf-btn-back').addEventListener('click', () => _showPageSelect(retryPages));
+      modal.querySelector('#pdf-btn-retry').addEventListener('click', () => _startMultiAnalysis(retryPages));
 
       if (combined.trim()) {
         modal.querySelector('#pdf-btn-add').addEventListener('click', async () => {
@@ -2218,4 +2291,3 @@ export const SourceTab = (() => {
 
   return { render, bindEvents, exportCsv, importCsv, reset };
 })();
-
