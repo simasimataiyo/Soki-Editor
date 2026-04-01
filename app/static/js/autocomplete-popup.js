@@ -14,6 +14,11 @@ export const AutocompletePopup = (() => {
   let _selectedIndex = 0;
   let _triggerPos = -1;
   let _mode = null; // 'ref' | 'command'
+  const SCROLL_DELAY_MS = 3000;
+  const SCROLL_STEP_PX = 2;
+  const SCROLL_INTERVAL_MS = 30;
+  const _labelScrollTimeouts = new Map();
+  const _labelScrollIntervals = new Map();
 
   /**
    * 複数のテキストエリアにバインドする（共有ポップアップ）
@@ -182,18 +187,33 @@ export const AutocompletePopup = (() => {
     if (_filteredItems.length === 0) { _hide(); return; }
     if (!_popup) _createPopup();
 
+    _clearLabelScrolls();
     _renderItems();
+    _attachLabelScrolls();
 
     // テキストエリアの上に配置
     const rect = _textarea.getBoundingClientRect();
     _popup.style.left = rect.left + 'px';
-    _popup.style.bottom = (window.innerHeight - rect.top + 4) + 'px';
     _popup.style.width = Math.max(280, rect.width * 0.6) + 'px';
+    const spaceAbove = rect.top;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const showBelow = spaceBelow > spaceAbove || spaceAbove < 160;
+    if (showBelow) {
+      _popup.style.top = rect.bottom + 4 + 'px';
+      _popup.style.bottom = 'auto';
+    } else {
+      _popup.style.bottom = (window.innerHeight - rect.top + 4) + 'px';
+      _popup.style.top = 'auto';
+    }
     _popup.style.display = 'block';
   }
 
   function _hide() {
-    if (_popup) _popup.style.display = 'none';
+    if (_popup) {
+      _popup.style.display = 'none';
+      _popup.querySelectorAll('.ac-label').forEach(label => { label.scrollLeft = 0; });
+    }
+    _clearLabelScrolls();
     _triggerPos = -1;
     _mode = null;
   }
@@ -203,6 +223,40 @@ export const AutocompletePopup = (() => {
     _popup.className = 'autocomplete-popup';
     _popup.style.display = 'none';
     document.body.appendChild(_popup);
+  }
+
+  function _clearLabelScrolls() {
+    _labelScrollTimeouts.forEach(id => clearTimeout(id));
+    _labelScrollIntervals.forEach(id => clearInterval(id));
+    _labelScrollTimeouts.clear();
+    _labelScrollIntervals.clear();
+  }
+
+  function _scheduleLabelScroll(label) {
+    const maxScroll = label.scrollWidth - label.clientWidth;
+    if (maxScroll <= 0) return;
+    const timerId = setTimeout(() => {
+      const intervalId = setInterval(() => {
+        const next = Math.min(label.scrollLeft + SCROLL_STEP_PX, maxScroll);
+        label.scrollLeft = next;
+        if (next >= maxScroll) {
+          clearInterval(intervalId);
+          _labelScrollIntervals.delete(label);
+          label.scrollLeft = 0;
+          _labelScrollTimeouts.set(label, setTimeout(() => _scheduleLabelScroll(label), SCROLL_DELAY_MS));
+        }
+      }, SCROLL_INTERVAL_MS);
+      _labelScrollIntervals.set(label, intervalId);
+    }, SCROLL_DELAY_MS);
+    _labelScrollTimeouts.set(label, timerId);
+  }
+
+  function _attachLabelScrolls() {
+    if (!_popup) return;
+    _popup.querySelectorAll('.ac-label').forEach(label => {
+      label.scrollLeft = 0;
+      _scheduleLabelScroll(label);
+    });
   }
 
   function _renderItems() {

@@ -117,6 +117,16 @@ export const WatchSSEClient = (() => {
     return null;
   }
 
+  function _showSyncToast(event) {
+    if (!event) return;
+    const parts = [];
+    if (event.added) parts.push(`${event.added}件のファイルが追加されました`);
+    if (event.removed) parts.push(`${event.removed}件のファイルが削除されました`);
+    if (!parts.length) return;
+    const message = `ファイル同期完了：${parts.join('、')}`;
+    _emitToast(message, 'info');
+  }
+
   function _notifyConnectionState(nextState) {
     if (_connectionState === nextState) return;
     _connectionState = nextState;
@@ -217,6 +227,7 @@ export const WatchSSEClient = (() => {
 
     if (data.type === 'sync_complete') {
       if ((data.added || 0) + (data.removed || 0) > 0) {
+        _showSyncToast(data);
         _reloadSourceTab(currentProject);
         _reloadMaterialTab(currentProject);
       }
@@ -304,4 +315,3 @@ if (typeof module !== 'undefined' && module.exports) {
     __test__: WatchSSEClient.__test__,
   };
 }
-

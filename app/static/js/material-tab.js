@@ -74,6 +74,10 @@ export const MaterialTab = (() => {
   function render(project) {
     _flushPendingSave();
     _project = project;
+    if (_activeId && !_project.materials.find(m => m.id === _activeId)) {
+      _activeId = null;
+      appState.setState({ activeMaterialId: null });
+    }
     _renderList();
     if (_activeId) _renderDetail(_activeId);
     else document.getElementById('material-detail').innerHTML =
@@ -662,4 +666,3 @@ export const MaterialTab = (() => {
 
   return { render, bindEvents, reset };
 })();
-
