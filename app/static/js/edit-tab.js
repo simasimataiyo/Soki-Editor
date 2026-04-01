@@ -567,6 +567,25 @@ export const EditTab = (() => {
     _updateDocViewEditMode();
   }
 
+  function _extractSectionIdFromElement(element) {
+    let el = element;
+    while (el && el.id !== 'tiptap-editor-mount') {
+      if (el.dataset && el.dataset.sectionId) {
+        return el.dataset.sectionId;
+      }
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  function _syncSectionSelection(sectionId) {
+    if (!sectionId) return;
+    if (sectionId === appState.getSelectedSectionId()) return;
+    appState.setSelectedSectionId(sectionId);
+    _onScopeChange(sectionId);
+    _updateDocViewEditMode();
+  }
+
 
   // ─── セクション操作 ─────────────────────────────────────
 
@@ -1390,6 +1409,18 @@ export const EditTab = (() => {
       _bindTiptapSelectionUpdate();
     } else {
       document.addEventListener('tiptap-ready', _bindTiptapSelectionUpdate, { once: true });
+    }
+
+    const docView = document.getElementById('doc-view');
+    function _handleDocViewFocus(event) {
+      const sectionId = _extractSectionIdFromElement(event.target);
+      if (sectionId) {
+        _syncSectionSelection(sectionId);
+      }
+    }
+    if (docView) {
+      docView.addEventListener('click', _handleDocViewFocus);
+      docView.addEventListener('focusin', _handleDocViewFocus);
     }
 
     // ESCキー: 本文編集中に押下で全セクション選択解除
